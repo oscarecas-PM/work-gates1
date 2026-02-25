@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gate Tracker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 1.5rem; background: #f5f5f5; color: #222; }
+  h1 { margin-bottom: 0.5rem; }
+  .description { color: #555; margin-bottom: 1.5rem; }
+
+  .file-inputs { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; min-width: 280px; }
+  .file-group h3 { margin-bottom: 0.5rem; }
+  .file-group p { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+  .status { font-size: 0.85rem; margin-top: 0.5rem; }
+  .status.loaded { color: green; }
+  .status.error { color: red; }
+
+  #run-btn { margin: 1rem 0; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #2563eb; color: #fff; border: none; border-radius: 4px; }
+  #run-btn:disabled { background: #aaa; cursor: default; }
+  #run-btn:hover:not(:disabled) { background: #1d4ed8; }
+  #summary { margin-bottom: 1rem; font-size: 0.9rem; color: #333; }
+
+  /* Part No. sections */
+  .part-section { margin-top: 2rem; }
+  .part-header { background: #1e3a5f; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 1.1rem; font-weight: bold; }
+
+  /* Order cards — compact single-line feel */
+  .order-card { background: #fff; border: 1px solid #ccc; border-top: none; }
+  .order-card:last-child { border-radius: 0 0 4px 4px; }
+  .order-row { display: flex; align-items: stretch; min-height: 48px; }
+
+  /* Left: order info */
+  .order-info { flex: 0 0 auto; min-width: 340px; display: flex; align-items: center; gap: 1.2rem; padding: 6px 14px; background: #e2e8f0; border-right: 1px solid #ccc; flex-wrap: wrap; }
+  .order-info .field { white-space: nowrap; }
+  .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
+  .order-info .value { color: #111; font-size: 0.85rem; }
+  .hold-flag { color: #b91c1c; font-weight: bold; }
+
+  /* Right: gate bar */
+  .gate-bar { display: flex; flex: 1; overflow-x: auto; align-items: stretch; }
+  .gate-col { flex: 1; min-width: 70px; text-align: center; border-right: 1px solid #eee; display: flex; flex-direction: column; }
+  .gate-col:last-child { border-right: none; }
+  .gate-name { background: #334155; color: #fff; font-size: 0.7rem; font-weight: bold; padding: 3px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 22px; display: flex; align-items: center; justify-content: center; }
+  .gate-name.blank { background: #94a3b8; }
+  .gate-opers { padding: 4px 3px; font-size: 0.78rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; align-items: center; flex: 1; }
+
+  /* Oper chips */
+  .oper-chip { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; cursor: default; }
+  .oper-chip.active { background: #16a34a; color: #fff; font-weight: bold; }
+  .oper-chip.inactive { background: #e5e7eb; color: #aaa; }
+
+  /* Tooltip */
+  .oper-chip[title] { cursor: pointer; }
+
+  .no-data { padding: 12px 14px; color: #666; font-size: 0.85rem; background: #fff; border: 1px solid #ccc; border-top: none; }
+</style>
+</head>
+<body>
+
+<h1>Gate Tracker</h1>
+<p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
+
+<div class="file-inputs">
+  <div class="file-group">
+    <h3>1. Gate Decoder Ring</h3>
+    <p>Columns: Part No., Gate Number, Gate Name, Oper No.</p>
+    <input type="file" id="decoder-input" accept=".csv">
+    <div id="decoder-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>2. Daily Upload</h3>
+    <p>Columns: Order No., Oper No., Oper Title, Oper Status, Part No., Program, Serial No, Order Hold Status, ...</p>
+    <input type="file" id="daily-input" accept=".csv">
+    <div id="daily-status" class="status"></div>
+  </div>
+</div>
+
+<button id="run-btn" disabled onclick="process()">Process</button>
+<div id="summary"></div>
+<div id="output"></div>
+
+<script>
+let decoderData = null;
+let dailyData = null;
+
+document.getElementById('decoder-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    decoderData = rows;
+    showStatus('decoder-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'decoder-status');
+});
+
+document.getElementById('daily-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    dailyData = rows;
+    showStatus('daily-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'daily-status');
+});
+
+function checkReady() {
+  document.getElementById('run-btn').disabled = !(decoderData && dailyData);
+}
+
+function showStatus(id, msg, isError) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'loaded');
+}
+
+function loadCSV(file, callback, statusId) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const rows = parseCSV(ev.target.result);
+      if (rows.length < 2) throw new Error('File has no data rows');
+      callback(rows);
+    } catch (err) {
+      showStatus(statusId, 'Error: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function parseCSV(text) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  let row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { row.push(current.trim()); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(current.trim()); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(current.trim());
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function colIndex(headers, name) {
+  const n = name.toLowerCase().trim();
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase().trim() === n) return i;
+  }
+  return -1;
+}
+
+function process() {
+  const output = document.getElementById('output');
+  const summary = document.getElementById('summary');
+  output.innerHTML = '';
+  summary.textContent = '';
+
+  // ---- Decoder Ring ----
+  const dHeaders = decoderData[0];
+  const dPartIdx = colIndex(dHeaders, 'Part No.');
+  const dGateNumIdx = colIndex(dHeaders, 'Gate Number');
+  const dGateNameIdx = colIndex(dHeaders, 'Gate Name');
+  const dOperIdx = colIndex(dHeaders, 'Oper No.');
+
+  if (dPartIdx < 0 || dGateNumIdx < 0 || dGateNameIdx < 0 || dOperIdx < 0) {
+    summary.textContent = 'Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)';
+    summary.style.color = 'red';
+    return;
+  }
+
+  // Build per-part gate structure and lookup
+  const gateLookup = {};   // "partNo|||operNo" -> {gateNumber, gateName}
+  const gatesByPart = {};  // partNo -> { gateKey -> {gateNumber, gateName, opers:[]} }
+  const decoderParts = new Set();
+
+  for (let i = 1; i < decoderData.length; i++) {
+    const r = decoderData[i];
+    const partNo = (r[dPartIdx] || '').trim();
+    const gateNum = (r[dGateNumIdx] || '').trim();
+    const gateName = (r[dGateNameIdx] || '').trim();
+    const operNo = (r[dOperIdx] || '').trim();
+    if (!partNo) continue;
+    decoderParts.add(partNo);
+    gateLookup[partNo + '|||' + operNo] = { gateNumber: gateNum, gateName: gateName };
+
+    if (!gatesByPart[partNo]) gatesByPart[partNo] = {};
+    const gateKey = gateNum + '|||' + gateName;
+    if (!gatesByPart[partNo][gateKey]) {
+      gatesByPart[partNo][gateKey] = { gateNumber: gateNum, gateName: gateName, opers: [] };
+    }
+    gatesByPart[partNo][gateKey].opers.push(operNo);
+  }
+
+  // Convert to sorted arrays by gate number
+  for (const partNo of decoderParts) {
+    const gateList = Object.values(gatesByPart[partNo]);
+    gateList.sort((a, b) => (parseFloat(a.gateNumber) || 0) - (parseFloat(b.gateNumber) || 0));
+    gatesByPart[partNo] = gateList;
+  }
+
+  // ---- Daily Upload ----
+  const uHeaders = dailyData[0];
+  const uOrderIdx = colIndex(uHeaders, 'Order No.');
+  const uOperStatusIdx = colIndex(uHeaders, 'Oper Status');
+  const uOperNoIdx = colIndex(uHeaders, 'Oper No.');
+  const uOperTitleIdx = colIndex(uHeaders, 'Oper Title');
+  const uPartIdx = colIndex(uHeaders, 'Part No.');
+  const uProgramIdx = colIndex(uHeaders, 'Program');
+  const uSerialIdx = colIndex(uHeaders, 'Serial No');
+  const uOrderHoldIdx = colIndex(uHeaders, 'Order Hold Status');
+
+  const missingCols = [];
+  if (uOrderIdx < 0) missingCols.push('Order No.');
+  if (uOperStatusIdx < 0) missingCols.push('Oper Status');
+  if (uOperNoIdx < 0) missingCols.push('Oper No.');
+  if (uOperTitleIdx < 0) missingCols.push('Oper Title');
+  if (uPartIdx < 0) missingCols.push('Part No.');
+  if (uProgramIdx < 0) missingCols.push('Program');
+  if (uSerialIdx < 0) missingCols.push('Serial No');
+  if (uOrderHoldIdx < 0) missingCols.push('Order Hold Status');
+
+  if (missingCols.length > 0) {
+    summary.textContent = 'Error: Daily Upload CSV missing columns: ' + missingCols.join(', ');
+    summary.style.color = 'red';
+    return;
+  }
+
+  // Group daily rows: partNo -> orderNo -> [rows]
+  const byPartOrder = {};
+  let totalRows = 0;
+  for (let i = 1; i < dailyData.length; i++) {
+    const r = dailyData[i];
+    const partNo = (r[uPartIdx] || '').trim();
+    if (!decoderParts.has(partNo)) continue;
+    const orderNo = (r[uOrderIdx] || '').trim();
+
+    if (!byPartOrder[partNo]) byPartOrder[partNo] = {};
+    if (!byPartOrder[partNo][orderNo]) byPartOrder[partNo][orderNo] = [];
+
+    byPartOrder[partNo][orderNo].push({
+      program: (r[uProgramIdx] || '').trim(),
+      partNo: partNo,
+      serialNo: (r[uSerialIdx] || '').trim(),
+      orderNo: orderNo,
+      operNo: (r[uOperNoIdx] || '').trim(),
+      operTitle: (r[uOperTitleIdx] || '').trim(),
+      operStatus: (r[uOperStatusIdx] || '').trim(),
+      orderHoldStatus: (r[uOrderHoldIdx] || '').trim()
+    });
+    totalRows++;
+  }
+
+  const sortedParts = Array.from(decoderParts).sort();
+  summary.textContent = sortedParts.length + ' Part No(s) from decoder ring | ' + totalRows + ' matching rows in daily upload';
+  summary.style.color = '#333';
+
+  // ---- Render ----
+  for (const partNo of sortedParts) {
+    const section = document.createElement('div');
+    section.className = 'part-section';
+
+    const partHeader = document.createElement('div');
+    partHeader.className = 'part-header';
+    partHeader.textContent = 'Part No. ' + partNo;
+    section.appendChild(partHeader);
+
+    const orders = byPartOrder[partNo];
+    if (!orders || Object.keys(orders).length === 0) {
+      const noData = document.createElement('div');
+      noData.className = 'no-data';
+      noData.textContent = 'No operations found in daily upload for this Part No.';
+      section.appendChild(noData);
+      output.appendChild(section);
+      continue;
+    }
+
+    const gates = gatesByPart[partNo] || [];
+    const sortedOrderNos = Object.keys(orders).sort();
+
+    for (const orderNo of sortedOrderNos) {
+      const rows = orders[orderNo];
+
+      // Build oper lookup for this order: operNo -> {operTitle, operStatus}
+      const operInfo = {};
+      for (const r of rows) {
+        operInfo[r.operNo] = { operTitle: r.operTitle, operStatus: r.operStatus };
+      }
+      const activeOpers = new Set(Object.keys(operInfo));
+
+      // Find undefined opers (in daily upload but no gate mapping)
+      const undefinedOpers = [];
+      for (const operNo of activeOpers) {
+        if (!gateLookup[partNo + '|||' + operNo]) {
+          undefinedOpers.push(operNo);
+        }
+      }
+
+      // Build merged column list: gates + undefined opers, sorted by min oper number
+      // Each column: { gateName ('' for undefined), opers: [...], sortKey: minOperNo }
+      const columns = [];
+      for (const gate of gates) {
+        const minOp = Math.min(...gate.opers.map(o => parseFloat(o) || 0));
+        columns.push({ gateName: gate.gateName, opers: gate.opers, sortKey: minOp });
+      }
+      for (const op of undefinedOpers) {
+        columns.push({ gateName: '', opers: [op], sortKey: parseFloat(op) || 0 });
+      }
+      columns.sort((a, b) => a.sortKey - b.sortKey);
+
+      // Build card HTML
+      const card = document.createElement('div');
+      card.className = 'order-card';
+
+      const firstRow = rows[0];
+      let html = '<div class="order-row">';
+
+      // Order info (left side)
+      html += '<div class="order-info">';
+      html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span></div>';
+      html += '<div class="field"><span class="label">Pgm </span><span class="value">' + esc(firstRow.program) + '</span></div>';
+      html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
+      if (firstRow.orderHoldStatus) {
+        html += '<div class="field"><span class="label">Hold </span><span class="value hold-flag">' + esc(firstRow.orderHoldStatus) + '</span></div>';
+      }
+      html += '</div>';
+
+      // Gate bar (right side)
+      html += '<div class="gate-bar">';
+      for (const col of columns) {
+        html += '<div class="gate-col">';
+        html += '<div class="gate-name' + (col.gateName === '' ? ' blank' : '') + '">' + (col.gateName ? esc(col.gateName) : '&nbsp;') + '</div>';
+        html += '<div class="gate-opers">';
+        for (const op of col.opers) {
+          const isActive = activeOpers.has(op);
+          const info = operInfo[op];
+          const tooltip = info ? esc(info.operTitle) + ' — ' + esc(info.operStatus) : '';
+          if (isActive) {
+            html += '<span class="oper-chip active" title="' + tooltip + '">' + esc(op) + '</span>';
+          } else {
+            html += '<span class="oper-chip inactive">' + esc(op) + '</span>';
+          }
+        }
+        html += '</div></div>';
+      }
+      html += '</div>'; // gate-bar
+      html += '</div>'; // order-row
+
+      card.innerHTML = html;
+      section.appendChild(card);
+    }
+
+    output.appendChild(section);
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

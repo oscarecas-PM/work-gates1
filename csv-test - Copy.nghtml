@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV Column Adder</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 2rem; background: #f5f5f5; }
+  h1 { margin-bottom: 1rem; }
+  input[type="file"] { margin-bottom: 1rem; }
+  table { border-collapse: collapse; margin-top: 1rem; width: 100%; }
+  th, td { border: 1px solid #999; padding: 6px 10px; text-align: left; }
+  th { background: #ddd; }
+  .new-col { color: blue; font-weight: bold; }
+  #download-btn { margin-top: 1rem; padding: 8px 16px; cursor: pointer; display: none; }
+</style>
+</head>
+<body>
+<h1>CSV Column Adder</h1>
+<p>Load a CSV file. A new "test" column will be added and displayed in <span style="color:blue;font-weight:bold;">blue</span>.</p>
+<input type="file" id="file-input" accept=".csv">
+<button id="download-btn" onclick="downloadCSV()">Download Modified CSV</button>
+<div id="table-container"></div>
+
+<script>
+let rows = [];
+
+document.getElementById('file-input').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const text = ev.target.result;
+    rows = parseCSV(text);
+    // Add "test" column
+    if (rows.length > 0) {
+      rows[0].push('test_column');
+      for (let i = 1; i < rows.length; i++) {
+        rows[i].push('test');
+      }
+    }
+    renderTable(rows);
+    document.getElementById('download-btn').style.display = 'inline-block';
+  };
+  reader.readAsText(file);
+});
+
+function parseCSV(text) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  let row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        row.push(current);
+        current = '';
+      } else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(current);
+        current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else {
+        current += ch;
+      }
+    }
+  }
+  row.push(current);
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function renderTable(data) {
+  if (data.length === 0) return;
+  const container = document.getElementById('table-container');
+  const newColIndex = data[0].length - 1;
+  let html = '<table><thead><tr>';
+  data[0].forEach((h, i) => {
+    html += '<th' + (i === newColIndex ? ' class="new-col"' : '') + '>' + esc(h) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  for (let r = 1; r < data.length; r++) {
+    html += '<tr>';
+    data[r].forEach((cell, i) => {
+      html += '<td' + (i === newColIndex ? ' class="new-col"' : '') + '>' + esc(cell) + '</td>';
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function downloadCSV() {
+  if (rows.length === 0) return;
+  let csv = rows.map(r => r.map(c => '"' + c.replace(/"/g, '""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'modified.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
