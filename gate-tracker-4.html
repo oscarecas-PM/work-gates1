@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gate Tracker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 1.5rem; background: #f5f5f5; color: #222; }
+  h1 { margin-bottom: 0.5rem; }
+  .description { color: #555; margin-bottom: 1.5rem; }
+
+  .file-inputs { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; min-width: 280px; }
+  .file-group h3 { margin-bottom: 0.5rem; }
+  .file-group p { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+  .status { font-size: 0.85rem; margin-top: 0.5rem; }
+  .status.loaded { color: green; }
+  .status.error { color: red; }
+
+  #run-btn { margin: 1rem 0; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #2563eb; color: #fff; border: none; border-radius: 4px; }
+  #run-btn:disabled { background: #aaa; cursor: default; }
+  #run-btn:hover:not(:disabled) { background: #1d4ed8; }
+  #summary { margin-bottom: 0.5rem; font-size: 0.9rem; color: #333; }
+
+  /* Program filter */
+  #program-filter { margin-bottom: 1rem; padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; display: none; }
+  #program-filter .filter-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; color: #555; }
+  #program-filter .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .pgm-chip { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; font-size: 0.82rem; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; user-select: none; transition: all 0.15s; }
+  .pgm-chip.selected { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .pgm-chip:hover { border-color: #2563eb; }
+
+  /* Program sections */
+  .program-section { margin-top: 2rem; }
+  .program-heading { font-size: 1.3rem; font-weight: bold; color: #111; margin-bottom: 0.5rem; border-bottom: 2px solid #334155; padding-bottom: 4px; }
+
+  /* Part No. sections */
+  .part-section { margin-top: 1rem; margin-bottom: 1.5rem; }
+  .part-header { background: #1e3a5f; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 1.1rem; font-weight: bold; }
+
+  /* Order cards */
+  .order-card { background: #fff; border: 1px solid #ccc; border-top: none; }
+  .order-card:last-child { border-radius: 0 0 4px 4px; }
+  .order-row { display: flex; align-items: stretch; min-height: 48px; }
+
+  /* Left: order info */
+  .order-info { flex: 0 0 auto; min-width: 260px; display: flex; align-items: center; gap: 1.2rem; padding: 6px 14px; background: #e2e8f0; border-right: 1px solid #ccc; flex-wrap: wrap; }
+  .order-info .field { white-space: nowrap; }
+  .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
+  .order-info .value { color: #111; font-size: 0.85rem; }
+  .hold-flag { color: #b91c1c; font-weight: bold; }
+
+  /* Right: gate bar */
+  .gate-bar { display: flex; flex: 1; overflow-x: auto; align-items: stretch; }
+  .gate-col { flex: 1; min-width: 70px; text-align: center; border-right: 1px solid #eee; display: flex; flex-direction: column; }
+  .gate-col:last-child { border-right: none; }
+  .gate-name { background: #334155; color: #fff; font-size: 0.7rem; font-weight: bold; padding: 2px 4px; white-space: normal; word-wrap: break-word; overflow-wrap: break-word; height: 3.6em; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.2; overflow: hidden; }
+  .gate-name.blank { background: #94a3b8; }
+  .gate-opers { padding: 4px 3px; font-size: 0.78rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; align-items: center; flex: 1; }
+
+  /* Oper chips */
+  .oper-chip { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; cursor: default; }
+  .oper-chip.active { background: #16a34a; color: #fff; font-weight: bold; }
+  .oper-chip.inactive { background: #e5e7eb; color: #aaa; }
+  .oper-chip[title] { cursor: pointer; }
+
+  .no-data { padding: 12px 14px; color: #666; font-size: 0.85rem; background: #fff; border: 1px solid #ccc; border-top: none; }
+</style>
+</head>
+<body>
+
+<h1>Gate Tracker</h1>
+<p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
+
+<div class="file-inputs">
+  <div class="file-group">
+    <h3>1. Gate Decoder Ring</h3>
+    <p>Columns: Part No., Part Name, Gate Number, Gate Name, Oper No.</p>
+    <input type="file" id="decoder-input" accept=".csv">
+    <div id="decoder-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>2. Daily Upload</h3>
+    <p>Columns: Order No., Oper No., Oper Title, Oper Status, Part No., Program, Serial No, Order Hold Status, ...</p>
+    <input type="file" id="daily-input" accept=".csv">
+    <div id="daily-status" class="status"></div>
+  </div>
+</div>
+
+<button id="run-btn" disabled onclick="process()">Process</button>
+<div id="summary"></div>
+<div id="program-filter">
+  <div class="filter-title">Programs</div>
+  <div class="filter-chips" id="filter-chips"></div>
+</div>
+<div id="output"></div>
+
+<script>
+let decoderData = null;
+let dailyData = null;
+
+document.getElementById('decoder-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    decoderData = rows;
+    showStatus('decoder-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'decoder-status');
+});
+
+document.getElementById('daily-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    dailyData = rows;
+    showStatus('daily-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'daily-status');
+});
+
+function checkReady() {
+  document.getElementById('run-btn').disabled = !(decoderData && dailyData);
+}
+
+function showStatus(id, msg, isError) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'loaded');
+}
+
+function loadCSV(file, callback, statusId) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const rows = parseCSV(ev.target.result);
+      if (rows.length < 2) throw new Error('File has no data rows');
+      callback(rows);
+    } catch (err) {
+      showStatus(statusId, 'Error: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function parseCSV(text) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  let row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { row.push(current.trim()); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(current.trim()); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(current.trim());
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function colIndex(headers, name) {
+  const n = name.toLowerCase().trim();
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase().trim() === n) return i;
+  }
+  return -1;
+}
+
+// --- Globals for program filter ---
+let allPrograms = [];
+let selectedPrograms = new Set();
+
+function toggleProgram(pgm) {
+  if (selectedPrograms.has(pgm)) {
+    selectedPrograms.delete(pgm);
+  } else {
+    selectedPrograms.add(pgm);
+  }
+  applyFilter();
+}
+
+function selectAllPrograms() {
+  selectedPrograms = new Set(allPrograms);
+  applyFilter();
+}
+
+function applyFilter() {
+  document.querySelectorAll('.pgm-chip[data-pgm]').forEach(c => {
+    c.classList.toggle('selected', selectedPrograms.has(c.dataset.pgm));
+  });
+  document.querySelectorAll('.program-section').forEach(s => {
+    s.style.display = selectedPrograms.has(s.dataset.program) ? '' : 'none';
+  });
+}
+
+function process() {
+  const output = document.getElementById('output');
+  const summary = document.getElementById('summary');
+  const filterEl = document.getElementById('program-filter');
+  const filterChips = document.getElementById('filter-chips');
+  output.innerHTML = '';
+  summary.textContent = '';
+  filterEl.style.display = 'none';
+  filterChips.innerHTML = '';
+
+  // ---- Decoder Ring ----
+  const dHeaders = decoderData[0];
+  const dPartIdx = colIndex(dHeaders, 'Part No.');
+  const dGateNumIdx = colIndex(dHeaders, 'Gate Number');
+  const dGateNameIdx = colIndex(dHeaders, 'Gate Name');
+  const dOperIdx = colIndex(dHeaders, 'Oper No.');
+
+  if (dPartIdx < 0 || dGateNumIdx < 0 || dGateNameIdx < 0 || dOperIdx < 0) {
+    summary.textContent = 'Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)';
+    summary.style.color = 'red';
+    return;
+  }
+
+  const gateLookup = {};
+  const gatesByPart = {};
+  const decoderParts = new Set();
+  const partNames = {};
+  const dPartNameIdx = colIndex(dHeaders, 'Part Name');
+
+  for (let i = 1; i < decoderData.length; i++) {
+    const r = decoderData[i];
+    const partNo = (r[dPartIdx] || '').trim();
+    const gateNum = (r[dGateNumIdx] || '').trim();
+    const gateName = (r[dGateNameIdx] || '').trim();
+    const operNo = (r[dOperIdx] || '').trim();
+    if (!partNo) continue;
+    decoderParts.add(partNo);
+    if (dPartNameIdx >= 0 && !partNames[partNo]) {
+      partNames[partNo] = (r[dPartNameIdx] || '').trim();
+    }
+    gateLookup[partNo + '|||' + normOper(operNo)] = { gateNumber: gateNum, gateName: gateName };
+
+    if (!gatesByPart[partNo]) gatesByPart[partNo] = {};
+    const gateKey = gateNum + '|||' + gateName;
+    if (!gatesByPart[partNo][gateKey]) {
+      gatesByPart[partNo][gateKey] = { gateNumber: gateNum, gateName: gateName, opers: [] };
+    }
+    gatesByPart[partNo][gateKey].opers.push(operNo);
+  }
+
+  // Preserve decoder ring CSV order (no sort)
+  for (const partNo of decoderParts) {
+    gatesByPart[partNo] = Object.values(gatesByPart[partNo]);
+  }
+
+  // ---- Daily Upload ----
+  const uHeaders = dailyData[0];
+  const uOrderIdx = colIndex(uHeaders, 'Order No.');
+  const uOperStatusIdx = colIndex(uHeaders, 'Oper Status');
+  const uOperNoIdx = colIndex(uHeaders, 'Oper No.');
+  const uOperTitleIdx = colIndex(uHeaders, 'Oper Title');
+  const uPartIdx = colIndex(uHeaders, 'Part No.');
+  const uProgramIdx = colIndex(uHeaders, 'Program');
+  const uSerialIdx = colIndex(uHeaders, 'Serial No');
+  const uOrderHoldIdx = colIndex(uHeaders, 'Order Hold Status');
+
+  const missingCols = [];
+  if (uOrderIdx < 0) missingCols.push('Order No.');
+  if (uOperStatusIdx < 0) missingCols.push('Oper Status');
+  if (uOperNoIdx < 0) missingCols.push('Oper No.');
+  if (uOperTitleIdx < 0) missingCols.push('Oper Title');
+  if (uPartIdx < 0) missingCols.push('Part No.');
+  if (uProgramIdx < 0) missingCols.push('Program');
+  if (uSerialIdx < 0) missingCols.push('Serial No');
+  if (uOrderHoldIdx < 0) missingCols.push('Order Hold Status');
+
+  if (missingCols.length > 0) {
+    summary.textContent = 'Error: Daily Upload CSV missing columns: ' + missingCols.join(', ');
+    summary.style.color = 'red';
+    return;
+  }
+
+  // Group: program -> partNo -> orderNo -> [rows]
+  const byProg = {};
+  let totalRows = 0;
+  for (let i = 1; i < dailyData.length; i++) {
+    const r = dailyData[i];
+    const partNo = (r[uPartIdx] || '').trim();
+    if (!decoderParts.has(partNo)) continue;
+    const program = (r[uProgramIdx] || '').trim() || '(No Program)';
+    const orderNo = (r[uOrderIdx] || '').trim();
+
+    if (!byProg[program]) byProg[program] = {};
+    if (!byProg[program][partNo]) byProg[program][partNo] = {};
+    if (!byProg[program][partNo][orderNo]) byProg[program][partNo][orderNo] = [];
+
+    byProg[program][partNo][orderNo].push({
+      partNo: partNo,
+      serialNo: (r[uSerialIdx] || '').trim(),
+      orderNo: orderNo,
+      operNo: (r[uOperNoIdx] || '').trim(),
+      operTitle: (r[uOperTitleIdx] || '').trim(),
+      operStatus: (r[uOperStatusIdx] || '').trim(),
+      orderHoldStatus: (r[uOrderHoldIdx] || '').trim()
+    });
+    totalRows++;
+  }
+
+  allPrograms = Object.keys(byProg).sort();
+  selectedPrograms = new Set(allPrograms);
+
+  summary.textContent = allPrograms.length + ' Program(s) | ' + Array.from(decoderParts).length + ' Part No(s) | ' + totalRows + ' rows';
+  summary.style.color = '#333';
+
+  // ---- Program filter chips ----
+  if (allPrograms.length > 0) {
+    filterEl.style.display = 'block';
+    const allBtn = document.createElement('span');
+    allBtn.className = 'pgm-chip selected';
+    allBtn.textContent = 'Show All';
+    allBtn.style.fontWeight = 'bold';
+    allBtn.addEventListener('click', selectAllPrograms);
+    filterChips.appendChild(allBtn);
+
+    for (const pgm of allPrograms) {
+      const chip = document.createElement('span');
+      chip.className = 'pgm-chip selected';
+      chip.textContent = pgm;
+      chip.dataset.pgm = pgm;
+      chip.addEventListener('click', function() { toggleProgram(pgm); });
+      filterChips.appendChild(chip);
+    }
+  }
+
+  // ---- Render: Program -> Part No. -> Order No. ----
+  for (const program of allPrograms) {
+    const progSection = document.createElement('div');
+    progSection.className = 'program-section';
+    progSection.dataset.program = program;
+
+    const progHeading = document.createElement('div');
+    progHeading.className = 'program-heading';
+    progHeading.textContent = program;
+    progSection.appendChild(progHeading);
+
+    const partsInProg = Object.keys(byProg[program]).sort();
+
+    for (const partNo of partsInProg) {
+      const section = document.createElement('div');
+      section.className = 'part-section';
+
+      const partHeader = document.createElement('div');
+      partHeader.className = 'part-header';
+      const pName = partNames[partNo];
+      partHeader.textContent = partNo + (pName ? ' \u2014 ' + pName : '');
+      section.appendChild(partHeader);
+
+      const gates = gatesByPart[partNo] || [];
+      const sortedOrderNos = Object.keys(byProg[program][partNo]).sort();
+
+      for (const orderNo of sortedOrderNos) {
+        const rows = byProg[program][partNo][orderNo];
+
+        const operInfo = {};
+        for (const r of rows) {
+          operInfo[normOper(r.operNo)] = { operTitle: r.operTitle, operStatus: r.operStatus, rawOperNo: r.operNo };
+        }
+        const activeOpers = new Set(Object.keys(operInfo));
+
+        // Separate undefined opers into DR Ops (7000-7999) vs other
+        const drOps = [];
+        const otherUndefined = [];
+        for (const nOp of activeOpers) {
+          if (!gateLookup[partNo + '|||' + nOp]) {
+            const raw = operInfo[nOp].rawOperNo;
+            const num = parseFloat(nOp) || 0;
+            if (num >= 7000 && num <= 7999) {
+              drOps.push(raw);
+            } else {
+              otherUndefined.push({ raw: raw, num: num });
+            }
+          }
+        }
+
+        // Gates in CSV order, with minOp for positioning undefined opers
+        const columns = [];
+        for (const gate of gates) {
+          const minOp = Math.min(...gate.opers.map(o => parseFloat(o) || 0));
+          const label = gate.gateNumber + '. ' + gate.gateName;
+          columns.push({ gateLabel: label, opers: gate.opers, minOp: minOp });
+        }
+
+        // Insert non-DR undefined opers chronologically among gates
+        otherUndefined.sort((a, b) => a.num - b.num);
+        for (const uOp of otherUndefined) {
+          let insertIdx = columns.length;
+          for (let i = 0; i < columns.length; i++) {
+            if (columns[i].minOp > uOp.num) { insertIdx = i; break; }
+          }
+          columns.splice(insertIdx, 0, { gateLabel: '', opers: [uOp.raw], minOp: uOp.num });
+        }
+
+        // DR Ops (7000-7999) collected into one column at the far right
+        if (drOps.length > 0) {
+          drOps.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+          columns.push({ gateLabel: 'DR Ops', opers: drOps, minOp: 99999 });
+        }
+
+        const card = document.createElement('div');
+        card.className = 'order-card';
+
+        const firstRow = rows[0];
+        let html = '<div class="order-row">';
+
+        html += '<div class="order-info">';
+        html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span></div>';
+        html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
+        if (firstRow.orderHoldStatus) {
+          html += '<div class="field"><span class="label">Hold </span><span class="value hold-flag">' + esc(firstRow.orderHoldStatus) + '</span></div>';
+        }
+        html += '</div>';
+
+        html += '<div class="gate-bar">';
+        for (const col of columns) {
+          html += '<div class="gate-col">';
+          html += '<div class="gate-name' + (col.gateLabel === '' ? ' blank' : '') + '">' + (col.gateLabel ? esc(col.gateLabel) : '&nbsp;') + '</div>';
+          html += '<div class="gate-opers">';
+          for (const op of col.opers) {
+            const nOp = normOper(op);
+            const isActive = activeOpers.has(nOp);
+            const info = operInfo[nOp];
+            const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) : '';
+            if (isActive) {
+              html += '<span class="oper-chip active" title="' + tooltip + '">' + esc(op) + '</span>';
+            } else {
+              html += '<span class="oper-chip inactive">' + esc(op) + '</span>';
+            }
+          }
+          html += '</div></div>';
+        }
+        html += '</div></div>';
+
+        card.innerHTML = html;
+        section.appendChild(card);
+      }
+
+      progSection.appendChild(section);
+    }
+
+    output.appendChild(progSection);
+  }
+}
+
+function normOper(s) {
+  const n = String(s).replace(/^0+/, '');
+  return n === '' ? '0' : n;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
