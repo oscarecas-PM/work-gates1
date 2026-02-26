@@ -245,17 +245,18 @@ function process() {
     }
     gateLookup[partNo + '|||' + normOper(operNo)] = { gateNumber: gateNum, gateName: gateName };
 
-    if (!gatesByPart[partNo]) gatesByPart[partNo] = {};
+    // Track consecutive runs: same gate in a row shares a group, but if
+    // a different gate appears and then this gate returns, it starts a new group.
+    if (!gatesByPart[partNo]) gatesByPart[partNo] = [];
+    const gateArr = gatesByPart[partNo];
     const gateKey = gateNum + '|||' + gateName;
-    if (!gatesByPart[partNo][gateKey]) {
-      gatesByPart[partNo][gateKey] = { gateNumber: gateNum, gateName: gateName, opers: [] };
+    const last = gateArr.length > 0 ? gateArr[gateArr.length - 1] : null;
+    const lastKey = last ? (last.gateNumber + '|||' + last.gateName) : null;
+    if (lastKey === gateKey) {
+      last.opers.push(operNo);
+    } else {
+      gateArr.push({ gateNumber: gateNum, gateName: gateName, opers: [operNo] });
     }
-    gatesByPart[partNo][gateKey].opers.push(operNo);
-  }
-
-  // Preserve decoder ring CSV order (no sort)
-  for (const partNo of decoderParts) {
-    gatesByPart[partNo] = Object.values(gatesByPart[partNo]);
   }
 
   // ---- Daily Upload ----
