@@ -54,13 +54,13 @@
   .order-info .field { white-space: nowrap; }
   .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
   .order-info .value { color: #111; font-size: 0.85rem; }
-  .hold-flag { color: #b91c1c; font-weight: bold; font-size: 0.8rem; }
+  .hold-flag { color: #b91c1c; font-weight: bold; font-size: 0.8rem; max-width: 80px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal; }
 
   /* Right: gate bar */
   .gate-bar { display: flex; flex: 1; overflow-x: auto; align-items: stretch; }
   .gate-col { flex: 1; min-width: 70px; text-align: center; border-right: 1px solid #eee; display: flex; flex-direction: column; }
   .gate-col:last-child { border-right: none; }
-  .gate-name { background: #334155; color: #fff; font-size: 0.7rem; font-weight: bold; padding: 2px 4px; white-space: normal; word-wrap: break-word; overflow-wrap: break-word; height: 3.6em; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.2; overflow: hidden; }
+  .gate-name { background: #334155; color: #fff; font-size: 0.7rem; font-weight: bold; padding: 2px 4px; white-space: normal; word-wrap: break-word; overflow-wrap: break-word; min-height: 3.6em; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.2; }
   .gate-name.blank { background: #94a3b8; }
   .gate-opers { padding: 4px 3px; font-size: 0.78rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; align-items: center; flex: 1; }
 
@@ -89,15 +89,22 @@
   .gv-sn { font-size: 0.75rem; color: rgba(0,0,0,0.55); }
   .gv-hold { color: #b91c1c; font-weight: bold; font-size: 0.75rem; }
   .gv-days { font-size: 0.72rem; color: rgba(0,0,0,0.5); margin-top: 2px; }
+  .gv-order-card { cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
+  .gv-order-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .gv-order-card.gv-selected { border-color: #111 !important; box-shadow: 0 0 0 2px #111; }
+
+  /* Detail View */
+  #detail-toggle { margin: 1.5rem 0 0.5rem; padding: 10px 20px; font-size: 0.95rem; cursor: pointer; background: #475569; color: #fff; border: none; border-radius: 4px; }
+  #detail-toggle:hover { background: #334155; }
+  .detail-view-title { font-size: 1.4rem; font-weight: bold; color: #111; margin-bottom: 1rem; border-top: 3px solid #334155; padding-top: 1.5rem; }
+  .order-card.order-highlighted { outline: 3px solid #2563eb; outline-offset: -1px; }
 
   /* Print styles */
   @media print {
     body { background: #fff; padding: 0.5rem; }
-    .file-inputs, #run-btn, #print-btn, .filter-bar, .description { display: none !important; }
-    #print-timestamp { display: block !important; }
-    .program-section { break-inside: avoid; }
-    .part-section { break-inside: avoid; }
-    .order-card { break-inside: avoid; }
+    .file-inputs, #run-btn, #print-btn, #detail-toggle, .filter-bar, .description { display: none !important; }
+    #print-timestamp, #detail-view, .program-section, .part-section { display: block !important; }
+    .program-section, .part-section, .order-card { break-inside: avoid; }
     .gate-view-wrapper { break-before: page; }
     .gv-gate-section { break-inside: avoid; }
   }
@@ -128,15 +135,22 @@
 
 <div id="print-timestamp"></div>
 
-<div id="program-filter" class="filter-bar">
-  <div class="filter-title">Programs</div>
-  <div class="filter-chips" id="pgm-filter-chips"></div>
+<div id="gate-view-output"></div>
+
+<button id="detail-toggle" onclick="toggleDetailView()" style="display:none">&#9654; Show Detail View</button>
+
+<div id="detail-view" style="display:none">
+  <div class="detail-view-title">Detail View</div>
+  <div id="program-filter" class="filter-bar">
+    <div class="filter-title">Programs</div>
+    <div class="filter-chips" id="pgm-filter-chips"></div>
+  </div>
+  <div id="part-filter" class="filter-bar">
+    <div class="filter-title">Part Numbers</div>
+    <div class="filter-chips" id="pn-filter-chips"></div>
+  </div>
+  <div id="output"></div>
 </div>
-<div id="part-filter" class="filter-bar">
-  <div class="filter-title">Part Numbers</div>
-  <div class="filter-chips" id="pn-filter-chips"></div>
-</div>
-<div id="output"></div>
 
 <script>
 let decoderData = null;
@@ -223,6 +237,51 @@ let allPrograms = [];
 let selectedPrograms = new Set();
 let allPartNos = [];
 let selectedPartNo = null; // null = show all
+let selectedGvOrders = new Set();
+
+function toggleDetailView() {
+  const dv = document.getElementById('detail-view');
+  const btn = document.getElementById('detail-toggle');
+  if (dv.style.display === 'none') {
+    dv.style.display = 'block';
+    btn.innerHTML = '&#9660; Hide Detail View';
+  } else {
+    dv.style.display = 'none';
+    btn.innerHTML = '&#9654; Show Detail View';
+  }
+}
+
+function toggleGvOrder(orderNo) {
+  if (selectedGvOrders.has(orderNo)) {
+    selectedGvOrders.delete(orderNo);
+  } else {
+    selectedGvOrders.add(orderNo);
+  }
+  // Update gate view card styling
+  document.querySelectorAll('.gv-order-card').forEach(function(card) {
+    card.classList.toggle('gv-selected', selectedGvOrders.has(card.dataset.orderno));
+  });
+  // Update detail view highlights
+  document.querySelectorAll('.order-card').forEach(function(card) {
+    card.classList.toggle('order-highlighted', selectedGvOrders.has(card.dataset.orderno));
+  });
+  if (selectedGvOrders.has(orderNo)) {
+    // Open detail view and scroll to order
+    const dv = document.getElementById('detail-view');
+    const btn = document.getElementById('detail-toggle');
+    dv.style.display = 'block';
+    btn.innerHTML = '&#9660; Hide Detail View';
+    // Reset filters to show all so the order is visible
+    selectedPrograms = new Set(allPrograms);
+    selectedPartNo = null;
+    applyFilters();
+    // Scroll to the specific order in detail view
+    const target = document.querySelector('.order-card[data-orderno="' + orderNo + '"]');
+    if (target) {
+      setTimeout(function() { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+    }
+  }
+}
 
 function toggleProgram(pgm) {
   if (selectedPrograms.has(pgm)) {
@@ -300,6 +359,10 @@ function process() {
   pnFilterEl.style.display = 'none';
   pnFilterChips.innerHTML = '';
   printBtn.style.display = 'none';
+  document.getElementById('gate-view-output').innerHTML = '';
+  document.getElementById('detail-view').style.display = 'none';
+  document.getElementById('detail-toggle').style.display = 'none';
+  selectedGvOrders = new Set();
 
   // ---- Decoder Ring ----
   const dHeaders = decoderData[0];
@@ -357,7 +420,13 @@ function process() {
   const uProgramIdx = colIndex(uHeaders, 'Program');
   const uSerialIdx = colIndex(uHeaders, 'Serial No');
   const uOrderHoldIdx = colIndex(uHeaders, 'Order Hold Status');
-  const uTotalDaysIdx = colIndex(uHeaders, 'Total Days at Operation');
+  let uTotalDaysIdx = colIndex(uHeaders, 'Total Days at Operation');
+  if (uTotalDaysIdx < 0) {
+    // Fallback: match any column containing 'total days'
+    for (let i = 0; i < uHeaders.length; i++) {
+      if (uHeaders[i].toLowerCase().trim().indexOf('total days') >= 0) { uTotalDaysIdx = i; break; }
+    }
+  }
   const uWorkDeptIdx = colIndex(uHeaders, 'Work Dept');
 
   const missingCols = [];
@@ -470,8 +539,9 @@ function process() {
     }
   }
 
-  // Show print button
+  // Show print button and detail toggle
   printBtn.style.display = 'inline-block';
+  document.getElementById('detail-toggle').style.display = 'inline-block';
 
   // ---- Render: Program -> Part No. -> Order No. ----
   for (const program of allPrograms) {
@@ -550,6 +620,7 @@ function process() {
 
         const card = document.createElement('div');
         card.className = 'order-card';
+        card.dataset.orderno = orderNo;
 
         const firstRow = rows[0];
         let html = '<div class="order-row">';
@@ -636,7 +707,7 @@ function process() {
         for (const r of rows) {
           const st = (r.operStatus || '').toUpperCase().trim();
           if (st === 'ACTIVE' || st === 'IN QUEUE') {
-            const days = parseFloat(r.totalDays) || 0;
+            const days = parseNum(r.totalDays);
             activeOps.push({ operNo: r.operNo, operTitle: r.operTitle, operStatus: r.operStatus, workDept: r.workDept, totalDays: r.totalDays, daysNum: days });
             if (days > maxDays) maxDays = days;
           }
@@ -742,14 +813,15 @@ function process() {
         }
       }
 
-      gvHtml += '<div class="gv-order-card" style="background:' + color.bg + ';border-color:' + color.border + ';" title="' + esc(tip) + '">';
+      gvHtml += '<div class="gv-order-card" data-orderno="' + esc(order.orderNo) + '" style="background:' + color.bg + ';border-color:' + color.border + ';" title="' + esc(tip) + '">';
       gvHtml += '<div class="gv-order-no">' + esc(order.orderNo) + '</div>';
-      gvHtml += '<div class="gv-part-no">' + esc(order.partNo) + '</div>';
+      const gvPartName = partNames[order.partNo] || '';
+      gvHtml += '<div class="gv-part-no">' + esc(order.partNo) + (gvPartName ? ' (' + esc(gvPartName) + ')' : '') + '</div>';
       gvHtml += '<div class="gv-sn">S/N: ' + esc(order.serialNo) + '</div>';
       if (order.holdStatus) {
         gvHtml += '<div class="gv-hold">' + esc(order.holdStatus.substring(0, 12)) + '</div>';
       }
-      gvHtml += '<div class="gv-days">' + order.maxDays + ' days</div>';
+      gvHtml += '<div class="gv-days">' + (Math.round(order.maxDays * 10) / 10) + ' days</div>';
       gvHtml += '</div>';
     }
 
@@ -757,7 +829,24 @@ function process() {
   }
 
   gvHtml += '</div>';
-  output.insertAdjacentHTML('beforeend', gvHtml);
+  document.getElementById('gate-view-output').innerHTML = gvHtml;
+
+  // Click delegation for gate view cards
+  document.getElementById('gate-view-output').addEventListener('click', function(e) {
+    const card = e.target.closest('.gv-order-card');
+    if (card && card.dataset.orderno) {
+      toggleGvOrder(card.dataset.orderno);
+    }
+  });
+}
+
+function parseNum(s) {
+  if (!s) return 0;
+  var n = parseFloat(String(s).trim());
+  if (!isNaN(n)) return n;
+  // Fallback: extract first number from string
+  var m = String(s).match(/[\d.]+/);
+  return m ? (parseFloat(m[0]) || 0) : 0;
 }
 
 function normOper(s) {
