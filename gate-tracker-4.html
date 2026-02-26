@@ -21,15 +21,20 @@
   #run-btn { margin: 1rem 0; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #2563eb; color: #fff; border: none; border-radius: 4px; }
   #run-btn:disabled { background: #aaa; cursor: default; }
   #run-btn:hover:not(:disabled) { background: #1d4ed8; }
-  #summary { margin-bottom: 0.5rem; font-size: 0.9rem; color: #333; }
 
-  /* Program filter */
-  #program-filter { margin-bottom: 1rem; padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; display: none; }
-  #program-filter .filter-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; color: #555; }
-  #program-filter .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .pgm-chip { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; font-size: 0.82rem; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; user-select: none; transition: all 0.15s; }
-  .pgm-chip.selected { background: #2563eb; color: #fff; border-color: #2563eb; }
-  .pgm-chip:hover { border-color: #2563eb; }
+  /* Print / PDF button */
+  #print-btn { margin: 1rem 0 1rem 12px; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #334155; color: #fff; border: none; border-radius: 4px; display: none; }
+  #print-btn:hover { background: #1e293b; }
+
+  /* Filter bars */
+  .filter-bar { margin-bottom: 0.75rem; padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; display: none; }
+  .filter-bar .filter-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; color: #555; }
+  .filter-bar .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .filter-chip { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; font-size: 0.82rem; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; user-select: none; transition: all 0.15s; }
+  .filter-chip.selected { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .filter-chip:hover { border-color: #2563eb; }
+  .filter-chip.pn-chip.selected { background: #1e3a5f; border-color: #1e3a5f; }
+  .filter-chip.pn-chip:hover { border-color: #1e3a5f; }
 
   /* Program sections */
   .program-section { margin-top: 2rem; }
@@ -44,12 +49,12 @@
   .order-card:last-child { border-radius: 0 0 4px 4px; }
   .order-row { display: flex; align-items: stretch; min-height: 48px; }
 
-  /* Left: order info */
-  .order-info { flex: 0 0 auto; min-width: 260px; display: flex; align-items: center; gap: 1.2rem; padding: 6px 14px; background: #e2e8f0; border-right: 1px solid #ccc; flex-wrap: wrap; }
+  /* Left: order info — fixed width */
+  .order-info { flex: 0 0 280px; width: 280px; display: flex; align-items: center; gap: 1rem; padding: 6px 14px; background: #e2e8f0; border-right: 1px solid #ccc; }
   .order-info .field { white-space: nowrap; }
   .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
   .order-info .value { color: #111; font-size: 0.85rem; }
-  .hold-flag { color: #b91c1c; font-weight: bold; }
+  .hold-flag { color: #b91c1c; font-weight: bold; font-size: 0.8rem; }
 
   /* Right: gate bar */
   .gate-bar { display: flex; flex: 1; overflow-x: auto; align-items: stretch; }
@@ -68,7 +73,18 @@
   .oper-chip.inactive { background: #e5e7eb; color: #aaa; }
   .oper-chip[title] { cursor: pointer; }
 
-  .no-data { padding: 12px 14px; color: #666; font-size: 0.85rem; background: #fff; border: 1px solid #ccc; border-top: none; }
+  /* Print timestamp */
+  #print-timestamp { display: none; font-size: 0.85rem; color: #555; margin-bottom: 0.5rem; }
+
+  /* Print styles */
+  @media print {
+    body { background: #fff; padding: 0.5rem; }
+    .file-inputs, #run-btn, #print-btn, .filter-bar, .description { display: none !important; }
+    #print-timestamp { display: block !important; }
+    .program-section { break-inside: avoid; }
+    .part-section { break-inside: avoid; }
+    .order-card { break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -92,10 +108,17 @@
 </div>
 
 <button id="run-btn" disabled onclick="process()">Process</button>
-<div id="summary"></div>
-<div id="program-filter">
+<button id="print-btn" onclick="printPage()">Print / Export PDF</button>
+
+<div id="print-timestamp"></div>
+
+<div id="program-filter" class="filter-bar">
   <div class="filter-title">Programs</div>
-  <div class="filter-chips" id="filter-chips"></div>
+  <div class="filter-chips" id="pgm-filter-chips"></div>
+</div>
+<div id="part-filter" class="filter-bar">
+  <div class="filter-title">Part Numbers</div>
+  <div class="filter-chips" id="pn-filter-chips"></div>
 </div>
 <div id="output"></div>
 
@@ -179,9 +202,11 @@ function colIndex(headers, name) {
   return -1;
 }
 
-// --- Globals for program filter ---
+// --- Globals for filters ---
 let allPrograms = [];
 let selectedPrograms = new Set();
+let allPartNos = [];
+let selectedPartNo = null; // null = show all
 
 function toggleProgram(pgm) {
   if (selectedPrograms.has(pgm)) {
@@ -189,32 +214,76 @@ function toggleProgram(pgm) {
   } else {
     selectedPrograms.add(pgm);
   }
-  applyFilter();
+  applyFilters();
 }
 
 function selectAllPrograms() {
   selectedPrograms = new Set(allPrograms);
-  applyFilter();
+  applyFilters();
 }
 
-function applyFilter() {
-  document.querySelectorAll('.pgm-chip[data-pgm]').forEach(c => {
+function selectPartNo(pn) {
+  if (selectedPartNo === pn) {
+    selectedPartNo = null; // deselect = show all
+  } else {
+    selectedPartNo = pn;
+  }
+  applyFilters();
+}
+
+function showAllParts() {
+  selectedPartNo = null;
+  applyFilters();
+}
+
+function applyFilters() {
+  // Program chips
+  document.querySelectorAll('.filter-chip[data-pgm]').forEach(c => {
     c.classList.toggle('selected', selectedPrograms.has(c.dataset.pgm));
   });
+  // Part No. chips
+  document.querySelectorAll('.filter-chip[data-pn]').forEach(c => {
+    c.classList.toggle('selected', selectedPartNo === null ? false : c.dataset.pn === selectedPartNo);
+  });
+  // "Show All" for parts
+  const pnAllBtn = document.getElementById('pn-show-all');
+  if (pnAllBtn) pnAllBtn.classList.toggle('selected', selectedPartNo === null);
+
+  // Visibility: program sections
   document.querySelectorAll('.program-section').forEach(s => {
     s.style.display = selectedPrograms.has(s.dataset.program) ? '' : 'none';
   });
+  // Visibility: part sections
+  document.querySelectorAll('.part-section').forEach(s => {
+    if (selectedPartNo === null) {
+      s.style.display = '';
+    } else {
+      s.style.display = s.dataset.partno === selectedPartNo ? '' : 'none';
+    }
+  });
+}
+
+function printPage() {
+  const ts = document.getElementById('print-timestamp');
+  const now = new Date();
+  ts.textContent = 'Exported: ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+  ts.style.display = 'block';
+  setTimeout(function() { window.print(); }, 100);
 }
 
 function process() {
   const output = document.getElementById('output');
-  const summary = document.getElementById('summary');
-  const filterEl = document.getElementById('program-filter');
-  const filterChips = document.getElementById('filter-chips');
+  const pgmFilterEl = document.getElementById('program-filter');
+  const pgmFilterChips = document.getElementById('pgm-filter-chips');
+  const pnFilterEl = document.getElementById('part-filter');
+  const pnFilterChips = document.getElementById('pn-filter-chips');
+  const printBtn = document.getElementById('print-btn');
   output.innerHTML = '';
-  summary.textContent = '';
-  filterEl.style.display = 'none';
-  filterChips.innerHTML = '';
+  pgmFilterEl.style.display = 'none';
+  pgmFilterChips.innerHTML = '';
+  pnFilterEl.style.display = 'none';
+  pnFilterChips.innerHTML = '';
+  printBtn.style.display = 'none';
 
   // ---- Decoder Ring ----
   const dHeaders = decoderData[0];
@@ -224,8 +293,7 @@ function process() {
   const dOperIdx = colIndex(dHeaders, 'Oper No.');
 
   if (dPartIdx < 0 || dGateNumIdx < 0 || dGateNameIdx < 0 || dOperIdx < 0) {
-    summary.textContent = 'Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)';
-    summary.style.color = 'red';
+    output.innerHTML = '<p style="color:red;">Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)</p>';
     return;
   }
 
@@ -248,8 +316,6 @@ function process() {
     }
     gateLookup[partNo + '|||' + normOper(operNo)] = { gateNumber: gateNum, gateName: gateName };
 
-    // Track consecutive runs: same gate in a row shares a group, but if
-    // a different gate appears and then this gate returns, it starts a new group.
     if (!gatesByPart[partNo]) gatesByPart[partNo] = [];
     const gateArr = gatesByPart[partNo];
     const gateKey = gateNum + '|||' + gateName;
@@ -286,14 +352,21 @@ function process() {
   if (uOrderHoldIdx < 0) missingCols.push('Order Hold Status');
 
   if (missingCols.length > 0) {
-    summary.textContent = 'Error: Daily Upload CSV missing columns: ' + missingCols.join(', ');
-    summary.style.color = 'red';
+    output.innerHTML = '<p style="color:red;">Error: Daily Upload CSV missing columns: ' + missingCols.join(', ') + '</p>';
     return;
+  }
+
+  // Row count warning (>500 rows)
+  const dailyRowCount = dailyData.length - 1;
+  if (dailyRowCount > 500) {
+    if (!confirm('Warning: The Daily Upload contains ' + dailyRowCount + ' rows, which exceeds the typical 500-row threshold. Processing may be slow.\n\nContinue?')) {
+      return;
+    }
   }
 
   // Group: program -> partNo -> orderNo -> [rows]
   const byProg = {};
-  let totalRows = 0;
+  const partNoSet = new Set();
   for (let i = 1; i < dailyData.length; i++) {
     const r = dailyData[i];
     const partNo = (r[uPartIdx] || '').trim();
@@ -316,34 +389,58 @@ function process() {
       totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : '',
       workDept: uWorkDeptIdx >= 0 ? (r[uWorkDeptIdx] || '').trim() : ''
     });
-    totalRows++;
+    partNoSet.add(partNo);
   }
 
   allPrograms = Object.keys(byProg).sort();
   selectedPrograms = new Set(allPrograms);
-
-  summary.textContent = allPrograms.length + ' Program(s) | ' + Array.from(decoderParts).length + ' Part No(s) | ' + totalRows + ' rows';
-  summary.style.color = '#333';
+  allPartNos = Array.from(partNoSet).sort();
+  selectedPartNo = null;
 
   // ---- Program filter chips ----
   if (allPrograms.length > 0) {
-    filterEl.style.display = 'block';
+    pgmFilterEl.style.display = 'block';
     const allBtn = document.createElement('span');
-    allBtn.className = 'pgm-chip selected';
+    allBtn.className = 'filter-chip selected';
     allBtn.textContent = 'Show All';
     allBtn.style.fontWeight = 'bold';
     allBtn.addEventListener('click', selectAllPrograms);
-    filterChips.appendChild(allBtn);
+    pgmFilterChips.appendChild(allBtn);
 
     for (const pgm of allPrograms) {
       const chip = document.createElement('span');
-      chip.className = 'pgm-chip selected';
+      chip.className = 'filter-chip selected';
       chip.textContent = pgm;
       chip.dataset.pgm = pgm;
       chip.addEventListener('click', function() { toggleProgram(pgm); });
-      filterChips.appendChild(chip);
+      pgmFilterChips.appendChild(chip);
     }
   }
+
+  // ---- Part No. filter chips ----
+  if (allPartNos.length > 0) {
+    pnFilterEl.style.display = 'block';
+    const pnAllBtn = document.createElement('span');
+    pnAllBtn.className = 'filter-chip pn-chip selected';
+    pnAllBtn.id = 'pn-show-all';
+    pnAllBtn.textContent = 'Show All';
+    pnAllBtn.style.fontWeight = 'bold';
+    pnAllBtn.addEventListener('click', showAllParts);
+    pnFilterChips.appendChild(pnAllBtn);
+
+    for (const pn of allPartNos) {
+      const chip = document.createElement('span');
+      chip.className = 'filter-chip pn-chip';
+      const pName = partNames[pn];
+      chip.textContent = pn + (pName ? ' — ' + pName : '');
+      chip.dataset.pn = pn;
+      chip.addEventListener('click', function() { selectPartNo(pn); });
+      pnFilterChips.appendChild(chip);
+    }
+  }
+
+  // Show print button
+  printBtn.style.display = 'inline-block';
 
   // ---- Render: Program -> Part No. -> Order No. ----
   for (const program of allPrograms) {
@@ -361,6 +458,7 @@ function process() {
     for (const partNo of partsInProg) {
       const section = document.createElement('div');
       section.className = 'part-section';
+      section.dataset.partno = partNo;
 
       const partHeader = document.createElement('div');
       partHeader.className = 'part-header';
@@ -395,7 +493,7 @@ function process() {
           }
         }
 
-        // Gates in CSV order, with minOp for positioning undefined opers
+        // Gates in CSV order
         const columns = [];
         for (const gate of gates) {
           const minOp = Math.min(...gate.opers.map(o => parseFloat(o) || 0));
@@ -425,11 +523,13 @@ function process() {
         const firstRow = rows[0];
         let html = '<div class="order-row">';
 
+        // Order info — fixed width, hold status without label, truncated to 12 chars
         html += '<div class="order-info">';
         html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span></div>';
         html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
-        if (firstRow.orderHoldStatus) {
-          html += '<div class="field"><span class="label">Hold </span><span class="value hold-flag">' + esc(firstRow.orderHoldStatus) + '</span></div>';
+        const holdText = firstRow.orderHoldStatus ? firstRow.orderHoldStatus.substring(0, 12) : '';
+        if (holdText) {
+          html += '<div class="field"><span class="hold-flag">' + esc(holdText) + '</span></div>';
         }
         html += '</div>';
 
@@ -447,9 +547,9 @@ function process() {
             const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) + (showDept ? ' \u2014 ' + esc(info.workDept) : '') + (info.totalDays ? ' \u2014 ' + esc(info.totalDays) + ' days' : '') : '';
             if (isActive) {
               // Determine color class based on Oper Status + Work Dept
-              let colorClass = 'active-green'; // default
               const status = (info.operStatus || '').toUpperCase().trim();
               const dept = (info.workDept || '').toUpperCase().trim();
+              let colorClass;
               if (status === 'IN QUEUE') {
                 colorClass = 'active-yellow';
               } else if (status === 'ACTIVE') {
@@ -460,6 +560,9 @@ function process() {
                 } else {
                   colorClass = 'active-pink';
                 }
+              } else {
+                // Any other status (CLOSED, COMPLETE, etc.) = grey with tooltip
+                colorClass = 'inactive';
               }
               html += '<span class="oper-chip ' + colorClass + '" title="' + tooltip + '">' + esc(op) + '</span>';
             } else {

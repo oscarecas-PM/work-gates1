@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PRD — Gate Tracker Application</title>
+<style>
+  @page { size: letter; margin: 0.75in 1in; }
+  @media print {
+    body { font-size: 10pt; }
+    .no-print { display: none; }
+    h2 { break-after: avoid; }
+    .req-table, .req-table tr, .req-table td { break-inside: avoid; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1a1a1a; line-height: 1.5; padding: 0.75in 1in; max-width: 8.5in; margin: 0 auto; background: #fff; }
+
+  /* Print button */
+  .no-print { position: fixed; top: 16px; right: 16px; z-index: 100; }
+  .no-print button { padding: 10px 20px; font-size: 14px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  .no-print button:hover { background: #1d4ed8; }
+
+  /* Title block */
+  .title-block { border-bottom: 3px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 24px; }
+  .title-block h1 { font-size: 22pt; color: #1e3a5f; margin-bottom: 4px; }
+  .title-block .subtitle { font-size: 11pt; color: #555; }
+  .meta-table { margin-top: 12px; font-size: 9pt; color: #444; }
+  .meta-table td { padding: 1px 12px 1px 0; }
+  .meta-table .label { font-weight: bold; min-width: 100px; }
+
+  /* Section headings */
+  h2 { font-size: 14pt; color: #1e3a5f; margin-top: 28px; margin-bottom: 10px; padding-bottom: 3px; border-bottom: 1.5px solid #cbd5e1; }
+  h3 { font-size: 11pt; color: #334155; margin-top: 16px; margin-bottom: 6px; }
+
+  p, li { font-size: 10pt; margin-bottom: 6px; }
+  ul, ol { padding-left: 20px; margin-bottom: 10px; }
+
+  /* Requirement tags */
+  .tag { display: inline-block; font-size: 8pt; font-weight: bold; padding: 1px 7px; border-radius: 3px; vertical-align: middle; margin-right: 4px; letter-spacing: 0.3px; }
+  .tag-explicit { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .tag-assumed  { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+  .tag-open     { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .tag-resolved { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
+  .tag-future   { background: #f3e8ff; color: #6b21a8; border: 1px solid #c4b5fd; }
+
+  /* Legend */
+  .legend { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; font-size: 9pt; }
+  .legend-row { display: flex; gap: 20px; flex-wrap: wrap; }
+
+  /* Requirement tables */
+  .req-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt; }
+  .req-table th { background: #334155; color: #fff; padding: 6px 8px; text-align: left; font-size: 9pt; }
+  .req-table td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  .req-table tr:nth-child(even) { background: #f8fafc; }
+  .req-id { font-weight: bold; white-space: nowrap; color: #475569; }
+
+  /* Color swatches */
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 2px; vertical-align: middle; margin-right: 4px; border: 1px solid #ccc; }
+
+  /* Retrospective */
+  .retro-item { background: #f0f9ff; border-left: 3px solid #2563eb; padding: 8px 12px; margin-bottom: 10px; font-size: 9.5pt; }
+  .retro-item strong { color: #1e3a5f; }
+
+  /* Data format tables */
+  .data-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9pt; }
+  .data-table th { background: #f1f5f9; color: #334155; padding: 4px 8px; text-align: left; border: 1px solid #e2e8f0; }
+  .data-table td { padding: 4px 8px; border: 1px solid #e2e8f0; }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()">Print / Save as PDF</button>
+</div>
+
+<!-- ============================================================ -->
+<!-- TITLE BLOCK                                                    -->
+<!-- ============================================================ -->
+<div class="title-block">
+  <h1>Product Requirements Document</h1>
+  <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
+  <table class="meta-table">
+    <tr><td class="label">Document Version:</td><td>2.0</td></tr>
+    <tr><td class="label">Date:</td><td>February 25, 2026</td></tr>
+    <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Incorporates stakeholder feedback from v1.0 review</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-4.html</td></tr>
+    <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<!-- LEGEND                                                         -->
+<!-- ============================================================ -->
+<div class="legend">
+  <strong>Requirement Source Legend</strong>
+  <div class="legend-row" style="margin-top:6px;">
+    <span><span class="tag tag-explicit">EXPLICIT</span> Direct instruction from product owner</span>
+    <span><span class="tag tag-assumed">ASSUMED</span> Decision made by developer</span>
+    <span><span class="tag tag-resolved">RESOLVED</span> Was OPEN in v1.0, now answered</span>
+    <span><span class="tag tag-open">OPEN</span> Still needs definition</span>
+    <span><span class="tag tag-future">FUTURE</span> Deferred enhancement</span>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 1. PURPOSE & BACKGROUND                                        -->
+<!-- ============================================================ -->
+<h2>1. Purpose &amp; Background</h2>
+
+<p><span class="tag tag-explicit">EXPLICIT</span>
+The Gate Tracker is a client-side, single-file HTML application that visualizes where active work orders sit within a manufacturing gate sequence. It ingests two CSV data sources&mdash;a <strong>Gate Decoder Ring</strong> (the master gate/operation mapping) and a <strong>Daily Upload</strong> (a daily snapshot of operational status)&mdash;and renders a dashboard showing order-level progress through gates.</p>
+
+<p><span class="tag tag-explicit">EXPLICIT</span>
+The application must run entirely offline in a standard web browser with zero external dependencies. The user cannot share work data with external services, so all processing is done client-side. The HTML file is transferred to a work computer via download.</p>
+
+<p><span class="tag tag-resolved">RESOLVED</span>
+The lab is converting to a <strong>visual factory</strong> model: physical racks represent predefined gates, and hardware (when ready to work) is placed on the appropriate rack based on which operations are in queue or active. Executing this in the real world is challenging, so this tool provides a quick digital reference showing what operations are in queue/active for each work order and which rack (gate) the hardware belongs on. Visibility into work order or operation holds is critical&mdash;held hardware should be moved from ready-to-work gates to a dedicated hold rack.</p>
+
+<h3>1.1 Intended Users</h3>
+<p><span class="tag tag-resolved">RESOLVED</span>
+<strong>Primary:</strong> Lab leadership who need to quickly ascertain where hardware should be physically placed.
+<strong>Secondary:</strong> Project managers who want to understand the week-to-week progress of their hardware through the gate sequence.</p>
+
+<h3>1.2 Business Context</h3>
+<p><span class="tag tag-resolved">RESOLVED</span>
+The Decoder Ring is currently maintained manually. A more efficient approach would be to assign gate information for every operation directly within the Manufacturing Execution System (MES), making the manual file a temporary measure. The Daily Upload is generated from the MES but is manually downloaded&mdash;also a temporary approach.</p>
+
+<p><strong>This application is a prototype.</strong> With funding, it would be rebuilt within the organization's network and connected directly to the MES via API instead of relying on manually downloaded files. The product owner is open to structuring the current code in a way that would make the swap to an API configuration easier for a human programmer in the future.</p>
+
+<p><span class="tag tag-open">OPEN</span> To support the eventual API migration, consider: (1) isolating all CSV-parsing logic behind a data-adapter interface so a future developer can swap in an API fetch without touching rendering code, and (2) documenting the expected data schema independently of the CSV format.</p>
+
+
+<!-- ============================================================ -->
+<!-- 2. SCOPE & CONSTRAINTS                                         -->
+<!-- ============================================================ -->
+<h2>2. Scope &amp; Constraints</h2>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">C-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The application must be a single self-contained HTML file (HTML + CSS + JavaScript). No external libraries, frameworks, CDN links, or build steps.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-02</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>All processing is client-side. No data leaves the browser. No server, no network calls.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-03</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The file must be downloadable and operable on a work computer with a standard modern browser.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-04</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>Target browsers: <strong>Google Chrome</strong> and <strong>Microsoft Edge</strong> (latest versions).</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-05</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>Expected maximum: ~1,000 rows in Daily Upload. The application should display a <strong>warning popup if more than 500 rows</strong> are detected, to alert the user that the dataset is unusually large.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-06</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>The product owner is open to accessibility improvements, particularly for <strong>color-blind users</strong>. Specific modifications to be proposed by the developer.</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 3. DATA INPUTS                                                 -->
+<!-- ============================================================ -->
+<h2>3. Data Inputs</h2>
+
+<h3>3.1 Gate Decoder Ring (CSV)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> A manually maintained CSV file that maps each Part Number's operations to numbered gates. Each row represents one operation within one gate for one part.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
+  <tr><td>Part No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>The part number identifier</td></tr>
+  <tr><td>Part Name</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Human-readable name displayed in the part header</td></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Numeric gate identifier (used in display label)</td></tr>
+  <tr><td>Gate Name</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive gate name</td></tr>
+  <tr><td>Oper No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Operation number (may lack leading zeros, e.g. "50")</td></tr>
+  <tr><td>Work Dept</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Present in file but <strong>not used</strong> for color logic (daily upload is the source of truth for Work Dept)</td></tr>
+  <tr><td>Modifier</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Present in file but not currently used by the application</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> The row order in this file dictates the left-to-right display order of gates. The application must not re-sort gates by gate number.</p>
+
+<h3>3.2 Daily Upload (CSV)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> A daily snapshot from the MES of work order operations, pre-filtered by the user before loading. The application performs no Oper Status filtering of its own.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
+  <tr><td>Order No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order identifier</td></tr>
+  <tr><td>Oper No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Operation number (4-digit with leading zeros, e.g. "0050")</td></tr>
+  <tr><td>Oper Title</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive operation name (shown in tooltip)</td></tr>
+  <tr><td>Oper Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Status value (e.g. "ACTIVE", "IN QUEUE") &mdash; drives chip color</td></tr>
+  <tr><td>Part No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (must match decoder ring)</td></tr>
+  <tr><td>Program</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Program name (top-level grouping)</td></tr>
+  <tr><td>Serial No</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (shown in order header)</td></tr>
+  <tr><td>Order Hold Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Hold flag (shown in red when present, truncated to 12 characters)</td></tr>
+  <tr><td>Total Days at Operation</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Column 26 &mdash; displayed in tooltip</td></tr>
+  <tr><td>Work Dept</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Department assignment &mdash; drives chip color logic</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> The Daily Upload uses 4-digit operation numbers with leading zeros (e.g. "0050") while the Decoder Ring uses bare numbers (e.g. "50"). The application normalizes these via leading-zero stripping for matching.</p>
+
+<p><span class="tag tag-resolved">RESOLVED</span> The Daily Upload contains 30 columns. At this time it is not clear what additional columns may be needed. Current column set is sufficient.</p>
+
+
+<!-- ============================================================ -->
+<!-- 4. FUNCTIONAL REQUIREMENTS                                     -->
+<!-- ============================================================ -->
+<h2>4. Functional Requirements</h2>
+
+<h3>4.1 File Loading</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>User selects two CSV files via file input controls: (1) Gate Decoder Ring, (2) Daily Upload.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-02</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The "Process" button is disabled until both files are loaded. A row count confirmation is shown after each file loads.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-03</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>CSV parsing handles quoted fields, escaped quotes, CRLF and LF line endings. Column matching is case-insensitive.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-04</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>If required columns are missing from either CSV, an error message is displayed and processing halts.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-05</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>No drag-and-drop file loading. Not required.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-06</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>No need to replace/reload individual files. User refreshes the page to start over.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-07</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Row count warning:</strong> If the daily upload contains more than 500 data rows, a warning popup is displayed before processing continues.</td>
+  </tr>
+</table>
+
+<h3>4.2 Data Matching &amp; Grouping</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-10</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Daily upload records are matched to decoder ring entries by Part No. + Oper No. (with leading-zero normalization).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-11</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Daily upload records whose Part No. does not appear in the decoder ring are silently excluded.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-12</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Display is grouped three levels deep: <strong>Program &rarr; Part No. &rarr; Order No.</strong></td>
+  </tr>
+  <tr>
+    <td class="req-id">F-13</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>No Oper Status filtering is performed. The user pre-filters the Daily Upload before loading.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-14</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>The same Part No. can appear under multiple Programs. Each Program group shows its own independent copy of that Part No. section. They are kept separate.</td>
+  </tr>
+</table>
+
+<h3>4.3 Gate Ordering &amp; Consecutive Runs</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-20</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Gates are displayed left-to-right in the order they appear in the decoder ring CSV for each Part No. Gates are <strong>not</strong> sorted by gate number.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-21</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>If the same gate appears in multiple consecutive runs in the decoder ring (e.g., Gate 3 &rarr; Gate 4 &rarr; Gate 3), each run is displayed as a separate column. Opers are not merged across non-consecutive appearances.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-22</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Gate column label format: "<em>GateNumber</em>. <em>GateName</em>" (e.g. "1. back gate").</td>
+  </tr>
+</table>
+
+<h3>4.4 Undefined Operations</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-30</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Operations in the daily upload that have no matching gate in the decoder ring are still displayed. They appear chronologically (by oper number) among the gate columns with a blank/grey gate header.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-31</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>DR Ops (7000&ndash;7999):</strong> Operations numbered 7000&ndash;7999 that are not in the decoder ring are collected into a single "DR Ops" column at the far right.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-32</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>No other operation number ranges require special treatment at this time.</td>
+  </tr>
+</table>
+
+<h3>4.5 Program Filter</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-40</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>A row of clickable program chips appears at the top. Clicking a chip toggles visibility of that program's section. A "Show All" chip re-selects all programs.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-41</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>All programs are selected (visible) by default after processing. Confirmed.</td>
+  </tr>
+</table>
+
+<h3>4.6 Part Number Filter</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-50</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>A list of all detected Part Numbers is displayed as a filter. When a Part No. is selected, only that Part No. is shown (all others hidden). This provides a "focus mode" for a single part. A "Show All" option restores full visibility.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-51</td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td>Should the Part No. filter interact with the Program filter? (e.g., if a Part No. appears under two programs, does selecting it show both, or only the currently-visible programs?)</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 5. VISUAL / UI REQUIREMENTS                                    -->
+<!-- ============================================================ -->
+<h2>5. Visual &amp; UI Requirements</h2>
+
+<h3>5.1 Layout Hierarchy</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Program heading:</strong> Bold text with bottom border, serving as the top-level grouping.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-02</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Part header:</strong> Dark blue bar showing "PartNo &mdash; PartName".</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-03</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Order card:</strong> Single horizontal row per order. Left side has a <strong>fixed width</strong> containing: Order No., S/N, and Hold Status (if present). The hold status is displayed <strong>without</strong> a "Hold" label&mdash;just the raw status text in red. The left side maintains its fixed width regardless of whether a hold is present, ensuring uniform alignment across all order cards. Hold status text is truncated at 12 characters if longer. Right side: gate progress bar.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-04</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>No detail table is shown below order cards. The compact single-line card is the only representation.</td>
+  </tr>
+</table>
+
+<h3>5.2 Gate Bar</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-10</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Gate names occupy a fixed 3-line height (3.6em), vertically centered, with word-wrap enabled.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-11</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Minimum gate column width: 70px. Gate bar scrolls horizontally if columns exceed available space.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-12</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Undefined-gate columns use a lighter grey header (#94a3b8) to distinguish them from named gates.</td>
+  </tr>
+</table>
+
+<h3>5.3 Operation Chip Color Coding</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> Operations present in the daily upload are shown as colored chips. The color is determined by Oper Status and Work Dept <strong>from the daily upload</strong> (not the decoder ring).</p>
+
+<table class="data-table">
+  <tr><th style="width:30px;"></th><th>Color</th><th>Condition</th><th>Priority</th></tr>
+  <tr>
+    <td><span class="swatch" style="background:#e5e7eb;"></span></td>
+    <td>Grey (inactive)</td>
+    <td>Operation is in the decoder ring but <strong>not</strong> in the daily upload</td>
+    <td>&mdash;</td>
+  </tr>
+  <tr>
+    <td><span class="swatch" style="background:#ca8a04;"></span></td>
+    <td>Mustard Yellow</td>
+    <td>Oper Status = "IN QUEUE" (case-insensitive)</td>
+    <td>1st</td>
+  </tr>
+  <tr>
+    <td><span class="swatch" style="background:#2563eb;"></span></td>
+    <td>Blue</td>
+    <td>Oper Status = "ACTIVE" <strong>and</strong> Work Dept ends in "_QA"</td>
+    <td>2nd</td>
+  </tr>
+  <tr>
+    <td><span class="swatch" style="background:#16a34a;"></span></td>
+    <td>Green</td>
+    <td>Oper Status = "ACTIVE" <strong>and</strong> Work Dept = "SMART"</td>
+    <td>3rd</td>
+  </tr>
+  <tr>
+    <td><span class="swatch" style="background:#db2777;"></span></td>
+    <td>Pink</td>
+    <td>Oper Status = "ACTIVE" <strong>and</strong> Work Dept is anything other than "SMART" or ending in "_QA"</td>
+    <td>4th</td>
+  </tr>
+  <tr>
+    <td><span class="swatch" style="background:#e5e7eb;"></span></td>
+    <td>Grey (other)</td>
+    <td><span class="tag tag-resolved">RESOLVED</span> Any other Oper Status (e.g. "CLOSED", "COMPLETE") &mdash; displayed as grey, same style as inactive chips but retains tooltip</td>
+    <td>5th</td>
+  </tr>
+</table>
+
+<h3>5.4 Tooltips</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-20</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Hovering over an active oper chip shows a tooltip containing: Oper Title, Oper Status, and Total Days at Operation (if available).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-21</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>If Work Dept is anything other than "SMART", the Work Dept is also shown in the tooltip.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-22</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>Tooltip format: "OperTitle &mdash; OperStatus &mdash; WorkDept &mdash; N days" (Work Dept and days omitted when not applicable). Approved.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-23</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>Tooltips use the browser's native title-attribute tooltip. No custom tooltip styling. Approved.</td>
+  </tr>
+</table>
+
+<h3>5.5 Summary &amp; Metrics</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-30</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>No summary line. Removed per product owner direction.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-31</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>Aggregate metrics (active/in queue counts) are not helpful at this time because planning allows parallel operations and some operations are not relevant for technicians (paperwork, inspections, etc.).</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 6. NON-FUNCTIONAL REQUIREMENTS                                 -->
+<!-- ============================================================ -->
+<h2>6. Non-Functional Requirements</h2>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">N-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Security / Privacy:</strong> No data transmission. All processing is in-browser. No cookies, no local storage, no analytics.</td>
+  </tr>
+  <tr>
+    <td class="req-id">N-02</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Performance:</strong> Processing and rendering should complete within 2 seconds for typical data volumes (~500&ndash;1,000 rows). Approved.</td>
+  </tr>
+  <tr>
+    <td class="req-id">N-03</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Printability:</strong> A "Print / Export PDF" button is required. The printed output should include the <strong>export date and time</strong> on the page. The product owner expects to generate a PDF nightly. File input controls and filter chips should be hidden in print output.</td>
+  </tr>
+  <tr>
+    <td class="req-id">N-04</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Data persistence:</strong> Not required. Data is transient per session.</td>
+  </tr>
+  <tr>
+    <td class="req-id">N-05</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Versioning:</strong> Not required at this time. Single user.</td>
+  </tr>
+  <tr>
+    <td class="req-id">N-06</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Error recovery:</strong> Not required. Page refresh to start over is acceptable.</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 7. OUT OF SCOPE (Current Version)                              -->
+<!-- ============================================================ -->
+<h2>7. Out of Scope (Current Version)</h2>
+<p>The following features are not part of the current implementation. Listed here for consideration in future versions:</p>
+<ul>
+  <li><span class="tag tag-future">FUTURE</span> <strong>Multi-session data comparison</strong> (compare today's upload vs. yesterday's) &mdash; product owner expressed interest, deferred for now</li>
+  <li><span class="tag tag-future">FUTURE</span> <strong>API integration</strong> &mdash; replace CSV file loading with direct MES API connection (requires funding and network access)</li>
+  <li><span class="tag tag-future">FUTURE</span> Color-blind accessible palette / dark mode</li>
+  <li><span class="tag tag-future">FUTURE</span> Order-level search or text filter</li>
+  <li><span class="tag tag-future">FUTURE</span> Click-to-expand order detail view</li>
+  <li><span class="tag tag-future">FUTURE</span> Sorting orders within a Part No. (by S/N, hold status, progress %)</li>
+  <li><span class="tag tag-future">FUTURE</span> Decoder Ring editor built into the app</li>
+  <li><span class="tag tag-future">FUTURE</span> Automated data loading (file watch, clipboard paste)</li>
+  <li><span class="tag tag-future">FUTURE</span> Mobile / responsive layout optimization</li>
+</ul>
+
+
+<!-- ============================================================ -->
+<!-- 8. RETROSPECTIVE & ARCHITECTURE NOTES                          -->
+<!-- ============================================================ -->
+<h2>8. Retrospective &amp; Architecture Notes</h2>
+<p>This section reflects on the development process and identifies areas where, given the full picture from the start, the implementation could be more robust or efficient.</p>
+
+<div class="retro-item">
+  <strong>Observation 1: Monolithic process() function</strong><br>
+  The entire app logic&mdash;parsing both CSVs, matching, grouping, and rendering&mdash;lives in a single ~270-line <code>process()</code> function. If this were started fresh with all requirements known, it would benefit from separation into discrete steps: (1) parse &amp; validate inputs, (2) build the data model, (3) render the view. This would make individual pieces testable and easier to extend (e.g., adding new filters or export features without touching rendering code). <em>This separation would also directly support the eventual API migration by isolating the data-ingestion layer.</em>
+</div>
+
+<div class="retro-item">
+  <strong>Observation 2: HTML string concatenation for rendering</strong><br>
+  The gate bar is built via <code>html += '...'</code> string concatenation. This works but is fragile&mdash;a missing quote or unescaped character can silently break the output. A lightweight template approach (even just a <code>createElement</code>-based builder, which is already used for outer containers) applied consistently would be safer and more maintainable.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 3: Color logic could be data-driven</strong><br>
+  The chip color rules are hardcoded in an if/else chain. If the color scheme or the Work Dept values change, someone must edit JavaScript. An alternative: define a color-rule table at the top of the script (an array of {statusMatch, deptMatch, className} objects) and evaluate it in order. This would make the business rules visible and editable without understanding the surrounding code.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 4: The Decoder Ring "Work Dept" and "Modifier" columns are parsed but unused</strong><br>
+  These columns were added to the CSV format but play no role in the application. If they were planned for future use, the PRD should define what they control. If not, they add ambiguity&mdash;a future maintainer might assume they do something. Consider either defining their purpose or removing them from the expected format.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 5: Incremental development vs. upfront design</strong><br>
+  Features were added one at a time (flat table &rarr; gate bar &rarr; compact cards &rarr; program grouping &rarr; color coding), which meant some work was done and then replaced. For example, the detail tables were built and then removed in favor of compact cards. Starting from a PRD like this one, with the visual layout and data model agreed upon first, would have avoided that rework. That said, the iterative process was valuable for discovering the actual requirements through hands-on experimentation, which is a legitimate approach&mdash;especially when the product owner is also the designer.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 6: No automated testing</strong><br>
+  There are no unit tests for the CSV parser, the normOper() function, or the gate-grouping logic. Each of these has had bugs during development (leading zeros, gate merging, case sensitivity). Even a small inline test suite (runnable via a "Run Tests" button in the UI) would catch regressions when making changes.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 7: Oper Status fallback behavior</strong><br>
+  <em>(Now resolved in v2.0)</em> The color logic previously defaulted unknown statuses to green, which could mislead users. Per product owner direction, any status other than "ACTIVE" or "IN QUEUE" now renders as grey. This is a safer default.
+</div>
+
+
+<!-- ============================================================ -->
+<!-- 9. OPEN QUESTIONS SUMMARY                                      -->
+<!-- ============================================================ -->
+<h2>9. Remaining Open Questions</h2>
+<p>Items still requiring definition (significantly reduced from v1.0):</p>
+
+<ol>
+  <li><strong>API Migration Architecture (1.2):</strong> Should the current code be refactored to isolate CSV parsing behind a data-adapter interface to ease future API swap?</li>
+  <li><strong>Part No. + Program Filter Interaction (F-51):</strong> When a Part No. is selected in the filter, should it override the Program filter or work in conjunction with it?</li>
+  <li><strong>Color-Blind Accessibility (C-06):</strong> Product owner is open to improvements. Suggested approach: add a pattern or icon overlay to colored chips (e.g., hatching on yellow, dot on blue) so color is not the sole differentiator. To be proposed in detail.</li>
+  <li><strong>Decoder Ring unused columns:</strong> What are the intended future uses of Work Dept and Modifier in the decoder ring?</li>
+</ol>
+
+
+<!-- ============================================================ -->
+<!-- 10. REVISION HISTORY                                           -->
+<!-- ============================================================ -->
+<h2>10. Revision History</h2>
+<table class="data-table">
+  <tr><th>Version</th><th>Date</th><th>Author</th><th>Changes</th></tr>
+  <tr><td>1.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Initial draft based on iterative development session with Oscar Castillo</td></tr>
+  <tr><td>2.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Incorporated product owner feedback: added visual factory context, resolved 13 of 17 open questions, added Part No. filter (F-50), print/PDF export (N-03), row count warning (F-07), fixed order card layout (V-03), resolved Oper Status fallback to grey, removed summary bar, added FUTURE and RESOLVED tags</td></tr>
+</table>
+
+</body>
+</html>
