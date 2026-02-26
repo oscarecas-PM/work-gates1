@@ -269,6 +269,7 @@ function process() {
   const uProgramIdx = colIndex(uHeaders, 'Program');
   const uSerialIdx = colIndex(uHeaders, 'Serial No');
   const uOrderHoldIdx = colIndex(uHeaders, 'Order Hold Status');
+  const uTotalDaysIdx = colIndex(uHeaders, 'Total Days at Operation');
 
   const missingCols = [];
   if (uOrderIdx < 0) missingCols.push('Order No.');
@@ -307,7 +308,8 @@ function process() {
       operNo: (r[uOperNoIdx] || '').trim(),
       operTitle: (r[uOperTitleIdx] || '').trim(),
       operStatus: (r[uOperStatusIdx] || '').trim(),
-      orderHoldStatus: (r[uOrderHoldIdx] || '').trim()
+      orderHoldStatus: (r[uOrderHoldIdx] || '').trim(),
+      totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : ''
     });
     totalRows++;
   }
@@ -369,7 +371,7 @@ function process() {
 
         const operInfo = {};
         for (const r of rows) {
-          operInfo[normOper(r.operNo)] = { operTitle: r.operTitle, operStatus: r.operStatus, rawOperNo: r.operNo };
+          operInfo[normOper(r.operNo)] = { operTitle: r.operTitle, operStatus: r.operStatus, rawOperNo: r.operNo, totalDays: r.totalDays };
         }
         const activeOpers = new Set(Object.keys(operInfo));
 
@@ -435,7 +437,7 @@ function process() {
             const nOp = normOper(op);
             const isActive = activeOpers.has(nOp);
             const info = operInfo[nOp];
-            const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) : '';
+            const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) + (info.totalDays ? ' \u2014 ' + esc(info.totalDays) + ' days' : '') : '';
             if (isActive) {
               html += '<span class="oper-chip active" title="' + tooltip + '">' + esc(op) + '</span>';
             } else {
