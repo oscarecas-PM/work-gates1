@@ -76,6 +76,20 @@
   /* Print timestamp */
   #print-timestamp { display: none; font-size: 0.85rem; color: #555; margin-bottom: 0.5rem; }
 
+  /* Gate View */
+  .gate-view-wrapper { border-top: 3px solid #334155; margin-top: 2.5rem; padding-top: 1.5rem; }
+  .gate-view-title { font-size: 1.4rem; font-weight: bold; color: #111; margin-bottom: 1rem; }
+  .gv-gate-section { margin-bottom: 1.5rem; }
+  .gv-gate-header { background: #334155; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 1rem; font-weight: bold; }
+  .gv-gate-header.hold-gate { background: #991b1b; }
+  .gv-cards-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #fff; border: 1px solid #ccc; border-top: none; border-radius: 0 0 4px 4px; }
+  .gv-order-card { min-width: 130px; max-width: 180px; padding: 8px 10px; border-radius: 4px; border: 2px solid transparent; cursor: default; font-size: 0.82rem; }
+  .gv-order-no { font-weight: bold; font-size: 0.85rem; }
+  .gv-part-no { font-size: 0.78rem; color: rgba(0,0,0,0.7); }
+  .gv-sn { font-size: 0.75rem; color: rgba(0,0,0,0.55); }
+  .gv-hold { color: #b91c1c; font-weight: bold; font-size: 0.75rem; }
+  .gv-days { font-size: 0.72rem; color: rgba(0,0,0,0.5); margin-top: 2px; }
+
   /* Print styles */
   @media print {
     body { background: #fff; padding: 0.5rem; }
@@ -84,6 +98,8 @@
     .program-section { break-inside: avoid; }
     .part-section { break-inside: avoid; }
     .order-card { break-inside: avoid; }
+    .gate-view-wrapper { break-before: page; }
+    .gv-gate-section { break-inside: avoid; }
   }
 </style>
 </head>
@@ -301,7 +317,9 @@ function process() {
   const gatesByPart = {};
   const decoderParts = new Set();
   const partNames = {};
+  const modifierByOper = {};
   const dPartNameIdx = colIndex(dHeaders, 'Part Name');
+  const dModifierIdx = colIndex(dHeaders, 'Modifier');
 
   for (let i = 1; i < decoderData.length; i++) {
     const r = decoderData[i];
@@ -315,6 +333,7 @@ function process() {
       partNames[partNo] = (r[dPartNameIdx] || '').trim();
     }
     gateLookup[partNo + '|||' + normOper(operNo)] = { gateNumber: gateNum, gateName: gateName };
+    if (dModifierIdx >= 0) { modifierByOper[partNo + '|||' + normOper(operNo)] = (r[dModifierIdx] || '').trim().toLowerCase(); }
 
     if (!gatesByPart[partNo]) gatesByPart[partNo] = [];
     const gateArr = gatesByPart[partNo];
@@ -393,6 +412,18 @@ function process() {
   }
 
   allPrograms = Object.keys(byProg).sort();
+
+  // Program color map for Gate View
+  const programColors = [
+    { bg: '#dbeafe', border: '#3b82f6' },
+    { bg: '#fef3c7', border: '#f59e0b' },
+    { bg: '#dcfce7', border: '#22c55e' },
+    { bg: '#fce7f3', border: '#ec4899' }
+  ];
+  const programColorMap = {};
+  allPrograms.forEach(function(pgm, idx) {
+    programColorMap[pgm] = programColors[idx % programColors.length];
+  });
   selectedPrograms = new Set(allPrograms);
   allPartNos = Array.from(partNoSet).sort();
   selectedPartNo = null;
@@ -582,6 +613,151 @@ function process() {
 
     output.appendChild(progSection);
   }
+
+  // ==== GATE VIEW: Placement Algorithm ====
+  const HOLD_KEY = 'HOLD';
+  const gateViewBuckets = {};
+  const placedOrders = new Set();
+
+  for (const program of allPrograms) {
+    for (const partNo of Object.keys(byProg[program])) {
+      for (const orderNo of Object.keys(byProg[program][partNo])) {
+        if (placedOrders.has(orderNo)) continue;
+        placedOrders.add(orderNo);
+
+        const rows = byProg[program][partNo][orderNo];
+        const firstRow = rows[0];
+        const holdStatus = (firstRow.orderHoldStatus || '').trim();
+        const holdUpper = holdStatus.toUpperCase();
+
+        // Collect active/in-queue operations
+        const activeOps = [];
+        let maxDays = 0;
+        for (const r of rows) {
+          const st = (r.operStatus || '').toUpperCase().trim();
+          if (st === 'ACTIVE' || st === 'IN QUEUE') {
+            const days = parseFloat(r.totalDays) || 0;
+            activeOps.push({ operNo: r.operNo, operTitle: r.operTitle, operStatus: r.operStatus, workDept: r.workDept, totalDays: r.totalDays, daysNum: days });
+            if (days > maxDays) maxDays = days;
+          }
+        }
+
+        // Determine gate placement
+        let placedGateKey = null;
+        let placedGateNumber = '';
+        let placedGateName = '';
+
+        if (holdUpper === 'ORDER STOP') {
+          placedGateKey = HOLD_KEY;
+        } else if (activeOps.length === 0) {
+          placedGateKey = HOLD_KEY;
+        } else {
+          // Walk gatesByPart in CSV order — first qualifying gate wins
+          const partGates = gatesByPart[partNo] || [];
+          for (const gate of partGates) {
+            let found = false;
+            for (const gateOper of gate.opers) {
+              const nGateOper = normOper(gateOper);
+              const mod = modifierByOper[partNo + '|||' + nGateOper] || '';
+              if (mod === 'ignore') continue;
+              for (const aOp of activeOps) {
+                if (normOper(aOp.operNo) === nGateOper) { found = true; break; }
+              }
+              if (found) break;
+            }
+            if (found) {
+              placedGateKey = gate.gateNumber + '|||' + gate.gateName;
+              placedGateNumber = gate.gateNumber;
+              placedGateName = gate.gateName;
+              break;
+            }
+          }
+          if (!placedGateKey) placedGateKey = HOLD_KEY;
+        }
+
+        if (!gateViewBuckets[placedGateKey]) {
+          gateViewBuckets[placedGateKey] = {
+            gateNumber: placedGateKey === HOLD_KEY ? '' : placedGateNumber,
+            gateName: placedGateKey === HOLD_KEY ? 'Hold' : placedGateName,
+            isHold: placedGateKey === HOLD_KEY,
+            orders: []
+          };
+        }
+        gateViewBuckets[placedGateKey].orders.push({
+          orderNo: orderNo, partNo: partNo, serialNo: firstRow.serialNo,
+          holdStatus: holdStatus, program: program, maxDays: maxDays, activeOps: activeOps
+        });
+      }
+    }
+  }
+
+  // Sort orders within each bucket by maxDays descending (FIFO — highest days on left)
+  for (const key of Object.keys(gateViewBuckets)) {
+    gateViewBuckets[key].orders.sort(function(a, b) { return b.maxDays - a.maxDays; });
+  }
+
+  // Sort gates: Hold first, then ascending gate number
+  const gateKeys = Object.keys(gateViewBuckets);
+  gateKeys.sort(function(a, b) {
+    if (a === HOLD_KEY) return -1;
+    if (b === HOLD_KEY) return 1;
+    const numA = parseFloat(gateViewBuckets[a].gateNumber) || 0;
+    const numB = parseFloat(gateViewBuckets[b].gateNumber) || 0;
+    return numA - numB;
+  });
+
+  // ==== GATE VIEW: Render ====
+  let gvHtml = '<div class="gate-view-wrapper">';
+  gvHtml += '<div class="gate-view-title">Gate View</div>';
+
+  for (const gKey of gateKeys) {
+    const bucket = gateViewBuckets[gKey];
+    const headerText = bucket.isHold
+      ? 'Hold (' + bucket.orders.length + ' orders)'
+      : bucket.gateNumber + '. ' + bucket.gateName + ' (' + bucket.orders.length + ' orders)';
+
+    gvHtml += '<div class="gv-gate-section">';
+    gvHtml += '<div class="gv-gate-header' + (bucket.isHold ? ' hold-gate' : '') + '">' + esc(headerText) + '</div>';
+    gvHtml += '<div class="gv-cards-row">';
+
+    for (const order of bucket.orders) {
+      const color = programColorMap[order.program] || programColors[0];
+
+      // Build tooltip
+      let tip = 'Program: ' + order.program;
+      if (order.holdStatus) tip += '\nHold: ' + order.holdStatus;
+
+      // Show total days for the highest-days operation
+      let highOp = null;
+      for (const aOp of order.activeOps) {
+        if (!highOp || aOp.daysNum > highOp.daysNum) highOp = aOp;
+      }
+      if (highOp) tip += '\nTotal Days: ' + (highOp.totalDays || '0') + ' (Oper ' + highOp.operNo + ')';
+
+      if (order.activeOps.length > 0) {
+        tip += '\n\nActive/In Queue Operations:';
+        for (const op of order.activeOps) {
+          tip += '\n  ' + op.operNo + ' \u2014 ' + op.operTitle + ' \u2014 ' + op.operStatus;
+          if (op.workDept) tip += ' \u2014 ' + op.workDept;
+        }
+      }
+
+      gvHtml += '<div class="gv-order-card" style="background:' + color.bg + ';border-color:' + color.border + ';" title="' + esc(tip) + '">';
+      gvHtml += '<div class="gv-order-no">' + esc(order.orderNo) + '</div>';
+      gvHtml += '<div class="gv-part-no">' + esc(order.partNo) + '</div>';
+      gvHtml += '<div class="gv-sn">S/N: ' + esc(order.serialNo) + '</div>';
+      if (order.holdStatus) {
+        gvHtml += '<div class="gv-hold">' + esc(order.holdStatus.substring(0, 12)) + '</div>';
+      }
+      gvHtml += '<div class="gv-days">' + order.maxDays + ' days</div>';
+      gvHtml += '</div>';
+    }
+
+    gvHtml += '</div></div>';
+  }
+
+  gvHtml += '</div>';
+  output.insertAdjacentHTML('beforeend', gvHtml);
 }
 
 function normOper(s) {
