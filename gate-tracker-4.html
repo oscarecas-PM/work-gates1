@@ -61,7 +61,10 @@
 
   /* Oper chips */
   .oper-chip { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; cursor: default; }
-  .oper-chip.active { background: #16a34a; color: #fff; font-weight: bold; }
+  .oper-chip.active-green { background: #16a34a; color: #fff; font-weight: bold; }
+  .oper-chip.active-yellow { background: #ca8a04; color: #fff; font-weight: bold; }
+  .oper-chip.active-blue { background: #2563eb; color: #fff; font-weight: bold; }
+  .oper-chip.active-pink { background: #db2777; color: #fff; font-weight: bold; }
   .oper-chip.inactive { background: #e5e7eb; color: #aaa; }
   .oper-chip[title] { cursor: pointer; }
 
@@ -76,7 +79,7 @@
 <div class="file-inputs">
   <div class="file-group">
     <h3>1. Gate Decoder Ring</h3>
-    <p>Columns: Part No., Part Name, Gate Number, Gate Name, Oper No.</p>
+    <p>Columns: Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier</p>
     <input type="file" id="decoder-input" accept=".csv">
     <div id="decoder-status" class="status"></div>
   </div>
@@ -270,6 +273,7 @@ function process() {
   const uSerialIdx = colIndex(uHeaders, 'Serial No');
   const uOrderHoldIdx = colIndex(uHeaders, 'Order Hold Status');
   const uTotalDaysIdx = colIndex(uHeaders, 'Total Days at Operation');
+  const uWorkDeptIdx = colIndex(uHeaders, 'Work Dept');
 
   const missingCols = [];
   if (uOrderIdx < 0) missingCols.push('Order No.');
@@ -309,7 +313,8 @@ function process() {
       operTitle: (r[uOperTitleIdx] || '').trim(),
       operStatus: (r[uOperStatusIdx] || '').trim(),
       orderHoldStatus: (r[uOrderHoldIdx] || '').trim(),
-      totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : ''
+      totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : '',
+      workDept: uWorkDeptIdx >= 0 ? (r[uWorkDeptIdx] || '').trim() : ''
     });
     totalRows++;
   }
@@ -371,7 +376,7 @@ function process() {
 
         const operInfo = {};
         for (const r of rows) {
-          operInfo[normOper(r.operNo)] = { operTitle: r.operTitle, operStatus: r.operStatus, rawOperNo: r.operNo, totalDays: r.totalDays };
+          operInfo[normOper(r.operNo)] = { operTitle: r.operTitle, operStatus: r.operStatus, rawOperNo: r.operNo, totalDays: r.totalDays, workDept: r.workDept };
         }
         const activeOpers = new Set(Object.keys(operInfo));
 
@@ -437,9 +442,26 @@ function process() {
             const nOp = normOper(op);
             const isActive = activeOpers.has(nOp);
             const info = operInfo[nOp];
-            const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) + (info.totalDays ? ' \u2014 ' + esc(info.totalDays) + ' days' : '') : '';
+            const deptUpper = info ? (info.workDept || '').toUpperCase().trim() : '';
+            const showDept = info && info.workDept && deptUpper !== 'SMART';
+            const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) + (showDept ? ' \u2014 ' + esc(info.workDept) : '') + (info.totalDays ? ' \u2014 ' + esc(info.totalDays) + ' days' : '') : '';
             if (isActive) {
-              html += '<span class="oper-chip active" title="' + tooltip + '">' + esc(op) + '</span>';
+              // Determine color class based on Oper Status + Work Dept
+              let colorClass = 'active-green'; // default
+              const status = (info.operStatus || '').toUpperCase().trim();
+              const dept = (info.workDept || '').toUpperCase().trim();
+              if (status === 'IN QUEUE') {
+                colorClass = 'active-yellow';
+              } else if (status === 'ACTIVE') {
+                if (dept.endsWith('_QA')) {
+                  colorClass = 'active-blue';
+                } else if (dept === 'SMART') {
+                  colorClass = 'active-green';
+                } else {
+                  colorClass = 'active-pink';
+                }
+              }
+              html += '<span class="oper-chip ' + colorClass + '" title="' + tooltip + '">' + esc(op) + '</span>';
             } else {
               html += '<span class="oper-chip inactive">' + esc(op) + '</span>';
             }
