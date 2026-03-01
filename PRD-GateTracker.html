@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>3.0</td></tr>
+    <tr><td class="label">Document Version:</td><td>4.0</td></tr>
     <tr><td class="label">Date:</td><td>March 1, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Adds Gate View, Detail View, Save Snapshot, and Modifier column usage</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-9.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Adds Data &amp; Security section, documents implemented hardening and remaining risks</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-10.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -461,6 +461,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td>The snapshot displays a "(Snapshot)" label in the title and the date/time it was taken. File input controls, Process button, and Save Snapshot button are excluded from the snapshot.</td>
   </tr>
+  <tr>
+    <td class="req-id">F-84</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Proprietary banner:</strong> Snapshot output includes a visible "Proprietary &mdash; Internal Use Only" banner at the top of the page (amber background, bold text) to remind recipients of data sensitivity. The snapshot also includes its own Content Security Policy meta tag.</td>
+  </tr>
 </table>
 
 
@@ -647,7 +652,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">N-01</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Security / Privacy:</strong> No data transmission. All processing is in-browser. No cookies, no local storage, no analytics.</td>
+    <td><strong>Security / Privacy:</strong> No data transmission. All processing is in-browser. No cookies, no local storage, no analytics. See <strong>Section 10 &mdash; Data &amp; Security</strong> for the full security posture, implemented controls, and remaining risks.</td>
   </tr>
   <tr>
     <td class="req-id">N-02</td>
@@ -667,7 +672,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">N-05</td>
     <td><span class="tag tag-resolved">RESOLVED</span></td>
-    <td><strong>Versioning:</strong> Not required at this time. Single user.</td>
+    <td><strong>Versioning:</strong> A visible version number (v1.0) is displayed in the UI header for traceability. <span class="tag tag-resolved">RESOLVED</span></td>
   </tr>
   <tr>
     <td class="req-id">N-06</td>
@@ -768,14 +773,141 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 
 
 <!-- ============================================================ -->
-<!-- 10. REVISION HISTORY                                           -->
+<!-- 10. DATA & SECURITY                                            -->
 <!-- ============================================================ -->
-<h2>10. Revision History</h2>
+<h2>10. Data &amp; Security</h2>
+<p><span class="tag tag-explicit">EXPLICIT</span> A security assessment was conducted (v4.0) covering the application file and PRD. The assessment combined findings from two independent AI-assisted reviews (ChatGPT and Claude Chat). This section documents the application's security posture, implemented controls, and remaining risks.</p>
+
+<h3>10.1 Threat Context</h3>
+<p>The Gate Tracker processes <strong>proprietary manufacturing data</strong> (work order numbers, part numbers, serial numbers, operational status, and program names). While the application runs entirely client-side with no network communication, the data it handles is sensitive and the resulting output files (snapshots, printed PDFs) may circulate within the organization.</p>
+
+<h3>10.2 Implemented Security Controls</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">S-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>XSS prevention &mdash; HTML escaping:</strong> All user-supplied data rendered into HTML is passed through an <code>esc()</code> function that escapes <code>&amp;</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&quot;</code>, and <code>&#39;</code> (ampersand, angle brackets, double quotes, single quotes). This prevents injection of executable HTML or JavaScript through CSV data.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-02</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Safe DOM construction for errors:</strong> Error messages displayed when CSV columns are missing use <code>document.createElement()</code> + <code>textContent</code> instead of <code>innerHTML</code>. This eliminates any XSS vector in error paths.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-03</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Content Security Policy (CSP):</strong> A <code>&lt;meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';"&gt;</code> tag is present in both the main application and snapshot output. This provides defense-in-depth by restricting resource loading to the same origin and inline scripts only &mdash; blocking external script injection, fetch to remote servers, and image/font loading from third-party domains.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-04</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>CSV field length limit:</strong> During CSV parsing, all field values are truncated to a maximum of 500 characters. This mitigates denial-of-service via excessively long fields (e.g., a maliciously crafted CSV with multi-megabyte cell values) and limits the blast radius of any data that does make it into the DOM.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-05</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Proprietary data banner:</strong> Snapshot output files include a prominent "Proprietary &mdash; Internal Use Only" banner at the top of the page, visually alerting recipients that the file contains sensitive manufacturing data and should not be shared externally.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-06</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Visible version number:</strong> The application displays a version number (v1.0) in the UI header. This provides traceability &mdash; when a snapshot or PDF is shared, the recipient can identify which version of the tool produced it, and security patches can be tracked.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-07</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>No data transmission:</strong> The application makes zero network requests. No data is sent to any server, API, CDN, or analytics service. All processing occurs in the browser's JavaScript runtime. The CSP policy (S-03) enforces this at the browser level as an additional guarantee.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-08</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>No persistent storage:</strong> The application does not use cookies, localStorage, sessionStorage, IndexedDB, or any other browser persistence mechanism. Closing the tab destroys all data. This eliminates data-at-rest risks in the browser.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-09</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>Row count warning:</strong> A confirmation dialog warns the user if the daily upload exceeds 500 rows. While primarily a performance safeguard, this also serves as a data validation checkpoint &mdash; an unexpectedly large file may indicate the wrong data was loaded.</td>
+  </tr>
+</table>
+
+<h3>10.3 Remaining Risks &amp; Unimplemented Recommendations</h3>
+<p>The following items were identified during the security assessment but have <strong>not yet been implemented</strong>. They are listed by priority and include a rationale for deferral.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:60px;">Priority</th><th style="width:80px;">Source</th><th>Risk &amp; Recommendation</th></tr>
+  <tr>
+    <td class="req-id">SR-01</td>
+    <td><strong>Medium</strong></td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>innerHTML still used for rendering:</strong> The gate view cards and detail view order cards are built via HTML string concatenation and injected with <code>innerHTML</code>. While all data values pass through <code>esc()</code>, this pattern is inherently riskier than DOM construction via <code>createElement</code>/<code>textContent</code>. A full refactor of the rendering pipeline to use safe DOM methods would eliminate this risk class entirely. <em>Deferred because:</em> the rendering logic builds complex nested HTML (gate bars, oper chips, tooltips) that would require a significant architectural rewrite. The <code>esc()</code> function provides adequate protection for the current threat model.</td>
+  </tr>
+  <tr>
+    <td class="req-id">SR-02</td>
+    <td><strong>Medium</strong></td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>Snapshot data exposure:</strong> Snapshot HTML files contain the full dataset in cleartext. Anyone with access to the file can see all order numbers, part numbers, serial numbers, and program names. The "Proprietary" banner (S-05) is a visual deterrent but does not enforce access control. <em>Recommendation:</em> Organizational policy should govern snapshot file distribution (e.g., internal email only, no posting to public-facing systems). Technical encryption is impractical for a single-file HTML tool.</td>
+  </tr>
+  <tr>
+    <td class="req-id">SR-03</td>
+    <td><strong>Low</strong></td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>No CSV schema validation beyond column headers:</strong> The application validates that required column names exist but does not validate data types, expected value ranges, or row structure. A malformed CSV could produce incorrect output without error. <em>Recommendation:</em> Add validation rules for critical fields (e.g., Order No. should be alphanumeric, Gate Number should be numeric, Oper Status should be from a known set).</td>
+  </tr>
+  <tr>
+    <td class="req-id">SR-04</td>
+    <td><strong>Low</strong></td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>Regex DoS in parseNum():</strong> The <code>parseNum()</code> fallback uses a simple regex (<code>/[\d.]+/</code>) to extract numbers from strings. For pathologically long input strings, this could theoretically be slow. <em>Practical risk is very low</em> because CSV fields are now capped at 500 characters (S-04).</td>
+  </tr>
+  <tr>
+    <td class="req-id">SR-05</td>
+    <td><strong>Low</strong></td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>Function.toString() serialization:</strong> The snapshot feature serializes JavaScript functions using <code>Function.prototype.toString()</code>. This is non-standard and may break in future browser versions or non-mainstream JavaScript engines. <em>No security risk</em>, but a maintainability concern. Alternative: store function source as string literals.</td>
+  </tr>
+  <tr>
+    <td class="req-id">SR-06</td>
+    <td><strong>Low</strong></td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>No audit logging:</strong> There is no record of who loaded which data, when processing occurred, or when snapshots were generated (beyond the snapshot's embedded timestamp). <em>Acceptable for a single-user prototype.</em> Would be required for a production deployment.</td>
+  </tr>
+  <tr>
+    <td class="req-id">SR-07</td>
+    <td><strong>Info</strong></td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>No role-based access control:</strong> By design. The application is a local HTML file with no authentication or user management. Access control is handled at the file-system level (who has access to the HTML file and the CSV data). This is appropriate for a prototype; a production version would require integration with organizational identity management.</td>
+  </tr>
+</table>
+
+<h3>10.4 Security Assessment Summary</h3>
+<table class="data-table">
+  <tr><th>Category</th><th>Status</th><th>Notes</th></tr>
+  <tr><td>XSS Prevention</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>esc() with 5-character escaping, textContent for errors</td></tr>
+  <tr><td>Content Security Policy</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>CSP meta tag in app and snapshot</td></tr>
+  <tr><td>Input Size Limits</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>500-char field cap, 500-row warning</td></tr>
+  <tr><td>Data Classification</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>Proprietary banner on snapshots</td></tr>
+  <tr><td>Version Traceability</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>Visible v1.0 in UI</td></tr>
+  <tr><td>Network Isolation</td><td style="color:green;font-weight:bold;">&#10004; By Design</td><td>Zero network calls, CSP enforced</td></tr>
+  <tr><td>Data Persistence</td><td style="color:green;font-weight:bold;">&#10004; By Design</td><td>No cookies, localStorage, or storage APIs</td></tr>
+  <tr><td>innerHTML Rendering</td><td style="color:#b45309;font-weight:bold;">&#9888; Partial</td><td>Errors use textContent; card rendering still uses innerHTML + esc()</td></tr>
+  <tr><td>Schema Validation</td><td style="color:#b45309;font-weight:bold;">&#9888; Partial</td><td>Column presence checked; data types/ranges not validated</td></tr>
+  <tr><td>Snapshot Access Control</td><td style="color:#b45309;font-weight:bold;">&#9888; Policy-Based</td><td>Banner applied; no technical enforcement</td></tr>
+  <tr><td>Audit Logging</td><td style="color:#991b1b;font-weight:bold;">&#10008; Not Implemented</td><td>Acceptable for prototype</td></tr>
+  <tr><td>Authentication / RBAC</td><td style="color:#991b1b;font-weight:bold;">&#10008; Not Applicable</td><td>Local file; no server</td></tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 11. REVISION HISTORY                                           -->
+<!-- ============================================================ -->
+<h2>11. Revision History</h2>
 <table class="data-table">
   <tr><th>Version</th><th>Date</th><th>Author</th><th>Changes</th></tr>
   <tr><td>1.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Initial draft based on iterative development session with Oscar Castillo</td></tr>
   <tr><td>2.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Incorporated product owner feedback: added visual factory context, resolved 13 of 17 open questions, added Part No. filter (F-50), print/PDF export (N-03), row count warning (F-07), fixed order card layout (V-03), resolved Oper Status fallback to grey, removed summary bar, added FUTURE and RESOLVED tags</td></tr>
   <tr><td>3.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Added Gate View as primary view (F-60&ndash;F-69): single-gate placement algorithm, Hold gate, FIFO ordering, program-colored cards, card click interaction. Added collapsible Detail View (F-70&ndash;F-72). Added Save Snapshot feature (F-80&ndash;F-83, N-07). Updated Modifier column to EXPLICIT/used ("ignore"). Restructured Visual/UI section (V-01&ndash;V-41). Added retrospective observations 8&ndash;9. Resolved Decoder Ring Modifier open question.</td></tr>
+  <tr><td>4.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Security hardening based on combined ChatGPT + Claude Chat assessment. Implemented: single-quote escaping in esc() (S-01), textContent for error messages (S-02), CSP meta tag in app and snapshot (S-03), CSV field length limit of 500 chars (S-04), "Proprietary &mdash; Internal Use Only" banner in snapshots (S-05, F-84), visible version number v1.0 (S-06). Added new Section 10 &mdash; Data &amp; Security documenting full security posture (S-01&ndash;S-09), remaining risks (SR-01&ndash;SR-07), and summary matrix. Updated N-01 and N-05. Renamed app file to gate-tracker-10.html.</td></tr>
 </table>
 
 </body>
