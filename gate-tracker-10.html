@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
 <title>Gate Tracker</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -116,7 +117,7 @@
 </head>
 <body>
 
-<h1>Gate Tracker</h1>
+<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v1.0</span></h1>
 <p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
 
 <div class="file-inputs">
@@ -202,6 +203,9 @@ function loadCSV(file, callback, statusId) {
   reader.readAsText(file);
 }
 
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s) { var v = s.trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+
 function parseCSV(text) {
   const result = [];
   let current = '';
@@ -215,16 +219,16 @@ function parseCSV(text) {
       else { current += ch; }
     } else {
       if (ch === '"') { inQuotes = true; }
-      else if (ch === ',') { row.push(current.trim()); current = ''; }
+      else if (ch === ',') { row.push(csvField(current)); current = ''; }
       else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
-        row.push(current.trim()); current = '';
+        row.push(csvField(current)); current = '';
         if (row.length > 1 || row[0] !== '') result.push(row);
         row = [];
         if (ch === '\r') i++;
       } else { current += ch; }
     }
   }
-  row.push(current.trim());
+  row.push(csvField(current));
   if (row.length > 1 || row[0] !== '') result.push(row);
   return result;
 }
@@ -378,7 +382,10 @@ function process() {
   const dOperIdx = colIndex(dHeaders, 'Oper No.');
 
   if (dPartIdx < 0 || dGateNumIdx < 0 || dGateNameIdx < 0 || dOperIdx < 0) {
-    output.innerHTML = '<p style="color:red;">Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)</p>';
+    var errP = document.createElement('p');
+    errP.style.color = 'red';
+    errP.textContent = 'Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)';
+    output.appendChild(errP);
     return;
   }
 
@@ -446,7 +453,10 @@ function process() {
   if (uOrderHoldIdx < 0) missingCols.push('Order Hold Status');
 
   if (missingCols.length > 0) {
-    output.innerHTML = '<p style="color:red;">Error: Daily Upload CSV missing columns: ' + missingCols.join(', ') + '</p>';
+    var errP2 = document.createElement('p');
+    errP2.style.color = 'red';
+    errP2.textContent = 'Error: Daily Upload CSV missing columns: ' + missingCols.join(', ');
+    output.appendChild(errP2);
     return;
   }
 
@@ -862,7 +872,7 @@ function normOper(s) {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function saveSnapshot() {
@@ -886,9 +896,11 @@ function saveSnapshot() {
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n';
   html += '<meta charset="UTF-8">\n';
   html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
   html += '<title>Gate Tracker Snapshot - ' + dateStr + '</title>\n';
   html += '<style>\n' + css + '\n</style>\n';
   html += '</head>\n<body>\n';
+  html += '<div style="background:#fef3c7;border:2px solid #f59e0b;padding:8px 14px;text-align:center;font-weight:bold;font-size:0.9rem;color:#92400e;margin-bottom:1rem;border-radius:4px;">Proprietary &mdash; Internal Use Only</div>\n';
   html += '<h1>Gate Tracker <span style="font-size:0.6em;color:#666;">(Snapshot)</span></h1>\n';
   html += '<p style="font-size:0.85rem;color:#555;margin-bottom:1rem;">Snapshot taken: ' + timeStr + '</p>\n';
   html += '<button id="print-btn" onclick="printPage()" style="display:inline-block;">Print / Export PDF</button>\n';
