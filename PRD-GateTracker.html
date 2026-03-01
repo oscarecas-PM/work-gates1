@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>2.0</td></tr>
-    <tr><td class="label">Date:</td><td>February 25, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>3.0</td></tr>
+    <tr><td class="label">Date:</td><td>March 1, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Incorporates stakeholder feedback from v1.0 review</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-4.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Adds Gate View, Detail View, Save Snapshot, and Modifier column usage</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-9.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -186,7 +186,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>Gate Name</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive gate name</td></tr>
   <tr><td>Oper No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Operation number (may lack leading zeros, e.g. "50")</td></tr>
   <tr><td>Work Dept</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Present in file but <strong>not used</strong> for color logic (daily upload is the source of truth for Work Dept)</td></tr>
-  <tr><td>Modifier</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Present in file but not currently used by the application</td></tr>
+  <tr><td>Modifier</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Controls gate placement behavior. Value <strong>"ignore"</strong> causes the operation to be skipped when determining which gate an order belongs on in the Gate View. Other values are reserved for future use.</td></tr>
 </table>
 
 <p><span class="tag tag-explicit">EXPLICIT</span> The row order in this file dictates the left-to-right display order of gates. The application must not re-sort gates by gate number.</p>
@@ -359,57 +359,207 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 </table>
 
 
+<h3>4.7 Gate View</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The Gate View is the <strong>primary view</strong> of the dashboard. It answers the question: "Which physical rack (gate) should each order's hardware be placed on right now?" The Gate View is displayed at the top of the page, above the Detail View.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-60</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Single-gate placement:</strong> Each order is assigned to exactly one gate. The algorithm walks the decoder ring for that order's Part No. in CSV order and selects the <strong>first gate</strong> that contains a non-ignored Active or In Queue operation. "First" means the earliest gate in the decoder ring's row order, not the lowest gate number.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-61</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Modifier "ignore":</strong> If the Modifier column in the decoder ring contains "ignore" (case-insensitive) for an operation, that operation is skipped during gate placement. The order will not be placed on a gate solely because of an ignored operation.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-62</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Hold gate:</strong> An order is placed on the Hold gate (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-63</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>"Oper stop" handling:</strong> If Order Hold Status is "OPER STOP" (or any value other than "ORDER STOP"), the order stays on its qualifying gate (not moved to Hold). The hold status is displayed on the card.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-64</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>FIFO ordering:</strong> Within each gate, orders are sorted by <strong>max Total Days at Operation</strong> descending (highest days on the left). This gives a FIFO approximation&mdash;the order that has been waiting the longest is positioned first.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-65</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate ordering:</strong> Gates are displayed in this order: Hold gate first, then remaining gates in ascending gate number order.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-66</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Program-colored cards:</strong> Each gate view card is colored by program. Colors cycle from a palette (blue, amber, green, pink) based on the program's sort order.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-67</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Card content:</strong> Each card shows Order No., Part No. (with Part Name in parentheses), S/N, hold status (if present, truncated to 12 chars), and Total Days (max across active ops, rounded to 1 decimal).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-68</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Card tooltip:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days oper number, and a list of all Active/In Queue operations with oper number, title, status, and work dept.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-69</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Card click &rarr; Detail View:</strong> Clicking a gate view card selects it (dark border highlight), opens the Detail View if hidden, resets all filters to show all, and scrolls to the corresponding order card in the Detail View. Multiple cards can be selected simultaneously (toggle on/off).</td>
+  </tr>
+</table>
+
+<h3>4.8 Detail View</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The Detail View (formerly the primary "Part Number View") shows per-order gate progress bars grouped by Program and Part No. It is positioned below the Gate View and is <strong>hidden by default</strong>.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-70</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>A "Show Detail View" / "Hide Detail View" toggle button is displayed between the Gate View and the Detail View. The Detail View is hidden by default after processing.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-71</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The Detail View includes a "Detail View" title heading, the Program filter chips, the Part Number filter chips, and all order cards grouped by Program &rarr; Part No. &rarr; Order No.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-72</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>When a gate view card is clicked, the corresponding order card in the Detail View receives a blue outline highlight. Multiple orders can be highlighted simultaneously.</td>
+  </tr>
+</table>
+
+<h3>4.9 Save Snapshot</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-80</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Save Snapshot button:</strong> After processing, a green "Save Snapshot" button is available. Clicking it downloads a self-contained HTML file named <code>gate-tracker-YYYY-MM-DD.html</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-81</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The snapshot file is fully self-contained&mdash;no CSV files or external dependencies are needed to view it. All rendered data, CSS, and interactive JavaScript are embedded.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-82</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The snapshot preserves full interactivity: gate view card clicking with highlight and scroll-to-order, Detail View toggle, program filter chips, part number filter chips, tooltips, and Print/PDF export.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-83</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The snapshot displays a "(Snapshot)" label in the title and the date/time it was taken. File input controls, Process button, and Save Snapshot button are excluded from the snapshot.</td>
+  </tr>
+</table>
+
+
 <!-- ============================================================ -->
 <!-- 5. VISUAL / UI REQUIREMENTS                                    -->
 <!-- ============================================================ -->
 <h2>5. Visual &amp; UI Requirements</h2>
 
-<h3>5.1 Layout Hierarchy</h3>
+<h3>5.1 Overall Layout</h3>
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
     <td class="req-id">V-01</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Program heading:</strong> Bold text with bottom border, serving as the top-level grouping.</td>
+    <td><strong>Page order (top to bottom):</strong> Title &amp; file inputs &rarr; Process / Print / Save buttons &rarr; <strong>Gate View</strong> (primary) &rarr; Detail View toggle button &rarr; <strong>Detail View</strong> (hidden by default, contains filters and order cards).</td>
   </tr>
+</table>
+
+<h3>5.2 Gate View Visuals</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
     <td class="req-id">V-02</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Part header:</strong> Dark blue bar showing "PartNo &mdash; PartName".</td>
+    <td><strong>Gate sections:</strong> Each gate is displayed as a section with a dark header bar (#334155) showing "GateNumber. GateName (N orders)". The Hold gate header uses dark red (#991b1b).</td>
   </tr>
   <tr>
     <td class="req-id">V-03</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Order card:</strong> Single horizontal row per order. Left side has a <strong>fixed width</strong> containing: Order No., S/N, and Hold Status (if present). The hold status is displayed <strong>without</strong> a "Hold" label&mdash;just the raw status text in red. The left side maintains its fixed width regardless of whether a hold is present, ensuring uniform alignment across all order cards. Hold status text is truncated at 12 characters if longer. Right side: gate progress bar.</td>
+    <td><strong>Cards row:</strong> Orders within a gate are displayed as a flex-wrap row of compact cards. Cards are 130&ndash;180px wide with program-colored backgrounds and a 2px colored border.</td>
   </tr>
   <tr>
     <td class="req-id">V-04</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>No detail table is shown below order cards. The compact single-line card is the only representation.</td>
+    <td><strong>Card click interactivity:</strong> Cards have pointer cursor and hover shadow. Selected cards receive a dark (#111) 2px border and box-shadow. Multiple cards may be selected.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-05</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Program color palette:</strong> Cards are colored by program using a cycling palette: <span class="swatch" style="background:#dbeafe;"></span>Blue (#dbeafe), <span class="swatch" style="background:#fef3c7;"></span>Amber (#fef3c7), <span class="swatch" style="background:#dcfce7;"></span>Green (#dcfce7), <span class="swatch" style="background:#fce7f3;"></span>Pink (#fce7f3).</td>
   </tr>
 </table>
 
-<h3>5.2 Gate Bar</h3>
+<h3>5.3 Detail View Visuals</h3>
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
+    <td class="req-id">V-06</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Toggle button:</strong> Slate-colored button (#475569) showing "&#9654; Show Detail View" / "&#9660; Hide Detail View".</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-07</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Detail View title:</strong> "Detail View" heading with a 3px top border (#334155), matching the Gate View title style.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-08</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Highlighted orders:</strong> When a gate view card is clicked, the corresponding order card in the Detail View receives a 3px blue (#2563eb) outline.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-09</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Program heading:</strong> Bold text with bottom border, serving as the top-level grouping within the Detail View.</td>
+  </tr>
+  <tr>
     <td class="req-id">V-10</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Gate names occupy a fixed 3-line height (3.6em), vertically centered, with word-wrap enabled.</td>
+    <td><strong>Part header:</strong> Dark blue bar (#1e3a5f) showing "PartNo &mdash; PartName".</td>
   </tr>
   <tr>
     <td class="req-id">V-11</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Order card:</strong> Single horizontal row per order. Left side has a <strong>fixed width (280px)</strong> containing: Order No., S/N, and Hold Status (if present, truncated to 12 chars, red, word-wrapped at 80px max-width). Right side: gate progress bar.</td>
+  </tr>
+</table>
+
+<h3>5.5 Gate Bar (Detail View)</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-20</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Gate name cells use a <strong>minimum height</strong> of 3.6em (not fixed), vertically centered, with word-wrap enabled. This allows the cell to expand for long gate names when columns are narrow.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-21</td>
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td>Minimum gate column width: 70px. Gate bar scrolls horizontally if columns exceed available space.</td>
   </tr>
   <tr>
-    <td class="req-id">V-12</td>
+    <td class="req-id">V-22</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td>Undefined-gate columns use a lighter grey header (#94a3b8) to distinguish them from named gates.</td>
   </tr>
 </table>
 
-<h3>5.3 Operation Chip Color Coding</h3>
+<h3>5.4 Operation Chip Color Coding (Detail View)</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> Operations present in the daily upload are shown as colored chips. The color is determined by Oper Status and Work Dept <strong>from the daily upload</strong> (not the decoder ring).</p>
 
 <table class="data-table">
@@ -452,41 +602,36 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
 </table>
 
-<h3>5.4 Tooltips</h3>
-<table class="req-table">
-  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
-  <tr>
-    <td class="req-id">V-20</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Hovering over an active oper chip shows a tooltip containing: Oper Title, Oper Status, and Total Days at Operation (if available).</td>
-  </tr>
-  <tr>
-    <td class="req-id">V-21</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>If Work Dept is anything other than "SMART", the Work Dept is also shown in the tooltip.</td>
-  </tr>
-  <tr>
-    <td class="req-id">V-22</td>
-    <td><span class="tag tag-resolved">RESOLVED</span></td>
-    <td>Tooltip format: "OperTitle &mdash; OperStatus &mdash; WorkDept &mdash; N days" (Work Dept and days omitted when not applicable). Approved.</td>
-  </tr>
-  <tr>
-    <td class="req-id">V-23</td>
-    <td><span class="tag tag-resolved">RESOLVED</span></td>
-    <td>Tooltips use the browser's native title-attribute tooltip. No custom tooltip styling. Approved.</td>
-  </tr>
-</table>
-
-<h3>5.5 Summary &amp; Metrics</h3>
+<h3>5.6 Tooltips</h3>
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
     <td class="req-id">V-30</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Oper chip tooltips (Detail View):</strong> Hovering over an active oper chip shows: Oper Title, Oper Status, Total Days at Operation (if available), and Work Dept (if not "SMART"). Format: "OperTitle &mdash; OperStatus &mdash; WorkDept &mdash; N days".</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-31</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate View card tooltips:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days oper number, and a list of all Active/In Queue operations with oper number, title, status, and work dept.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-32</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>All tooltips use the browser's native title-attribute tooltip. No custom tooltip styling. Approved.</td>
+  </tr>
+</table>
+
+<h3>5.7 Summary &amp; Metrics</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-40</td>
     <td><span class="tag tag-resolved">RESOLVED</span></td>
     <td>No summary line. Removed per product owner direction.</td>
   </tr>
   <tr>
-    <td class="req-id">V-31</td>
+    <td class="req-id">V-41</td>
     <td><span class="tag tag-resolved">RESOLVED</span></td>
     <td>Aggregate metrics (active/in queue counts) are not helpful at this time because planning allows parallel operations and some operations are not relevant for technicians (paperwork, inspections, etc.).</td>
   </tr>
@@ -512,7 +657,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">N-03</td>
     <td><span class="tag tag-resolved">RESOLVED</span></td>
-    <td><strong>Printability:</strong> A "Print / Export PDF" button is required. The printed output should include the <strong>export date and time</strong> on the page. The product owner expects to generate a PDF nightly. File input controls and filter chips should be hidden in print output.</td>
+    <td><strong>Printability:</strong> A "Print / Export PDF" button is required. The printed output includes the <strong>export date and time</strong>, the Gate View, and the Detail View (forced visible). File input controls, filter chips, toggle button, and Save Snapshot button are hidden in print output. Page breaks are inserted before the Gate View and avoided inside gate sections and order cards.</td>
   </tr>
   <tr>
     <td class="req-id">N-04</td>
@@ -529,6 +674,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-resolved">RESOLVED</span></td>
     <td><strong>Error recovery:</strong> Not required. Page refresh to start over is acceptable.</td>
   </tr>
+  <tr>
+    <td class="req-id">N-07</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Snapshot export:</strong> The Save Snapshot feature produces a self-contained HTML file that can be emailed or posted to a shared folder. Recipients can open it in any modern browser and use all interactive features (card clicking, filters, print) without needing CSV files or network access.</td>
+  </tr>
 </table>
 
 
@@ -542,12 +692,13 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <li><span class="tag tag-future">FUTURE</span> <strong>API integration</strong> &mdash; replace CSV file loading with direct MES API connection (requires funding and network access)</li>
   <li><span class="tag tag-future">FUTURE</span> Color-blind accessible palette / dark mode</li>
   <li><span class="tag tag-future">FUTURE</span> Order-level search or text filter</li>
-  <li><span class="tag tag-future">FUTURE</span> Click-to-expand order detail view</li>
   <li><span class="tag tag-future">FUTURE</span> Sorting orders within a Part No. (by S/N, hold status, progress %)</li>
   <li><span class="tag tag-future">FUTURE</span> Decoder Ring editor built into the app</li>
   <li><span class="tag tag-future">FUTURE</span> Automated data loading (file watch, clipboard paste)</li>
   <li><span class="tag tag-future">FUTURE</span> Mobile / responsive layout optimization</li>
+  <li><span class="tag tag-future">FUTURE</span> Additional Modifier column values beyond "ignore"</li>
 </ul>
+<p><em>Note: "Click-to-expand order detail view" from v2.0 has been superseded by the Gate View card click &rarr; Detail View interaction (F-69).</em></p>
 
 
 <!-- ============================================================ -->
@@ -572,8 +723,8 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 </div>
 
 <div class="retro-item">
-  <strong>Observation 4: The Decoder Ring "Work Dept" and "Modifier" columns are parsed but unused</strong><br>
-  These columns were added to the CSV format but play no role in the application. If they were planned for future use, the PRD should define what they control. If not, they add ambiguity&mdash;a future maintainer might assume they do something. Consider either defining their purpose or removing them from the expected format.
+  <strong>Observation 4: Decoder Ring column usage</strong><br>
+  <em>(Partially resolved in v3.0)</em> The Modifier column is now actively used&mdash;"ignore" causes an operation to be skipped during gate placement. The Decoder Ring's Work Dept column is still parsed but unused (the Daily Upload's Work Dept drives chip color logic). Consider either defining the Decoder Ring Work Dept's purpose or removing it from the expected format.
 </div>
 
 <div class="retro-item">
@@ -591,18 +742,28 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <em>(Now resolved in v2.0)</em> The color logic previously defaulted unknown statuses to green, which could mislead users. Per product owner direction, any status other than "ACTIVE" or "IN QUEUE" now renders as grey. This is a safer default.
 </div>
 
+<div class="retro-item">
+  <strong>Observation 8: Snapshot uses Function.toString() for serialization</strong><br>
+  The Save Snapshot feature serializes interactive JavaScript functions using <code>Function.prototype.toString()</code> and re-attaches event listeners via delegation. This works reliably but means that any function referenced by the snapshot must be a named function declaration (not an arrow function assigned to a variable). If the codebase moves toward ES6+ patterns, the serialization approach may need updating.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 9: Total Days column matching required multiple fallbacks</strong><br>
+  The "Total Days at Operation" column (column Z / 26th column) initially showed 0 for all cards. The fix required: (1) a fallback partial-match search if the exact column name doesn't match (handles embedded newlines from Excel), (2) a robust <code>parseNum()</code> helper that extracts numbers from strings even with unexpected formatting. This highlights the fragility of CSV column matching when files pass through Excel&mdash;a header validation step at load time could surface these issues earlier.
+</div>
+
 
 <!-- ============================================================ -->
 <!-- 9. OPEN QUESTIONS SUMMARY                                      -->
 <!-- ============================================================ -->
 <h2>9. Remaining Open Questions</h2>
-<p>Items still requiring definition (significantly reduced from v1.0):</p>
+<p>Items still requiring definition (further reduced from v2.0):</p>
 
 <ol>
   <li><strong>API Migration Architecture (1.2):</strong> Should the current code be refactored to isolate CSV parsing behind a data-adapter interface to ease future API swap?</li>
   <li><strong>Part No. + Program Filter Interaction (F-51):</strong> When a Part No. is selected in the filter, should it override the Program filter or work in conjunction with it?</li>
   <li><strong>Color-Blind Accessibility (C-06):</strong> Product owner is open to improvements. Suggested approach: add a pattern or icon overlay to colored chips (e.g., hatching on yellow, dot on blue) so color is not the sole differentiator. To be proposed in detail.</li>
-  <li><strong>Decoder Ring unused columns:</strong> What are the intended future uses of Work Dept and Modifier in the decoder ring?</li>
+  <li><strong>Decoder Ring Work Dept column:</strong> The Modifier column question is resolved ("ignore" is now used). What is the intended purpose of the Work Dept column in the Decoder Ring, given that the Daily Upload's Work Dept drives chip color logic?</li>
 </ol>
 
 
@@ -614,6 +775,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><th>Version</th><th>Date</th><th>Author</th><th>Changes</th></tr>
   <tr><td>1.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Initial draft based on iterative development session with Oscar Castillo</td></tr>
   <tr><td>2.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Incorporated product owner feedback: added visual factory context, resolved 13 of 17 open questions, added Part No. filter (F-50), print/PDF export (N-03), row count warning (F-07), fixed order card layout (V-03), resolved Oper Status fallback to grey, removed summary bar, added FUTURE and RESOLVED tags</td></tr>
+  <tr><td>3.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Added Gate View as primary view (F-60&ndash;F-69): single-gate placement algorithm, Hold gate, FIFO ordering, program-colored cards, card click interaction. Added collapsible Detail View (F-70&ndash;F-72). Added Save Snapshot feature (F-80&ndash;F-83, N-07). Updated Modifier column to EXPLICIT/used ("ignore"). Restructured Visual/UI section (V-01&ndash;V-41). Added retrospective observations 8&ndash;9. Resolved Decoder Ring Modifier open question.</td></tr>
 </table>
 
 </body>
