@@ -60,7 +60,7 @@
   .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
   .order-info .value { color: #111; font-size: 0.85rem; }
   .hold-flag { color: #b91c1c; font-weight: bold; font-size: 0.8rem; max-width: 80px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal; }
-  .top-link { color: #2563eb; text-decoration: none; font-size: 0.75rem; margin-left: 4px; vertical-align: middle; }
+  .top-link { color: #2563eb; text-decoration: none; font-size: 0.7rem; display: block; margin-top: 1px; }
   .top-link:hover { text-decoration: underline; }
 
   /* Right: gate bar */
@@ -109,8 +109,8 @@
   /* Print styles */
   @media print {
     body { background: #fff; padding: 0.5rem; }
-    .file-inputs, #run-btn, #print-btn, #save-btn, #detail-toggle, .filter-bar, .description, .top-link { display: none !important; }
-    #print-timestamp, #detail-view, .program-section, .part-section { display: block !important; }
+    .file-inputs, #run-btn, #print-btn, #save-btn, #detail-toggle, #unmapped-toggle, #unmapped-label, .filter-bar, .description, .top-link { display: none !important; }
+    #print-timestamp, #detail-view, #undecoded-view, .program-section, .part-section { display: block !important; }
     .program-section, .part-section, .order-card { break-inside: avoid; }
     .gate-view-wrapper { break-before: page; }
     .gv-gate-section { break-inside: avoid; }
@@ -144,6 +144,7 @@
 </div>
 
 <button id="run-btn" disabled onclick="process()">Process</button>
+<label id="unmapped-label" style="margin-left:12px;font-size:0.9rem;cursor:pointer;user-select:none;"><input type="checkbox" id="unmapped-chk" checked style="margin-right:4px;vertical-align:middle;cursor:pointer;">Include Unmapped Operations</label>
 <button id="print-btn" onclick="printPage()">Print / Export PDF</button>
 <button id="save-btn" onclick="saveSnapshot()">&#128190; Save Snapshot</button>
 
@@ -164,6 +165,21 @@
     <div class="filter-chips" id="pn-filter-chips"></div>
   </div>
   <div id="output"></div>
+</div>
+
+<button id="unmapped-toggle" onclick="toggleUnmappedView()" style="display:none">&#9654; Show Unmapped Operations</button>
+
+<div id="undecoded-view" style="display:none">
+  <div class="detail-view-title">Unmapped Operations</div>
+  <div id="unmapped-pgm-filter" class="filter-bar">
+    <div class="filter-title">Programs</div>
+    <div class="filter-chips" id="unmapped-pgm-chips"></div>
+  </div>
+  <div id="unmapped-pn-filter" class="filter-bar">
+    <div class="filter-title">Part Numbers</div>
+    <div class="filter-chips" id="unmapped-pn-chips"></div>
+  </div>
+  <div id="undecoded-output"></div>
 </div>
 
 <script>
@@ -264,6 +280,12 @@ let allPartNos = [];
 let selectedPartNo = null; // null = show all
 let selectedGvOrders = new Set();
 
+// --- Globals for unmapped filters ---
+let umAllPrograms = [];
+let umSelectedPrograms = new Set();
+let umAllPartNos = [];
+let umSelectedPartNo = null;
+
 function toggleDetailView() {
   const dv = document.getElementById('detail-view');
   const btn = document.getElementById('detail-toggle');
@@ -273,6 +295,18 @@ function toggleDetailView() {
   } else {
     dv.style.display = 'none';
     btn.innerHTML = '&#9654; Show Detail View';
+  }
+}
+
+function toggleUnmappedView() {
+  const uv = document.getElementById('undecoded-view');
+  const btn = document.getElementById('unmapped-toggle');
+  if (uv.style.display === 'none') {
+    uv.style.display = 'block';
+    btn.innerHTML = '&#9660; Hide Unmapped Operations';
+  } else {
+    uv.style.display = 'none';
+    btn.innerHTML = '&#9654; Show Unmapped Operations';
   }
 }
 
@@ -301,7 +335,7 @@ function toggleGvOrder(orderNo) {
     selectedPartNo = null;
     applyFilters();
     // Scroll to the specific order in detail view
-    const target = document.querySelector('.order-card[data-orderno="' + orderNo + '"]');
+    const target = document.querySelector('.order-card[data-orderno="' + CSS.escape(orderNo) + '"]');
     if (target) {
       setTimeout(function() { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
     }
@@ -337,29 +371,65 @@ function showAllParts() {
 }
 
 function applyFilters() {
-  // Program chips
-  document.querySelectorAll('.filter-chip[data-pgm]').forEach(c => {
+  // Program chips (detail view only)
+  document.querySelectorAll('#detail-view .filter-chip[data-pgm]').forEach(c => {
     c.classList.toggle('selected', selectedPrograms.has(c.dataset.pgm));
   });
-  // Part No. chips
-  document.querySelectorAll('.filter-chip[data-pn]').forEach(c => {
+  // Part No. chips (detail view only)
+  document.querySelectorAll('#detail-view .filter-chip[data-pn]').forEach(c => {
     c.classList.toggle('selected', selectedPartNo === null ? false : c.dataset.pn === selectedPartNo);
   });
-  // "Show All" for parts
   const pnAllBtn = document.getElementById('pn-show-all');
   if (pnAllBtn) pnAllBtn.classList.toggle('selected', selectedPartNo === null);
 
-  // Visibility: program sections
-  document.querySelectorAll('.program-section').forEach(s => {
+  // Visibility: program sections (detail view only)
+  document.querySelectorAll('#output .program-section').forEach(s => {
     s.style.display = selectedPrograms.has(s.dataset.program) ? '' : 'none';
   });
-  // Visibility: part sections
-  document.querySelectorAll('.part-section').forEach(s => {
+  // Visibility: part sections (detail view only)
+  document.querySelectorAll('#output .part-section').forEach(s => {
     if (selectedPartNo === null) {
       s.style.display = '';
     } else {
       s.style.display = s.dataset.partno === selectedPartNo ? '' : 'none';
     }
+  });
+}
+
+// --- Unmapped filter functions ---
+function toggleUmProgram(pgm) {
+  if (umSelectedPrograms.has(pgm)) { umSelectedPrograms.delete(pgm); }
+  else { umSelectedPrograms.add(pgm); }
+  applyUmFilters();
+}
+function selectAllUmPrograms() {
+  umSelectedPrograms = new Set(umAllPrograms);
+  applyUmFilters();
+}
+function selectUmPartNo(pn) {
+  umSelectedPartNo = (umSelectedPartNo === pn) ? null : pn;
+  applyUmFilters();
+}
+function showAllUmParts() {
+  umSelectedPartNo = null;
+  applyUmFilters();
+}
+function applyUmFilters() {
+  document.querySelectorAll('#undecoded-view .filter-chip[data-pgm]').forEach(c => {
+    c.classList.toggle('selected', umSelectedPrograms.has(c.dataset.pgm));
+  });
+  document.querySelectorAll('#undecoded-view .filter-chip[data-pn]').forEach(c => {
+    c.classList.toggle('selected', umSelectedPartNo === null ? false : c.dataset.pn === umSelectedPartNo);
+  });
+  const umPnAllBtn = document.getElementById('unmapped-pn-show-all');
+  if (umPnAllBtn) umPnAllBtn.classList.toggle('selected', umSelectedPartNo === null);
+
+  document.querySelectorAll('#undecoded-output .program-section').forEach(s => {
+    s.style.display = umSelectedPrograms.has(s.dataset.program) ? '' : 'none';
+  });
+  document.querySelectorAll('#undecoded-output .part-section').forEach(s => {
+    if (umSelectedPartNo === null) { s.style.display = ''; }
+    else { s.style.display = s.dataset.partno === umSelectedPartNo ? '' : 'none'; }
   });
 }
 
@@ -388,6 +458,13 @@ function process() {
   document.getElementById('gate-view-output').innerHTML = '';
   document.getElementById('detail-view').style.display = 'none';
   document.getElementById('detail-toggle').style.display = 'none';
+  document.getElementById('undecoded-output').innerHTML = '';
+  document.getElementById('undecoded-view').style.display = 'none';
+  document.getElementById('unmapped-toggle').style.display = 'none';
+  document.getElementById('unmapped-pgm-filter').style.display = 'none';
+  document.getElementById('unmapped-pgm-chips').innerHTML = '';
+  document.getElementById('unmapped-pn-filter').style.display = 'none';
+  document.getElementById('unmapped-pn-chips').innerHTML = '';
   selectedGvOrders = new Set();
 
   // ---- Decoder Ring ----
@@ -512,13 +589,32 @@ function process() {
 
   // Group: program -> partNo -> orderNo -> [rows]
   const byProg = {};
+  const byProgUndecoded = {};
   const partNoSet = new Set();
   for (let i = 1; i < dailyData.length; i++) {
     const r = dailyData[i];
     const partNo = (r[uPartIdx] || '').trim();
-    if (!decoderParts.has(partNo)) continue;
     const program = (r[uProgramIdx] || '').trim() || '(No Program)';
     const orderNo = (r[uOrderIdx] || '').trim();
+
+    if (!decoderParts.has(partNo)) {
+      // Collect undecoded orders (part numbers not in decoder ring)
+      if (!byProgUndecoded[program]) byProgUndecoded[program] = {};
+      if (!byProgUndecoded[program][partNo]) byProgUndecoded[program][partNo] = {};
+      if (!byProgUndecoded[program][partNo][orderNo]) byProgUndecoded[program][partNo][orderNo] = [];
+      byProgUndecoded[program][partNo][orderNo].push({
+        partNo: partNo,
+        serialNo: (r[uSerialIdx] || '').trim(),
+        orderNo: orderNo,
+        operNo: (r[uOperNoIdx] || '').trim(),
+        operTitle: (r[uOperTitleIdx] || '').trim(),
+        operStatus: (r[uOperStatusIdx] || '').trim(),
+        orderHoldStatus: (r[uOrderHoldIdx] || '').trim(),
+        totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : '',
+        workDept: uWorkDeptIdx >= 0 ? (r[uWorkDeptIdx] || '').trim() : ''
+      });
+      continue;
+    }
 
     if (!byProg[program]) byProg[program] = {};
     if (!byProg[program][partNo]) byProg[program][partNo] = {};
@@ -697,7 +793,7 @@ function process() {
 
         // Order info — fixed width, hold status without label, truncated to 12 chars
         html += '<div class="order-info">';
-        html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span> <a href="#" class="top-link" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;" title="Back to top">&uarr;</a></div>';
+        html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span><a href="#" class="top-link" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">(Back to top)</a></div>';
         html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
         const holdText = firstRow.orderHoldStatus ? firstRow.orderHoldStatus.substring(0, 12) : '';
         if (holdText) {
@@ -923,6 +1019,171 @@ function process() {
       toggleGvOrder(card.dataset.orderno);
     }
   });
+
+  // ==== UNMAPPED OPERATIONS VIEW ====
+  const showUnmapped = document.getElementById('unmapped-chk').checked;
+  const undecodedPrograms = Object.keys(byProgUndecoded).sort();
+  if (showUnmapped && undecodedPrograms.length > 0) {
+    const undecodedOutput = document.getElementById('undecoded-output');
+    let hasUndecodedOrders = false;
+    const umPartNoSet = new Set();
+
+    for (const program of undecodedPrograms) {
+      const progSection = document.createElement('div');
+      progSection.className = 'program-section';
+      progSection.dataset.program = program;
+
+      const progHeading = document.createElement('div');
+      progHeading.className = 'program-heading';
+      progHeading.textContent = program;
+      progSection.appendChild(progHeading);
+
+      const partsInProg = Object.keys(byProgUndecoded[program]).sort();
+      let progHasOrders = false;
+
+      for (const partNo of partsInProg) {
+        const section = document.createElement('div');
+        section.className = 'part-section';
+        section.dataset.partno = partNo;
+
+        const partHeader = document.createElement('div');
+        partHeader.className = 'part-header';
+        partHeader.textContent = partNo;
+        section.appendChild(partHeader);
+
+        const sortedOrderNos = Object.keys(byProgUndecoded[program][partNo]).sort();
+
+        for (const orderNo of sortedOrderNos) {
+          const rows = byProgUndecoded[program][partNo][orderNo];
+
+          // Filter to active/in-queue operations only
+          const activeRows = [];
+          for (const r of rows) {
+            const st = (r.operStatus || '').toUpperCase().trim();
+            if (st === 'ACTIVE' || st === 'IN QUEUE') activeRows.push(r);
+          }
+          if (activeRows.length === 0) continue;
+
+          progHasOrders = true;
+          hasUndecodedOrders = true;
+          umPartNoSet.add(partNo);
+
+          const card = document.createElement('div');
+          card.className = 'order-card';
+
+          const firstRow = rows[0];
+          let html = '<div class="order-row">';
+
+          // Order info
+          html += '<div class="order-info">';
+          html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span><a href="#" class="top-link" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">(Back to top)</a></div>';
+          html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
+          const holdText = firstRow.orderHoldStatus ? firstRow.orderHoldStatus.substring(0, 12) : '';
+          if (holdText) {
+            html += '<div class="field"><span class="hold-flag">' + esc(holdText) + '</span></div>';
+          }
+          html += '</div>';
+
+          // Gate bar — single blank column with active/in-queue ops, left-justified
+          html += '<div class="gate-bar">';
+          html += '<div class="gate-col">';
+          html += '<div class="gate-name blank">&nbsp;</div>';
+          html += '<div class="gate-opers" style="justify-content:flex-start;">';
+          for (const r of activeRows) {
+            const status = (r.operStatus || '').toUpperCase().trim();
+            const dept = (r.workDept || '').toUpperCase().trim();
+            const showDept = r.workDept && dept !== 'SMART';
+            const tooltip = esc(r.operTitle) + ' \u2014 ' + esc(r.operStatus) + (showDept ? ' \u2014 ' + esc(r.workDept) : '') + (r.totalDays ? ' \u2014 ' + esc(r.totalDays) + ' days' : '');
+            let colorClass;
+            if (status === 'IN QUEUE') {
+              colorClass = 'active-yellow';
+            } else if (status === 'ACTIVE') {
+              if (dept.endsWith('_QA')) {
+                colorClass = 'active-blue';
+              } else if (dept === 'SMART') {
+                colorClass = 'active-green';
+              } else {
+                colorClass = 'active-pink';
+              }
+            } else {
+              colorClass = 'inactive';
+            }
+            html += '<span class="oper-chip ' + colorClass + '" title="' + tooltip + '">' + esc(r.operNo) + '</span>';
+          }
+          html += '</div></div>';
+          html += '</div></div>';
+
+          card.innerHTML = html;
+          section.appendChild(card);
+        }
+
+        if (progHasOrders) progSection.appendChild(section);
+      }
+
+      if (progHasOrders) undecodedOutput.appendChild(progSection);
+    }
+
+    if (hasUndecodedOrders) {
+      // Collect unmapped programs (only those with active orders)
+      umAllPrograms = [];
+      for (const pgm of undecodedPrograms) {
+        if (document.querySelector('#undecoded-output .program-section[data-program="' + CSS.escape(pgm) + '"]')) {
+          umAllPrograms.push(pgm);
+        }
+      }
+      umSelectedPrograms = new Set(umAllPrograms);
+      umAllPartNos = Array.from(umPartNoSet).sort();
+      umSelectedPartNo = null;
+
+      // Build unmapped program filter chips
+      const umPgmChips = document.getElementById('unmapped-pgm-chips');
+      const umPgmFilter = document.getElementById('unmapped-pgm-filter');
+      if (umAllPrograms.length > 0) {
+        umPgmFilter.style.display = 'block';
+        const allBtn = document.createElement('span');
+        allBtn.className = 'filter-chip selected';
+        allBtn.textContent = 'Show All';
+        allBtn.style.fontWeight = 'bold';
+        allBtn.addEventListener('click', selectAllUmPrograms);
+        umPgmChips.appendChild(allBtn);
+        for (const pgm of umAllPrograms) {
+          const chip = document.createElement('span');
+          chip.className = 'filter-chip selected';
+          chip.textContent = pgm;
+          chip.dataset.pgm = pgm;
+          chip.addEventListener('click', function() { toggleUmProgram(pgm); });
+          umPgmChips.appendChild(chip);
+        }
+      }
+
+      // Build unmapped part number filter chips
+      const umPnChips = document.getElementById('unmapped-pn-chips');
+      const umPnFilter = document.getElementById('unmapped-pn-filter');
+      if (umAllPartNos.length > 0) {
+        umPnFilter.style.display = 'block';
+        const pnAllBtn = document.createElement('span');
+        pnAllBtn.className = 'filter-chip pn-chip selected';
+        pnAllBtn.id = 'unmapped-pn-show-all';
+        pnAllBtn.textContent = 'Show All';
+        pnAllBtn.style.fontWeight = 'bold';
+        pnAllBtn.addEventListener('click', showAllUmParts);
+        umPnChips.appendChild(pnAllBtn);
+        for (const pn of umAllPartNos) {
+          const chip = document.createElement('span');
+          chip.className = 'filter-chip pn-chip';
+          chip.textContent = pn;
+          chip.dataset.pn = pn;
+          chip.addEventListener('click', function() { selectUmPartNo(pn); });
+          umPnChips.appendChild(chip);
+        }
+      }
+
+      // Show toggle button and default to visible
+      document.getElementById('unmapped-toggle').style.display = 'inline-block';
+      document.getElementById('undecoded-view').style.display = 'block';
+      document.getElementById('unmapped-toggle').innerHTML = '&#9660; Hide Unmapped Operations';
+    }
+  }
 }
 
 function parseNum(s) {
@@ -985,10 +1246,12 @@ function saveSnapshot() {
   html += detailViewHtml + '\n';
   html += '</div>\n';
 
-  // JavaScript for interactivity
+  // JavaScript for interactivity — sanitize JSON to prevent </script> breakout
+  var safeProgramsJson = programsJson.replace(/</g, '\\u003c');
+  var safePartNosJson = partNosJson.replace(/</g, '\\u003c');
   html += '<script>\n';
-  html += 'var allPrograms = ' + programsJson + ';\n';
-  html += 'var allPartNos = ' + partNosJson + ';\n';
+  html += 'var allPrograms = ' + safeProgramsJson + ';\n';
+  html += 'var allPartNos = ' + safePartNosJson + ';\n';
   html += 'var selectedPrograms = new Set(allPrograms);\n';
   html += 'var selectedPartNo = null;\n';
   html += 'var selectedGvOrders = new Set();\n\n';

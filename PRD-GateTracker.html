@@ -79,10 +79,10 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>4.0</td></tr>
+    <tr><td class="label">Document Version:</td><td>5.0</td></tr>
     <tr><td class="label">Date:</td><td>March 1, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Adds Data &amp; Security section, documents implemented hardening and remaining risks</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Adds Gate Technicians input, Unmapped Operations section, deterministic colors, tooltip days, back-to-top, and two security fixes</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-10.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
@@ -211,6 +211,19 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 <p><span class="tag tag-explicit">EXPLICIT</span> The Daily Upload uses 4-digit operation numbers with leading zeros (e.g. "0050") while the Decoder Ring uses bare numbers (e.g. "50"). The application normalizes these via leading-zero stripping for matching.</p>
 
 <p><span class="tag tag-resolved">RESOLVED</span> The Daily Upload contains 30 columns. At this time it is not clear what additional columns may be needed. Current column set is sufficient.</p>
+
+<h3>3.3 Gate Technicians (CSV) &mdash; Optional</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file mapping technicians to gates with priority ordering. Keyed by Gate Number. Multiple technicians per gate are supported with priority integers (1 = primary, 2 = secondary, etc.).</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Numeric gate identifier (must match decoder ring gate numbers)</td></tr>
+  <tr><td>Gate Name</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive name (informational, matching is on Gate Number)</td></tr>
+  <tr><td>Tech Name</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Full name of the technician assigned to this gate</td></tr>
+  <tr><td>Priority</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Integer priority (1 = primary, 2 = secondary, 3 = tertiary, etc.). Names are displayed in priority order, comma-separated.</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> Multiple technicians per gate are represented as separate rows with the same Gate Number but different Priority values. A single technician may appear on multiple gates (support coverage).</p>
 
 
 <!-- ============================================================ -->
@@ -397,7 +410,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-66</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Program-colored cards:</strong> Each gate view card is colored by program. Colors cycle from a palette (blue, amber, green, pink) based on the program's sort order.</td>
+    <td><strong>Program-colored cards (deterministic):</strong> Each gate view card is colored by program using a <strong>deterministic mapping</strong> based on the first letter of the program name: "P" &rarr; light blue, "N" &rarr; pink. All other first letters fall back to an ordered palette (amber, green, indigo, yellow). This ensures colors are consistent across runs regardless of sort order.</td>
   </tr>
   <tr>
     <td class="req-id">F-67</td>
@@ -407,16 +420,63 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-68</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Card tooltip:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days oper number, and a list of all Active/In Queue operations with oper number, title, status, and work dept.</td>
+    <td><strong>Card tooltip:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days non-ignored oper number, and a list of all Active/In Queue operations with oper number, title, status, work dept, <strong>days at operation</strong>, and <strong>[ignore] label</strong> for ignored operations.</td>
   </tr>
   <tr>
     <td class="req-id">F-69</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Card click &rarr; Detail View:</strong> Clicking a gate view card selects it (dark border highlight), opens the Detail View if hidden, resets all filters to show all, and scrolls to the corresponding order card in the Detail View. Multiple cards can be selected simultaneously (toggle on/off).</td>
   </tr>
+  <tr>
+    <td class="req-id">F-85</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Ignore-aware max days:</strong> The "days" displayed on gate view cards and used for FIFO sorting <strong>excludes</strong> operations marked with the "ignore" modifier. Only non-ignored Active/In Queue operations contribute to the max days calculation.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-86</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate technicians display:</strong> If a Gate Technicians CSV is loaded, technician names are displayed in the gate view header after the order count, in parentheses, ordered by priority (comma-separated). E.g. <em>"10. PREP (3 orders) (John Smith, Jane Doe)"</em>. If the tech file is loaded but a gate has no technician entries, the header shows <em>"(No technicians assigned, check input files)"</em>. If no tech file is loaded, no technician information appears.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-87</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>"Include Unmapped Operations" checkbox:</strong> A checkbox next to the Process button (checked by default) controls whether part numbers absent from the decoder ring are rendered in the Unmapped Operations section. When unchecked, unmapped data is not processed.</td>
+  </tr>
 </table>
 
-<h3>4.8 Detail View</h3>
+<h3>4.8 Unmapped Operations</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The Unmapped Operations section shows work orders whose Part Numbers do not appear in the Gate Decoder Ring. These are parts that have not yet been reviewed for gate-to-operation mapping.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-90</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>A "Show Unmapped Operations" / "Hide Unmapped Operations" toggle button is displayed below the Detail View. The section defaults to <strong>visible</strong> after processing (if there is unmapped data).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-91</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Unmapped orders use the same card layout as the Detail View: order info on the left (Order No., S/N, hold status) and a gate bar on the right. Since no decoder ring mapping exists, all Active/In Queue operations are displayed under a single blank gate column, <strong>left-justified</strong>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-92</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Only Active and In Queue operations are shown for unmapped orders. Orders with no active operations are excluded entirely.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-93</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The Unmapped Operations section includes its own independent <strong>Program filter</strong> and <strong>Part Number filter</strong> chips, which operate identically to the Detail View filters but are scoped to the unmapped data only.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-94</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Operation chips in the unmapped section use the same color-coding and tooltip format as the Detail View (status-based colors, oper title, status, work dept, days).</td>
+  </tr>
+</table>
+
+<h3>4.9 Detail View</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> The Detail View (formerly the primary "Part Number View") shows per-order gate progress bars grouped by Program and Part No. It is positioned below the Gate View and is <strong>hidden by default</strong>.</p>
 
 <table class="req-table">
@@ -436,9 +496,14 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td>When a gate view card is clicked, the corresponding order card in the Detail View receives a blue outline highlight. Multiple orders can be highlighted simultaneously.</td>
   </tr>
+  <tr>
+    <td class="req-id">F-73</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Back to top link:</strong> Each order card in the Detail View and Unmapped Operations section includes a "(Back to top)" text link below the Order Number. Clicking it smoothly scrolls to the top of the page. The link is hidden in print output.</td>
+  </tr>
 </table>
 
-<h3>4.9 Save Snapshot</h3>
+<h3>4.10 Save Snapshot</h3>
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
@@ -829,6 +894,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td><strong>Row count warning:</strong> A confirmation dialog warns the user if the daily upload exceeds 500 rows. While primarily a performance safeguard, this also serves as a data validation checkpoint &mdash; an unexpectedly large file may indicate the wrong data was loaded.</td>
   </tr>
+  <tr>
+    <td class="req-id">S-10</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>CSS selector injection prevention:</strong> All CSS selectors constructed with user-derived data (e.g., order numbers, program names) use <code>CSS.escape()</code> to sanitize values before interpolation into <code>querySelector()</code> calls. This prevents crafted CSV data from breaking out of attribute selectors.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-11</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>Snapshot script tag sanitization:</strong> JSON data embedded in snapshot <code>&lt;script&gt;</code> blocks is sanitized by replacing <code>&lt;</code> characters with <code>\\u003c</code> Unicode escapes. This prevents crafted CSV values containing <code>&lt;/script&gt;</code> from prematurely terminating the script block and injecting HTML.</td>
+  </tr>
 </table>
 
 <h3>10.3 Remaining Risks &amp; Unimplemented Recommendations</h3>
@@ -890,6 +965,8 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>Version Traceability</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>Visible v1.0 in UI</td></tr>
   <tr><td>Network Isolation</td><td style="color:green;font-weight:bold;">&#10004; By Design</td><td>Zero network calls, CSP enforced</td></tr>
   <tr><td>Data Persistence</td><td style="color:green;font-weight:bold;">&#10004; By Design</td><td>No cookies, localStorage, or storage APIs</td></tr>
+  <tr><td>CSS Selector Injection</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>CSS.escape() applied to all querySelector calls with user data</td></tr>
+  <tr><td>Snapshot Script Injection</td><td style="color:green;font-weight:bold;">&#10004; Implemented</td><td>JSON &lt; chars escaped to \\u003c before embedding in &lt;script&gt; blocks</td></tr>
   <tr><td>innerHTML Rendering</td><td style="color:#b45309;font-weight:bold;">&#9888; Partial</td><td>Errors use textContent; card rendering still uses innerHTML + esc()</td></tr>
   <tr><td>Schema Validation</td><td style="color:#b45309;font-weight:bold;">&#9888; Partial</td><td>Column presence checked; data types/ranges not validated</td></tr>
   <tr><td>Snapshot Access Control</td><td style="color:#b45309;font-weight:bold;">&#9888; Policy-Based</td><td>Banner applied; no technical enforcement</td></tr>
@@ -908,6 +985,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>2.0</td><td>2026-02-25</td><td>Claude (AI)</td><td>Incorporated product owner feedback: added visual factory context, resolved 13 of 17 open questions, added Part No. filter (F-50), print/PDF export (N-03), row count warning (F-07), fixed order card layout (V-03), resolved Oper Status fallback to grey, removed summary bar, added FUTURE and RESOLVED tags</td></tr>
   <tr><td>3.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Added Gate View as primary view (F-60&ndash;F-69): single-gate placement algorithm, Hold gate, FIFO ordering, program-colored cards, card click interaction. Added collapsible Detail View (F-70&ndash;F-72). Added Save Snapshot feature (F-80&ndash;F-83, N-07). Updated Modifier column to EXPLICIT/used ("ignore"). Restructured Visual/UI section (V-01&ndash;V-41). Added retrospective observations 8&ndash;9. Resolved Decoder Ring Modifier open question.</td></tr>
   <tr><td>4.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Security hardening based on combined ChatGPT + Claude Chat assessment. Implemented: single-quote escaping in esc() (S-01), textContent for error messages (S-02), CSP meta tag in app and snapshot (S-03), CSV field length limit of 500 chars (S-04), "Proprietary &mdash; Internal Use Only" banner in snapshots (S-05, F-84), visible version number v1.0 (S-06). Added new Section 10 &mdash; Data &amp; Security documenting full security posture (S-01&ndash;S-09), remaining risks (SR-01&ndash;SR-07), and summary matrix. Updated N-01 and N-05. Renamed app file to gate-tracker-10.html.</td></tr>
+  <tr><td>5.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Feature update: Added Gate Technicians optional CSV input (Section 3.3, F-86). Added Unmapped Operations section for part numbers not in the decoder ring (F-87, F-90&ndash;F-94) with independent program/part filters and toggle button. Added deterministic program card colors by first letter (F-66 updated). Added tooltip days per operation with [ignore] label (F-68 updated). Added ignore-aware maxDays calculation (F-85). Added "(Back to top)" link on order cards (F-73). Security fixes: CSS.escape() for querySelector injection (S-10), JSON &lt; sanitization in snapshots (S-11). Updated security summary matrix.</td></tr>
 </table>
 
 </body>
