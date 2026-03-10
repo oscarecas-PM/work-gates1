@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>Gate Tracker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 1.5rem; background: #f5f5f5; color: #222; }
+  h1 { margin-bottom: 0.5rem; }
+  .description { color: #555; margin-bottom: 1.5rem; }
+
+  .file-inputs { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; min-width: 280px; }
+  .file-group h3 { margin-bottom: 0.5rem; }
+  .file-group p { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+  .status { font-size: 0.85rem; margin-top: 0.5rem; }
+  .status.loaded { color: green; }
+  .status.error { color: red; }
+
+  #run-btn { margin: 1rem 0; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #2563eb; color: #fff; border: none; border-radius: 4px; }
+  #run-btn:disabled { background: #aaa; cursor: default; }
+  #run-btn:hover:not(:disabled) { background: #1d4ed8; }
+
+  /* Print / PDF button */
+  #print-btn { margin: 1rem 0 1rem 12px; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #334155; color: #fff; border: none; border-radius: 4px; display: none; }
+  #print-btn:hover { background: #1e293b; }
+
+  /* Save Snapshot button */
+  #save-btn { margin: 1rem 0 1rem 12px; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #16a34a; color: #fff; border: none; border-radius: 4px; display: none; }
+  #save-btn:hover { background: #15803d; }
+
+  /* Generate Mobile Audit button */
+  #audit-btn { margin: 1rem 0 1rem 12px; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #f59e0b; color: #fff; border: none; border-radius: 4px; display: none; }
+  #audit-btn:hover { background: #d97706; }
+
+  /* Filter bars */
+  .filter-bar { margin-bottom: 0.75rem; padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; display: none; }
+  .filter-bar .filter-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; color: #555; }
+  .filter-bar .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .filter-chip { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; font-size: 0.82rem; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; user-select: none; transition: all 0.15s; }
+  .filter-chip.selected { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .filter-chip:hover { border-color: #2563eb; }
+  .filter-chip.pn-chip.selected { background: #1e3a5f; border-color: #1e3a5f; }
+  .filter-chip.pn-chip:hover { border-color: #1e3a5f; }
+
+  /* Program sections */
+  .program-section { margin-top: 2rem; }
+  .program-heading { font-size: 1.3rem; font-weight: bold; color: #111; margin-bottom: 0.5rem; border-bottom: 2px solid #334155; padding-bottom: 4px; }
+
+  /* Part No. sections */
+  .part-section { margin-top: 1rem; margin-bottom: 1.5rem; }
+  .part-header { background: #1e3a5f; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 1.1rem; font-weight: bold; }
+
+  /* Order cards */
+  .order-card { background: #fff; border: 1px solid #ccc; border-top: none; }
+  .order-card:last-child { border-radius: 0 0 4px 4px; }
+  .order-row { display: flex; align-items: stretch; min-height: 48px; }
+
+  /* Left: order info — fixed width */
+  .order-info { flex: 0 0 280px; width: 280px; display: flex; align-items: center; gap: 1rem; padding: 6px 14px; background: #e2e8f0; border-right: 1px solid #ccc; }
+  .order-info .field { white-space: nowrap; }
+  .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
+  .order-info .value { color: #111; font-size: 0.85rem; }
+  .hold-flag { color: #b91c1c; font-weight: bold; font-size: 0.8rem; max-width: 80px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal; }
+  .top-link { color: #2563eb; text-decoration: none; font-size: 0.7rem; display: block; margin-top: 1px; }
+  .top-link:hover { text-decoration: underline; }
+
+  /* Right: gate bar */
+  .gate-bar { display: flex; flex: 1; overflow-x: auto; align-items: stretch; }
+  .gate-col { flex: 1; min-width: 70px; text-align: center; border-right: 1px solid #eee; display: flex; flex-direction: column; }
+  .gate-col:last-child { border-right: none; }
+  .gate-name { background: #334155; color: #fff; font-size: 0.7rem; font-weight: bold; padding: 2px 4px; white-space: normal; word-wrap: break-word; overflow-wrap: break-word; min-height: 3.6em; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.2; }
+  .gate-name.blank { background: #94a3b8; }
+  .gate-opers { padding: 4px 3px; font-size: 0.78rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; align-items: center; flex: 1; }
+
+  /* Oper chips */
+  .oper-chip { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.75rem; cursor: default; }
+  .oper-chip.active-green { background: #16a34a; color: #fff; font-weight: bold; }
+  .oper-chip.active-yellow { background: #ca8a04; color: #fff; font-weight: bold; }
+  .oper-chip.active-blue { background: #2563eb; color: #fff; font-weight: bold; }
+  .oper-chip.active-pink { background: #db2777; color: #fff; font-weight: bold; }
+  .oper-chip.inactive { background: #e5e7eb; color: #aaa; }
+  .oper-chip[title] { cursor: pointer; }
+
+  /* Print timestamp */
+  #print-timestamp { display: none; font-size: 0.85rem; color: #555; margin-bottom: 0.5rem; }
+
+  /* Gate View */
+  .gate-view-wrapper { border-top: 3px solid #334155; margin-top: 2.5rem; padding-top: 1.5rem; }
+  .gate-view-title { font-size: 1.4rem; font-weight: bold; color: #111; margin-bottom: 1rem; }
+  .gv-gate-section { margin-bottom: 1.5rem; }
+  .gv-gate-header { background: #334155; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 1rem; font-weight: bold; }
+  .gv-gate-header.hold-gate { background: #991b1b; }
+  .gv-cards-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #fff; border: 1px solid #ccc; border-top: none; border-radius: 0 0 4px 4px; }
+  .gv-order-card { min-width: 130px; max-width: 180px; padding: 8px 10px; border-radius: 4px; border: 2px solid transparent; cursor: default; font-size: 0.82rem; }
+  .gv-order-no { font-weight: bold; font-size: 0.85rem; }
+  .gv-part-no { font-size: 0.78rem; color: rgba(0,0,0,0.7); }
+  .gv-sn { font-size: 0.75rem; color: rgba(0,0,0,0.55); }
+  .gv-hold { color: #b91c1c; font-weight: bold; font-size: 0.75rem; }
+  .gv-days { font-size: 0.72rem; color: rgba(0,0,0,0.5); margin-top: 2px; }
+  .gv-order-card { cursor: pointer; transition: box-shadow 0.15s, border-color 0.15s; }
+  .gv-order-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .gv-order-card.gv-selected { border-color: #111 !important; box-shadow: 0 0 0 2px #111; }
+  .gv-order-card.dr-ops { border: 3px solid #dc2626 !important; }
+  .gv-dr-label { color: #dc2626; font-weight: bold; font-size: 0.72rem; }
+  .gv-missing { font-size: 0.72rem; color: #b45309; font-weight: bold; }
+  .gv-tech-label { font-size: 0.72rem; color: rgba(0,0,0,0.55); font-style: italic; }
+  .gv-gate-header.not-found-gate { background: #b45309; }
+  .gv-no-audit { padding: 2rem; text-align: center; color: #666; font-size: 1.1rem; background: #fff; border: 2px dashed #ccc; border-radius: 8px; margin-top: 1rem; }
+  .oper-chip.oper-stop-border { border: 2px solid #dc2626; }
+
+  /* Detail View */
+  #detail-toggle { margin: 1.5rem 0 0.5rem; padding: 10px 20px; font-size: 0.95rem; cursor: pointer; background: #475569; color: #fff; border: none; border-radius: 4px; }
+  #detail-toggle:hover { background: #334155; }
+  .detail-view-title { font-size: 1.4rem; font-weight: bold; color: #111; margin-bottom: 1rem; border-top: 3px solid #334155; padding-top: 1.5rem; }
+  .order-card.order-highlighted { outline: 3px solid #2563eb; outline-offset: -1px; }
+
+  /* Print styles */
+  @media print {
+    body { background: #fff; padding: 0.5rem; }
+    .file-inputs, #run-btn, #print-btn, #save-btn, #audit-btn, #detail-toggle, #unmapped-toggle, #unmapped-label, .filter-bar, .description, .top-link, .gv-no-audit { display: none !important; }
+    #print-timestamp, #detail-view, #undecoded-view, .program-section, .part-section { display: block !important; }
+    .program-section, .part-section, .order-card { break-inside: avoid; }
+    .gate-view-wrapper { break-before: page; }
+    .gv-gate-section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v1.0</span></h1>
+<p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
+
+<div class="file-inputs">
+  <div class="file-group">
+    <h3>1. Gate Decoder Ring</h3>
+    <p>Columns: Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier</p>
+    <input type="file" id="decoder-input" accept=".csv">
+    <div id="decoder-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>2. Daily Upload</h3>
+    <p>Columns: Order No., Oper No., Oper Title, Oper Status, Part No., Program, Serial No, Order Hold Status, ...</p>
+    <input type="file" id="daily-input" accept=".csv">
+    <div id="daily-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>3. Gate Technicians <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
+    <p>Columns: Gate Number, Gate Name, Tech Name, Priority</p>
+    <input type="file" id="tech-input" accept=".csv">
+    <div id="tech-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>4. Mobile Audit CSV <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
+    <p>Columns: Gate Number, Order No., Part No., Serial No., Technician (optional)</p>
+    <input type="file" id="audit-csv-input" accept=".csv">
+    <div id="audit-csv-status" class="status"></div>
+  </div>
+</div>
+
+<button id="run-btn" disabled onclick="process()">Process</button>
+<label id="unmapped-label" style="margin-left:12px;font-size:0.9rem;cursor:pointer;user-select:none;"><input type="checkbox" id="unmapped-chk" checked style="margin-right:4px;vertical-align:middle;cursor:pointer;">Include Unmapped Operations</label>
+<button id="print-btn" onclick="printPage()">Print / Export PDF</button>
+<button id="save-btn" onclick="saveSnapshot()">&#128190; Save Snapshot</button>
+<button id="audit-btn" onclick="generateMobileAudit()">&#128241; Generate Mobile Audit</button>
+
+<div id="print-timestamp"></div>
+
+<div id="gate-view-output"></div>
+
+<button id="detail-toggle" onclick="toggleDetailView()" style="display:none">&#9654; Show Detail View</button>
+
+<div id="detail-view" style="display:none">
+  <div class="detail-view-title">Detail View</div>
+  <div id="program-filter" class="filter-bar">
+    <div class="filter-title">Programs</div>
+    <div class="filter-chips" id="pgm-filter-chips"></div>
+  </div>
+  <div id="part-filter" class="filter-bar">
+    <div class="filter-title">Part Numbers</div>
+    <div class="filter-chips" id="pn-filter-chips"></div>
+  </div>
+  <div id="output"></div>
+</div>
+
+<button id="unmapped-toggle" onclick="toggleUnmappedView()" style="display:none">&#9654; Show Unmapped Operations</button>
+
+<div id="undecoded-view" style="display:none">
+  <div class="detail-view-title">Unmapped Operations</div>
+  <div id="unmapped-pgm-filter" class="filter-bar">
+    <div class="filter-title">Programs</div>
+    <div class="filter-chips" id="unmapped-pgm-chips"></div>
+  </div>
+  <div id="unmapped-pn-filter" class="filter-bar">
+    <div class="filter-title">Part Numbers</div>
+    <div class="filter-chips" id="unmapped-pn-chips"></div>
+  </div>
+  <div id="undecoded-output"></div>
+</div>
+
+<script>
+let decoderData = null;
+let dailyData = null;
+let techData = null;
+let auditCsvData = null;
+
+document.getElementById('decoder-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    decoderData = rows;
+    showStatus('decoder-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'decoder-status');
+});
+
+document.getElementById('daily-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    dailyData = rows;
+    showStatus('daily-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'daily-status');
+});
+
+document.getElementById('tech-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    techData = rows;
+    showStatus('tech-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+  }, 'tech-status');
+});
+
+document.getElementById('audit-csv-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    auditCsvData = rows;
+    showStatus('audit-csv-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+  }, 'audit-csv-status');
+});
+
+function checkReady() {
+  document.getElementById('run-btn').disabled = !(decoderData && dailyData);
+}
+
+function showStatus(id, msg, isError) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'loaded');
+}
+
+function loadCSV(file, callback, statusId) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      const rows = parseCSV(ev.target.result);
+      if (rows.length < 2) throw new Error('File has no data rows');
+      callback(rows);
+    } catch (err) {
+      showStatus(statusId, 'Error: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s) { var v = s.trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+
+function parseCSV(text) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  let row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { row.push(csvField(current)); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(csvField(current)); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(csvField(current));
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function colIndex(headers, name) {
+  const n = name.toLowerCase().trim();
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase().trim() === n) return i;
+  }
+  return -1;
+}
+
+// --- Globals for filters ---
+let allPrograms = [];
+let selectedPrograms = new Set();
+let allPartNos = [];
+let selectedPartNo = null; // null = show all
+let selectedGvOrders = new Set();
+
+// --- Globals for unmapped filters ---
+let umAllPrograms = [];
+let umSelectedPrograms = new Set();
+let umAllPartNos = [];
+let umSelectedPartNo = null;
+
+// --- Global for mobile audit data ---
+let mobileAuditOrders = [];
+let mobileAuditGates = [];
+let mobileAuditTechs = {};
+
+function toggleDetailView() {
+  const dv = document.getElementById('detail-view');
+  const btn = document.getElementById('detail-toggle');
+  if (dv.style.display === 'none') {
+    dv.style.display = 'block';
+    btn.innerHTML = '&#9660; Hide Detail View';
+  } else {
+    dv.style.display = 'none';
+    btn.innerHTML = '&#9654; Show Detail View';
+  }
+}
+
+function toggleUnmappedView() {
+  const uv = document.getElementById('undecoded-view');
+  const btn = document.getElementById('unmapped-toggle');
+  if (uv.style.display === 'none') {
+    uv.style.display = 'block';
+    btn.innerHTML = '&#9660; Hide Unmapped Operations';
+  } else {
+    uv.style.display = 'none';
+    btn.innerHTML = '&#9654; Show Unmapped Operations';
+  }
+}
+
+function toggleGvOrder(orderNo) {
+  if (selectedGvOrders.has(orderNo)) {
+    selectedGvOrders.delete(orderNo);
+  } else {
+    selectedGvOrders.add(orderNo);
+  }
+  // Update gate view card styling
+  document.querySelectorAll('.gv-order-card').forEach(function(card) {
+    card.classList.toggle('gv-selected', selectedGvOrders.has(card.dataset.orderno));
+  });
+  // Update detail view highlights
+  document.querySelectorAll('.order-card').forEach(function(card) {
+    card.classList.toggle('order-highlighted', selectedGvOrders.has(card.dataset.orderno));
+  });
+  if (selectedGvOrders.has(orderNo)) {
+    // Open detail view and scroll to order
+    const dv = document.getElementById('detail-view');
+    const btn = document.getElementById('detail-toggle');
+    dv.style.display = 'block';
+    btn.innerHTML = '&#9660; Hide Detail View';
+    // Reset filters to show all so the order is visible
+    selectedPrograms = new Set(allPrograms);
+    selectedPartNo = null;
+    applyFilters();
+    // Scroll to the specific order in detail view
+    const target = document.querySelector('.order-card[data-orderno="' + CSS.escape(orderNo) + '"]');
+    if (target) {
+      setTimeout(function() { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+    }
+  }
+}
+
+function toggleProgram(pgm) {
+  if (selectedPrograms.has(pgm)) {
+    selectedPrograms.delete(pgm);
+  } else {
+    selectedPrograms.add(pgm);
+  }
+  applyFilters();
+}
+
+function selectAllPrograms() {
+  selectedPrograms = new Set(allPrograms);
+  applyFilters();
+}
+
+function selectPartNo(pn) {
+  if (selectedPartNo === pn) {
+    selectedPartNo = null; // deselect = show all
+  } else {
+    selectedPartNo = pn;
+  }
+  applyFilters();
+}
+
+function showAllParts() {
+  selectedPartNo = null;
+  applyFilters();
+}
+
+function applyFilters() {
+  // Program chips (detail view only)
+  document.querySelectorAll('#detail-view .filter-chip[data-pgm]').forEach(c => {
+    c.classList.toggle('selected', selectedPrograms.has(c.dataset.pgm));
+  });
+  // Part No. chips (detail view only)
+  document.querySelectorAll('#detail-view .filter-chip[data-pn]').forEach(c => {
+    c.classList.toggle('selected', selectedPartNo === null ? false : c.dataset.pn === selectedPartNo);
+  });
+  const pnAllBtn = document.getElementById('pn-show-all');
+  if (pnAllBtn) pnAllBtn.classList.toggle('selected', selectedPartNo === null);
+
+  // Visibility: program sections (detail view only)
+  document.querySelectorAll('#output .program-section').forEach(s => {
+    s.style.display = selectedPrograms.has(s.dataset.program) ? '' : 'none';
+  });
+  // Visibility: part sections (detail view only)
+  document.querySelectorAll('#output .part-section').forEach(s => {
+    if (selectedPartNo === null) {
+      s.style.display = '';
+    } else {
+      s.style.display = s.dataset.partno === selectedPartNo ? '' : 'none';
+    }
+  });
+}
+
+// --- Unmapped filter functions ---
+function toggleUmProgram(pgm) {
+  if (umSelectedPrograms.has(pgm)) { umSelectedPrograms.delete(pgm); }
+  else { umSelectedPrograms.add(pgm); }
+  applyUmFilters();
+}
+function selectAllUmPrograms() {
+  umSelectedPrograms = new Set(umAllPrograms);
+  applyUmFilters();
+}
+function selectUmPartNo(pn) {
+  umSelectedPartNo = (umSelectedPartNo === pn) ? null : pn;
+  applyUmFilters();
+}
+function showAllUmParts() {
+  umSelectedPartNo = null;
+  applyUmFilters();
+}
+function applyUmFilters() {
+  document.querySelectorAll('#undecoded-view .filter-chip[data-pgm]').forEach(c => {
+    c.classList.toggle('selected', umSelectedPrograms.has(c.dataset.pgm));
+  });
+  document.querySelectorAll('#undecoded-view .filter-chip[data-pn]').forEach(c => {
+    c.classList.toggle('selected', umSelectedPartNo === null ? false : c.dataset.pn === umSelectedPartNo);
+  });
+  const umPnAllBtn = document.getElementById('unmapped-pn-show-all');
+  if (umPnAllBtn) umPnAllBtn.classList.toggle('selected', umSelectedPartNo === null);
+
+  document.querySelectorAll('#undecoded-output .program-section').forEach(s => {
+    s.style.display = umSelectedPrograms.has(s.dataset.program) ? '' : 'none';
+  });
+  document.querySelectorAll('#undecoded-output .part-section').forEach(s => {
+    if (umSelectedPartNo === null) { s.style.display = ''; }
+    else { s.style.display = s.dataset.partno === umSelectedPartNo ? '' : 'none'; }
+  });
+}
+
+function printPage() {
+  const ts = document.getElementById('print-timestamp');
+  const now = new Date();
+  ts.textContent = 'Exported: ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+  ts.style.display = 'block';
+  setTimeout(function() { window.print(); }, 100);
+}
+
+function process() {
+  const output = document.getElementById('output');
+  const pgmFilterEl = document.getElementById('program-filter');
+  const pgmFilterChips = document.getElementById('pgm-filter-chips');
+  const pnFilterEl = document.getElementById('part-filter');
+  const pnFilterChips = document.getElementById('pn-filter-chips');
+  const printBtn = document.getElementById('print-btn');
+  output.innerHTML = '';
+  pgmFilterEl.style.display = 'none';
+  pgmFilterChips.innerHTML = '';
+  pnFilterEl.style.display = 'none';
+  pnFilterChips.innerHTML = '';
+  printBtn.style.display = 'none';
+  document.getElementById('save-btn').style.display = 'none';
+  document.getElementById('audit-btn').style.display = 'none';
+  mobileAuditOrders = [];
+  mobileAuditGates = [];
+  mobileAuditTechs = {};
+  document.getElementById('gate-view-output').innerHTML = '';
+  document.getElementById('detail-view').style.display = 'none';
+  document.getElementById('detail-toggle').style.display = 'none';
+  document.getElementById('undecoded-output').innerHTML = '';
+  document.getElementById('undecoded-view').style.display = 'none';
+  document.getElementById('unmapped-toggle').style.display = 'none';
+  document.getElementById('unmapped-pgm-filter').style.display = 'none';
+  document.getElementById('unmapped-pgm-chips').innerHTML = '';
+  document.getElementById('unmapped-pn-filter').style.display = 'none';
+  document.getElementById('unmapped-pn-chips').innerHTML = '';
+  selectedGvOrders = new Set();
+
+  // ---- Decoder Ring ----
+  const dHeaders = decoderData[0];
+  const dPartIdx = colIndex(dHeaders, 'Part No.');
+  const dGateNumIdx = colIndex(dHeaders, 'Gate Number');
+  const dGateNameIdx = colIndex(dHeaders, 'Gate Name');
+  const dOperIdx = colIndex(dHeaders, 'Oper No.');
+
+  if (dPartIdx < 0 || dGateNumIdx < 0 || dGateNameIdx < 0 || dOperIdx < 0) {
+    var errP = document.createElement('p');
+    errP.style.color = 'red';
+    errP.textContent = 'Error: Decoder Ring CSV missing required columns (Part No., Gate Number, Gate Name, Oper No.)';
+    output.appendChild(errP);
+    return;
+  }
+
+  const gateLookup = {};
+  const gatesByPart = {};
+  const decoderParts = new Set();
+  const partNames = {};
+  const modifierByOper = {};
+  const dPartNameIdx = colIndex(dHeaders, 'Part Name');
+  const dModifierIdx = colIndex(dHeaders, 'Modifier');
+
+  for (let i = 1; i < decoderData.length; i++) {
+    const r = decoderData[i];
+    const partNo = (r[dPartIdx] || '').trim();
+    const gateNum = (r[dGateNumIdx] || '').trim();
+    const gateName = (r[dGateNameIdx] || '').trim();
+    const operNo = (r[dOperIdx] || '').trim();
+    if (!partNo) continue;
+    decoderParts.add(partNo);
+    if (dPartNameIdx >= 0 && !partNames[partNo]) {
+      partNames[partNo] = (r[dPartNameIdx] || '').trim();
+    }
+    gateLookup[partNo + '|||' + normOper(operNo)] = { gateNumber: gateNum, gateName: gateName };
+    if (dModifierIdx >= 0) { modifierByOper[partNo + '|||' + normOper(operNo)] = (r[dModifierIdx] || '').trim().toLowerCase(); }
+
+    if (!gatesByPart[partNo]) gatesByPart[partNo] = [];
+    const gateArr = gatesByPart[partNo];
+    const gateKey = gateNum + '|||' + gateName;
+    const last = gateArr.length > 0 ? gateArr[gateArr.length - 1] : null;
+    const lastKey = last ? (last.gateNumber + '|||' + last.gateName) : null;
+    if (lastKey === gateKey) {
+      last.opers.push(operNo);
+    } else {
+      gateArr.push({ gateNumber: gateNum, gateName: gateName, opers: [operNo] });
+    }
+  }
+
+  // ---- Gate Technicians (optional) ----
+  const techsByGate = {};
+  let techFileLoaded = false;
+  if (techData && techData.length > 1) {
+    const tHeaders = techData[0];
+    const tGateNumIdx = colIndex(tHeaders, 'Gate Number');
+    const tTechNameIdx = colIndex(tHeaders, 'Tech Name');
+    const tPriorityIdx = colIndex(tHeaders, 'Priority');
+    if (tGateNumIdx >= 0 && tTechNameIdx >= 0 && tPriorityIdx >= 0) {
+      techFileLoaded = true;
+      for (let i = 1; i < techData.length; i++) {
+        const r = techData[i];
+        const gateNum = (r[tGateNumIdx] || '').trim();
+        const techName = (r[tTechNameIdx] || '').trim();
+        const priority = parseInt((r[tPriorityIdx] || '').trim(), 10) || 999;
+        if (!gateNum || !techName) continue;
+        if (!techsByGate[gateNum]) techsByGate[gateNum] = [];
+        techsByGate[gateNum].push({ name: techName, priority: priority });
+      }
+      // Sort each gate's techs by priority (1 = primary, 2 = secondary, etc.)
+      for (const gn of Object.keys(techsByGate)) {
+        techsByGate[gn].sort(function(a, b) { return a.priority - b.priority; });
+      }
+    }
+  }
+
+  // ---- Daily Upload ----
+  const uHeaders = dailyData[0];
+  const uOrderIdx = colIndex(uHeaders, 'Order No.');
+  const uOperStatusIdx = colIndex(uHeaders, 'Oper Status');
+  const uOperNoIdx = colIndex(uHeaders, 'Oper No.');
+  const uOperTitleIdx = colIndex(uHeaders, 'Oper Title');
+  const uPartIdx = colIndex(uHeaders, 'Part No.');
+  const uProgramIdx = colIndex(uHeaders, 'Program');
+  const uSerialIdx = colIndex(uHeaders, 'Serial No');
+  const uOrderHoldIdx = colIndex(uHeaders, 'Order Hold Status');
+  let uTotalDaysIdx = colIndex(uHeaders, 'Total Days at Operation');
+  if (uTotalDaysIdx < 0) {
+    // Fallback: match any column containing 'total days'
+    for (let i = 0; i < uHeaders.length; i++) {
+      if (uHeaders[i].toLowerCase().trim().indexOf('total days') >= 0) { uTotalDaysIdx = i; break; }
+    }
+  }
+  const uWorkDeptIdx = colIndex(uHeaders, 'Work Dept');
+
+  const missingCols = [];
+  if (uOrderIdx < 0) missingCols.push('Order No.');
+  if (uOperStatusIdx < 0) missingCols.push('Oper Status');
+  if (uOperNoIdx < 0) missingCols.push('Oper No.');
+  if (uOperTitleIdx < 0) missingCols.push('Oper Title');
+  if (uPartIdx < 0) missingCols.push('Part No.');
+  if (uProgramIdx < 0) missingCols.push('Program');
+  if (uSerialIdx < 0) missingCols.push('Serial No');
+  if (uOrderHoldIdx < 0) missingCols.push('Order Hold Status');
+
+  if (missingCols.length > 0) {
+    var errP2 = document.createElement('p');
+    errP2.style.color = 'red';
+    errP2.textContent = 'Error: Daily Upload CSV missing columns: ' + missingCols.join(', ');
+    output.appendChild(errP2);
+    return;
+  }
+
+  // Row count warning (>500 rows)
+  const dailyRowCount = dailyData.length - 1;
+  if (dailyRowCount > 500) {
+    if (!confirm('Warning: The Daily Upload contains ' + dailyRowCount + ' rows, which exceeds the typical 500-row threshold. Processing may be slow.\n\nContinue?')) {
+      return;
+    }
+  }
+
+  // Group: program -> partNo -> orderNo -> [rows]
+  const byProg = {};
+  const byProgUndecoded = {};
+  const partNoSet = new Set();
+  for (let i = 1; i < dailyData.length; i++) {
+    const r = dailyData[i];
+    const partNo = (r[uPartIdx] || '').trim();
+    const program = (r[uProgramIdx] || '').trim() || '(No Program)';
+    const orderNo = (r[uOrderIdx] || '').trim();
+
+    if (!decoderParts.has(partNo)) {
+      // Collect undecoded orders (part numbers not in decoder ring)
+      if (!byProgUndecoded[program]) byProgUndecoded[program] = {};
+      if (!byProgUndecoded[program][partNo]) byProgUndecoded[program][partNo] = {};
+      if (!byProgUndecoded[program][partNo][orderNo]) byProgUndecoded[program][partNo][orderNo] = [];
+      byProgUndecoded[program][partNo][orderNo].push({
+        partNo: partNo,
+        serialNo: (r[uSerialIdx] || '').trim(),
+        orderNo: orderNo,
+        operNo: (r[uOperNoIdx] || '').trim(),
+        operTitle: (r[uOperTitleIdx] || '').trim(),
+        operStatus: (r[uOperStatusIdx] || '').trim(),
+        orderHoldStatus: (r[uOrderHoldIdx] || '').trim(),
+        totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : '',
+        workDept: uWorkDeptIdx >= 0 ? (r[uWorkDeptIdx] || '').trim() : ''
+      });
+      continue;
+    }
+
+    if (!byProg[program]) byProg[program] = {};
+    if (!byProg[program][partNo]) byProg[program][partNo] = {};
+    if (!byProg[program][partNo][orderNo]) byProg[program][partNo][orderNo] = [];
+
+    byProg[program][partNo][orderNo].push({
+      partNo: partNo,
+      serialNo: (r[uSerialIdx] || '').trim(),
+      orderNo: orderNo,
+      operNo: (r[uOperNoIdx] || '').trim(),
+      operTitle: (r[uOperTitleIdx] || '').trim(),
+      operStatus: (r[uOperStatusIdx] || '').trim(),
+      orderHoldStatus: (r[uOrderHoldIdx] || '').trim(),
+      totalDays: uTotalDaysIdx >= 0 ? (r[uTotalDaysIdx] || '').trim() : '',
+      workDept: uWorkDeptIdx >= 0 ? (r[uWorkDeptIdx] || '').trim() : ''
+    });
+    partNoSet.add(partNo);
+  }
+
+  allPrograms = Object.keys(byProg).sort();
+
+  // Build mobile audit data: unique orders with partNo, serialNo
+  const auditSeen = {};
+  function collectAuditOrders(source) {
+    for (const prog in source) {
+      for (const pn in source[prog]) {
+        for (const on in source[prog][pn]) {
+          if (!auditSeen[on]) {
+            const firstRow = source[prog][pn][on][0];
+            auditSeen[on] = true;
+            mobileAuditOrders.push({ orderNo: on, partNo: firstRow.partNo, serialNo: firstRow.serialNo });
+          }
+        }
+      }
+    }
+  }
+  collectAuditOrders(byProg);
+  collectAuditOrders(byProgUndecoded);
+  // Collect unique gates in decoder ring order for mobile audit
+  const auditGateSeen = {};
+  for (const pn in gatesByPart) {
+    var gList = gatesByPart[pn];
+    for (var gi = 0; gi < gList.length; gi++) {
+      var gKey = gList[gi].gateNumber;
+      if (!auditGateSeen[gKey]) {
+        auditGateSeen[gKey] = true;
+        mobileAuditGates.push({ number: gList[gi].gateNumber, name: gList[gi].gateName });
+      }
+    }
+  }
+  mobileAuditGates.sort(function(a, b) { return parseInt(a.number) - parseInt(b.number); });
+
+  // Program color map for Gate View — deterministic by first letter of program name
+  const programColorsByLetter = {
+    'P': { bg: '#dbeafe', border: '#3b82f6' },  // light blue
+    'N': { bg: '#fce7f3', border: '#ec4899' }   // pink
+  };
+  const programColorFallbacks = [
+    { bg: '#fef3c7', border: '#f59e0b' },  // amber
+    { bg: '#dcfce7', border: '#22c55e' },  // green
+    { bg: '#e0e7ff', border: '#6366f1' },  // indigo
+    { bg: '#fef9c3', border: '#eab308' }   // yellow
+  ];
+  const programColorMap = {};
+  let fallbackIdx = 0;
+  allPrograms.forEach(function(pgm) {
+    const firstLetter = (pgm.charAt(0) || '').toUpperCase();
+    if (programColorsByLetter[firstLetter]) {
+      programColorMap[pgm] = programColorsByLetter[firstLetter];
+    } else {
+      programColorMap[pgm] = programColorFallbacks[fallbackIdx % programColorFallbacks.length];
+      fallbackIdx++;
+    }
+  });
+  selectedPrograms = new Set(allPrograms);
+  allPartNos = Array.from(partNoSet).sort();
+  selectedPartNo = null;
+
+  // ---- Program filter chips ----
+  if (allPrograms.length > 0) {
+    pgmFilterEl.style.display = 'block';
+    const allBtn = document.createElement('span');
+    allBtn.className = 'filter-chip selected';
+    allBtn.textContent = 'Show All';
+    allBtn.style.fontWeight = 'bold';
+    allBtn.addEventListener('click', selectAllPrograms);
+    pgmFilterChips.appendChild(allBtn);
+
+    for (const pgm of allPrograms) {
+      const chip = document.createElement('span');
+      chip.className = 'filter-chip selected';
+      chip.textContent = pgm;
+      chip.dataset.pgm = pgm;
+      chip.addEventListener('click', function() { toggleProgram(pgm); });
+      pgmFilterChips.appendChild(chip);
+    }
+  }
+
+  // ---- Part No. filter chips ----
+  if (allPartNos.length > 0) {
+    pnFilterEl.style.display = 'block';
+    const pnAllBtn = document.createElement('span');
+    pnAllBtn.className = 'filter-chip pn-chip selected';
+    pnAllBtn.id = 'pn-show-all';
+    pnAllBtn.textContent = 'Show All';
+    pnAllBtn.style.fontWeight = 'bold';
+    pnAllBtn.addEventListener('click', showAllParts);
+    pnFilterChips.appendChild(pnAllBtn);
+
+    for (const pn of allPartNos) {
+      const chip = document.createElement('span');
+      chip.className = 'filter-chip pn-chip';
+      const pName = partNames[pn];
+      chip.textContent = pn + (pName ? ' — ' + pName : '');
+      chip.dataset.pn = pn;
+      chip.addEventListener('click', function() { selectPartNo(pn); });
+      pnFilterChips.appendChild(chip);
+    }
+  }
+
+  // Show print button, save button, audit button, and detail toggle
+  printBtn.style.display = 'inline-block';
+  document.getElementById('save-btn').style.display = 'inline-block';
+  document.getElementById('audit-btn').style.display = 'inline-block';
+  document.getElementById('detail-toggle').style.display = 'inline-block';
+
+  // ---- Render: Program -> Part No. -> Order No. ----
+  for (const program of allPrograms) {
+    const progSection = document.createElement('div');
+    progSection.className = 'program-section';
+    progSection.dataset.program = program;
+
+    const progHeading = document.createElement('div');
+    progHeading.className = 'program-heading';
+    progHeading.textContent = program;
+    progSection.appendChild(progHeading);
+
+    const partsInProg = Object.keys(byProg[program]).sort();
+
+    for (const partNo of partsInProg) {
+      const section = document.createElement('div');
+      section.className = 'part-section';
+      section.dataset.partno = partNo;
+
+      const partHeader = document.createElement('div');
+      partHeader.className = 'part-header';
+      const pName = partNames[partNo];
+      partHeader.textContent = partNo + (pName ? ' \u2014 ' + pName : '');
+      section.appendChild(partHeader);
+
+      const gates = gatesByPart[partNo] || [];
+      const sortedOrderNos = Object.keys(byProg[program][partNo]).sort();
+
+      for (const orderNo of sortedOrderNos) {
+        const rows = byProg[program][partNo][orderNo];
+
+        const operInfo = {};
+        for (const r of rows) {
+          operInfo[normOper(r.operNo)] = { operTitle: r.operTitle, operStatus: r.operStatus, rawOperNo: r.operNo, totalDays: r.totalDays, workDept: r.workDept, operHoldStatus: (r.orderHoldStatus || '').trim() };
+        }
+        const activeOpers = new Set(Object.keys(operInfo));
+
+        // Separate undefined opers into DR Ops (7000-7999) vs other
+        const drOps = [];
+        const otherUndefined = [];
+        for (const nOp of activeOpers) {
+          if (!gateLookup[partNo + '|||' + nOp]) {
+            const raw = operInfo[nOp].rawOperNo;
+            const num = parseFloat(nOp) || 0;
+            if (num >= 7000 && num <= 7999) {
+              drOps.push(raw);
+            } else {
+              otherUndefined.push({ raw: raw, num: num });
+            }
+          }
+        }
+
+        // Gates in CSV order
+        const columns = [];
+        for (const gate of gates) {
+          const minOp = Math.min(...gate.opers.map(o => parseFloat(o) || 0));
+          const label = gate.gateNumber + '. ' + gate.gateName;
+          columns.push({ gateLabel: label, opers: gate.opers, minOp: minOp });
+        }
+
+        // Insert non-DR undefined opers chronologically among gates
+        otherUndefined.sort((a, b) => a.num - b.num);
+        for (const uOp of otherUndefined) {
+          let insertIdx = columns.length;
+          for (let i = 0; i < columns.length; i++) {
+            if (columns[i].minOp > uOp.num) { insertIdx = i; break; }
+          }
+          columns.splice(insertIdx, 0, { gateLabel: '', opers: [uOp.raw], minOp: uOp.num });
+        }
+
+        // DR Ops (7000-7999) collected into one column at the far right
+        if (drOps.length > 0) {
+          drOps.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+          columns.push({ gateLabel: 'DR Ops', opers: drOps, minOp: 99999 });
+        }
+
+        const card = document.createElement('div');
+        card.className = 'order-card';
+        card.dataset.orderno = orderNo;
+
+        const firstRow = rows[0];
+        let html = '<div class="order-row">';
+
+        // Order info — fixed width; only show ORDER STOP hold flag (not OPER STOP)
+        html += '<div class="order-info">';
+        html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span><a href="#" class="top-link" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">(Back to top)</a></div>';
+        html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
+        const holdRaw = (firstRow.orderHoldStatus || '').trim();
+        const holdText = holdRaw.toUpperCase() === 'ORDER STOP' ? holdRaw.substring(0, 12) : '';
+        if (holdText) {
+          html += '<div class="field"><span class="hold-flag">' + esc(holdText) + '</span></div>';
+        }
+        html += '</div>';
+
+        html += '<div class="gate-bar">';
+        for (const col of columns) {
+          html += '<div class="gate-col">';
+          html += '<div class="gate-name' + (col.gateLabel === '' ? ' blank' : '') + '">' + (col.gateLabel ? esc(col.gateLabel) : '&nbsp;') + '</div>';
+          html += '<div class="gate-opers">';
+          for (const op of col.opers) {
+            const nOp = normOper(op);
+            const isActive = activeOpers.has(nOp);
+            const info = operInfo[nOp];
+            const deptUpper = info ? (info.workDept || '').toUpperCase().trim() : '';
+            const showDept = info && info.workDept && deptUpper !== 'SMART';
+            // Req 8: Add OPER STOP to tooltip text
+            const operHoldUpper = info ? (info.operHoldStatus || '').toUpperCase() : '';
+            const operStopText = operHoldUpper === 'OPER STOP' ? ' \u2014 OPER STOP' : '';
+            const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) + (showDept ? ' \u2014 ' + esc(info.workDept) : '') + (info.totalDays ? ' \u2014 ' + esc(info.totalDays) + ' days' : '') + operStopText : '';
+            if (isActive) {
+              // Determine color class based on Oper Status + Work Dept
+              const status = (info.operStatus || '').toUpperCase().trim();
+              const dept = (info.workDept || '').toUpperCase().trim();
+              let colorClass;
+              if (status === 'IN QUEUE') {
+                colorClass = 'active-yellow';
+              } else if (status === 'ACTIVE') {
+                if (dept.endsWith('_QA')) {
+                  colorClass = 'active-blue';
+                } else if (dept === 'SMART') {
+                  colorClass = 'active-green';
+                } else {
+                  colorClass = 'active-pink';
+                }
+              } else {
+                // Any other status (CLOSED, COMPLETE, etc.) = grey with tooltip
+                colorClass = 'inactive';
+              }
+              // Req 8: Add red border for OPER STOP chips
+              const operStopClass = operHoldUpper === 'OPER STOP' ? ' oper-stop-border' : '';
+              html += '<span class="oper-chip ' + colorClass + operStopClass + '" title="' + tooltip + '">' + esc(op) + '</span>';
+            } else {
+              html += '<span class="oper-chip inactive">' + esc(op) + '</span>';
+            }
+          }
+          html += '</div></div>';
+        }
+        html += '</div></div>';
+
+        card.innerHTML = html;
+        section.appendChild(card);
+      }
+
+      progSection.appendChild(section);
+    }
+
+    output.appendChild(progSection);
+  }
+
+  // ==== Build dailyLookup: orderNo -> {program, partNo, holdStatus, activeOps, maxDays, hasDrOps, serialNo} ====
+  const dailyLookup = {};
+  function buildDailyLookup(source) {
+    for (const prog in source) {
+      for (const pn in source[prog]) {
+        for (const on in source[prog][pn]) {
+          if (dailyLookup[on]) continue;
+          const rows = source[prog][pn][on];
+          const firstRow = rows[0];
+          const activeOps = [];
+          let maxDays = 0;
+          let hasDrOps = false;
+          for (const r of rows) {
+            const st = (r.operStatus || '').toUpperCase().trim();
+            if (st === 'ACTIVE' || st === 'IN QUEUE') {
+              const days = parseNum(r.totalDays);
+              const mod = modifierByOper[pn + '|||' + normOper(r.operNo)] || '';
+              const isIgnored = (mod === 'ignore');
+              const operHold = (r.orderHoldStatus || '').trim();
+              activeOps.push({ operNo: r.operNo, operTitle: r.operTitle, operStatus: r.operStatus, workDept: r.workDept, totalDays: r.totalDays, daysNum: days, ignored: isIgnored, operHoldStatus: operHold });
+              if (!isIgnored && days > maxDays) maxDays = days;
+            }
+            const opNum = parseFloat(normOper(r.operNo)) || 0;
+            if (opNum >= 7000 && opNum <= 7999) hasDrOps = true;
+          }
+          // Determine ORDER-level hold (ORDER STOP if any row has it)
+          let orderHold = '';
+          for (const r of rows) {
+            const h = (r.orderHoldStatus || '').trim().toUpperCase();
+            if (h === 'ORDER STOP') { orderHold = 'ORDER STOP'; break; }
+          }
+          dailyLookup[on] = {
+            program: prog, partNo: pn, serialNo: firstRow.serialNo,
+            holdStatus: orderHold, activeOps: activeOps, maxDays: maxDays, hasDrOps: hasDrOps
+          };
+        }
+      }
+    }
+  }
+  buildDailyLookup(byProg);
+  buildDailyLookup(byProgUndecoded);
+
+  // Store techsByGate globally for mobile audit
+  mobileAuditTechs = techsByGate;
+
+  // ==== GATE VIEW: Audit-CSV-driven or placeholder ====
+  const auditMode = auditCsvData && auditCsvData.length > 1;
+
+  if (!auditMode) {
+    // No audit CSV — show placeholder message
+    document.getElementById('gate-view-output').innerHTML = '<div class="gate-view-wrapper"><div class="gate-view-title">Gate View</div><div class="gv-no-audit">Load a Mobile Audit CSV (file input #4) and click Process to populate Gate View.</div></div>';
+  } else {
+    // Parse audit CSV
+    const aHeaders = auditCsvData[0];
+    const aGateNumIdx = colIndex(aHeaders, 'Gate Number');
+    const aOrderIdx = colIndex(aHeaders, 'Order No.');
+    const aPartIdx = colIndex(aHeaders, 'Part No.');
+    const aSnIdx = colIndex(aHeaders, 'Serial No.');
+    const aTechIdx = colIndex(aHeaders, 'Technician');
+
+    if (aGateNumIdx < 0 || aOrderIdx < 0) {
+      document.getElementById('gate-view-output').innerHTML = '<div class="gate-view-wrapper"><div class="gate-view-title">Gate View</div><p style="color:red;">Error: Audit CSV missing required columns (Gate Number, Order No.)</p></div>';
+    } else {
+      // Build auditEntries in CSV order and auditOrderSet
+      const auditEntries = [];
+      const auditOrderSet = new Set();
+      for (let i = 1; i < auditCsvData.length; i++) {
+        const r = auditCsvData[i];
+        const gateNum = (r[aGateNumIdx] || '').trim();
+        const orderNo = (r[aOrderIdx] || '').trim();
+        if (!orderNo) continue;
+        const partNo = aPartIdx >= 0 ? (r[aPartIdx] || '').trim() : '';
+        const serialNo = aSnIdx >= 0 ? (r[aSnIdx] || '').trim() : '';
+        const techName = aTechIdx >= 0 ? (r[aTechIdx] || '').trim() : '';
+        auditEntries.push({ gateNumber: gateNum, orderNo: orderNo, partNo: partNo, serialNo: serialNo, techName: techName });
+        auditOrderSet.add(orderNo);
+      }
+
+      // Build gate buckets in CSV order
+      const HOLD_KEY = 'HOLD';
+      const gateViewBuckets = {};
+      const gateOrder = []; // preserve CSV encounter order for gates
+
+      for (const entry of auditEntries) {
+        const gKey = entry.gateNumber.toUpperCase() === 'HOLD' ? HOLD_KEY : entry.gateNumber;
+        if (!gateViewBuckets[gKey]) {
+          gateViewBuckets[gKey] = {
+            gateNumber: gKey === HOLD_KEY ? '' : entry.gateNumber,
+            gateName: '',
+            isHold: gKey === HOLD_KEY,
+            orders: []
+          };
+          gateOrder.push(gKey);
+        }
+
+        // Look up daily data for this order
+        const daily = dailyLookup[entry.orderNo];
+        const isMissing = !daily;
+
+        const orderData = {
+          orderNo: entry.orderNo,
+          partNo: daily ? daily.partNo : entry.partNo,
+          serialNo: daily ? daily.serialNo : entry.serialNo,
+          holdStatus: daily ? daily.holdStatus : '',
+          program: daily ? daily.program : '(Unknown)',
+          maxDays: daily ? daily.maxDays : 0,
+          activeOps: daily ? daily.activeOps : [],
+          hasDrOps: daily ? daily.hasDrOps : false,
+          missing: isMissing,
+          techName: entry.techName
+        };
+        gateViewBuckets[gKey].orders.push(orderData);
+      }
+
+      // Resolve gate names from gatesByPart
+      const gateNameMap = {};
+      for (const pn in gatesByPart) {
+        for (const g of gatesByPart[pn]) {
+          if (!gateNameMap[g.gateNumber]) gateNameMap[g.gateNumber] = g.gateName;
+        }
+      }
+      for (const gKey of gateOrder) {
+        if (gKey !== HOLD_KEY && gateNameMap[gateViewBuckets[gKey].gateNumber]) {
+          gateViewBuckets[gKey].gateName = gateNameMap[gateViewBuckets[gKey].gateNumber];
+        }
+      }
+
+      // Sort gate keys: Hold first, then numbered gates ascending
+      gateOrder.sort(function(a, b) {
+        if (a === HOLD_KEY) return -1;
+        if (b === HOLD_KEY) return 1;
+        const numA = parseFloat(a) || 0;
+        const numB = parseFloat(b) || 0;
+        return numA - numB;
+      });
+
+      // Within each gate: tech-bench orders (with techName) first, then rest in CSV order
+      for (const gKey of gateOrder) {
+        const orders = gateViewBuckets[gKey].orders;
+        const withTech = orders.filter(function(o) { return o.techName; });
+        const withoutTech = orders.filter(function(o) { return !o.techName; });
+        gateViewBuckets[gKey].orders = withTech.concat(withoutTech);
+      }
+
+      // ==== "NOT FOUND ON A RACK" section ====
+      // Active/In Queue orders in daily upload that are NOT in the audit CSV
+      const notFoundOrders = [];
+      for (const orderNo in dailyLookup) {
+        if (auditOrderSet.has(orderNo)) continue;
+        const d = dailyLookup[orderNo];
+        if (d.activeOps.length > 0) {
+          notFoundOrders.push({
+            orderNo: orderNo, partNo: d.partNo, serialNo: d.serialNo,
+            holdStatus: d.holdStatus, program: d.program, maxDays: d.maxDays,
+            activeOps: d.activeOps, hasDrOps: d.hasDrOps, missing: false, techName: ''
+          });
+        }
+      }
+      // Sort: Program > Part No. > Order No.
+      notFoundOrders.sort(function(a, b) {
+        if (a.program !== b.program) return a.program < b.program ? -1 : 1;
+        if (a.partNo !== b.partNo) return a.partNo < b.partNo ? -1 : 1;
+        return a.orderNo < b.orderNo ? -1 : 1;
+      });
+
+      // ==== GATE VIEW: Render ====
+      let gvHtml = '<div class="gate-view-wrapper">';
+      gvHtml += '<div class="gate-view-title">Gate View</div>';
+
+      // Helper to render a card
+      function renderGvCard(order) {
+        const color = programColorMap[order.program] || programColorFallbacks[0];
+        const drClass = order.hasDrOps ? ' dr-ops' : '';
+
+        // Build tooltip — Req 7: show OPER STOP per operation, only ORDER STOP on card
+        let tip = 'Program: ' + order.program;
+        if (order.holdStatus) tip += '\nHold: ' + order.holdStatus;
+
+        let highOp = null;
+        for (const aOp of order.activeOps) {
+          if (!aOp.ignored && (!highOp || aOp.daysNum > highOp.daysNum)) highOp = aOp;
+        }
+        if (highOp) tip += '\nTotal Days: ' + (highOp.totalDays || '0') + ' (Oper ' + highOp.operNo + ')';
+
+        if (order.activeOps.length > 0) {
+          tip += '\n\nActive/In Queue Operations:';
+          for (const op of order.activeOps) {
+            tip += '\n  ' + op.operNo + ' \u2014 ' + op.operTitle + ' \u2014 ' + op.operStatus;
+            if (op.workDept) tip += ' \u2014 ' + op.workDept;
+            tip += ' \u2014 ' + (op.totalDays || '0') + ' days';
+            if (op.ignored) tip += ' [ignore]';
+            // Req 7: Show OPER STOP per operation in tooltip
+            var opHold = (op.operHoldStatus || '').trim().toUpperCase();
+            if (opHold === 'OPER STOP') tip += ' [OPER STOP]';
+          }
+        }
+
+        if (order.missing) tip += '\n\nMissing from daily upload';
+
+        var cardHtml = '<div class="gv-order-card' + drClass + '" data-orderno="' + esc(order.orderNo) + '" style="background:' + (order.missing ? '#fef3c7' : color.bg) + ';border-color:' + (order.hasDrOps ? '#dc2626' : (order.missing ? '#f59e0b' : color.border)) + ';" title="' + esc(tip) + '">';
+        cardHtml += '<div class="gv-order-no">' + esc(order.orderNo) + '</div>';
+        const gvPartName = partNames[order.partNo] || '';
+        cardHtml += '<div class="gv-part-no">' + esc(order.partNo) + (gvPartName ? ' (' + esc(gvPartName) + ')' : '') + '</div>';
+        cardHtml += '<div class="gv-sn">S/N: ' + esc(order.serialNo) + '</div>';
+        // Req 7: Only ORDER STOP on card, NOT OPER STOP
+        if (order.holdStatus && order.holdStatus.toUpperCase() === 'ORDER STOP') {
+          cardHtml += '<div class="gv-hold">' + esc(order.holdStatus.substring(0, 12)) + '</div>';
+        }
+        // Req 6: DR Operations label
+        if (order.hasDrOps) {
+          cardHtml += '<div class="gv-dr-label">DR Operations</div>';
+        }
+        // Req 4: Missing from daily upload label
+        if (order.missing) {
+          cardHtml += '<div class="gv-missing">Missing from daily upload</div>';
+        }
+        // Tech-bench label
+        if (order.techName) {
+          cardHtml += '<div class="gv-tech-label">with ' + esc(order.techName) + '</div>';
+        }
+        if (!order.missing) {
+          cardHtml += '<div class="gv-days">' + (Math.round(order.maxDays * 10) / 10) + ' days</div>';
+        }
+        cardHtml += '</div>';
+        return cardHtml;
+      }
+
+      for (const gKey of gateOrder) {
+        const bucket = gateViewBuckets[gKey];
+        const headerText = bucket.isHold
+          ? 'Hold (' + bucket.orders.length + ' orders)'
+          : bucket.gateNumber + '. ' + bucket.gateName + ' (' + bucket.orders.length + ' orders)';
+
+        let techLabel = '';
+        if (!bucket.isHold) {
+          const techs = techsByGate[bucket.gateNumber];
+          if (techs && techs.length > 0) {
+            techLabel = ' (' + techs.map(function(t) { return t.name; }).join(', ') + ')';
+          } else if (techFileLoaded) {
+            techLabel = ' (No technicians assigned, check input files)';
+          }
+        }
+
+        gvHtml += '<div class="gv-gate-section">';
+        gvHtml += '<div class="gv-gate-header' + (bucket.isHold ? ' hold-gate' : '') + '">' + esc(headerText) + esc(techLabel) + '</div>';
+        gvHtml += '<div class="gv-cards-row">';
+
+        for (const order of bucket.orders) {
+          gvHtml += renderGvCard(order);
+        }
+
+        gvHtml += '</div></div>';
+      }
+
+      // ==== Req 5: "Not found on a rack" section ====
+      if (notFoundOrders.length > 0) {
+        gvHtml += '<div class="gv-gate-section">';
+        gvHtml += '<div class="gv-gate-header not-found-gate">Not found on a rack (' + notFoundOrders.length + ' orders)</div>';
+        gvHtml += '<div class="gv-cards-row">';
+        for (const order of notFoundOrders) {
+          gvHtml += renderGvCard(order);
+        }
+        gvHtml += '</div></div>';
+      }
+
+      gvHtml += '</div>';
+      document.getElementById('gate-view-output').innerHTML = gvHtml;
+
+      // Click delegation for gate view cards
+      document.getElementById('gate-view-output').addEventListener('click', function(e) {
+        const card = e.target.closest('.gv-order-card');
+        if (card && card.dataset.orderno) {
+          toggleGvOrder(card.dataset.orderno);
+        }
+      });
+    }
+  }
+
+  // ==== UNMAPPED OPERATIONS VIEW ====
+  const showUnmapped = document.getElementById('unmapped-chk').checked;
+  const undecodedPrograms = Object.keys(byProgUndecoded).sort();
+  if (showUnmapped && undecodedPrograms.length > 0) {
+    const undecodedOutput = document.getElementById('undecoded-output');
+    let hasUndecodedOrders = false;
+    const umPartNoSet = new Set();
+
+    for (const program of undecodedPrograms) {
+      const progSection = document.createElement('div');
+      progSection.className = 'program-section';
+      progSection.dataset.program = program;
+
+      const progHeading = document.createElement('div');
+      progHeading.className = 'program-heading';
+      progHeading.textContent = program;
+      progSection.appendChild(progHeading);
+
+      const partsInProg = Object.keys(byProgUndecoded[program]).sort();
+      let progHasOrders = false;
+
+      for (const partNo of partsInProg) {
+        const section = document.createElement('div');
+        section.className = 'part-section';
+        section.dataset.partno = partNo;
+
+        const partHeader = document.createElement('div');
+        partHeader.className = 'part-header';
+        partHeader.textContent = partNo;
+        section.appendChild(partHeader);
+
+        const sortedOrderNos = Object.keys(byProgUndecoded[program][partNo]).sort();
+
+        for (const orderNo of sortedOrderNos) {
+          const rows = byProgUndecoded[program][partNo][orderNo];
+
+          // Filter to active/in-queue operations only
+          const activeRows = [];
+          for (const r of rows) {
+            const st = (r.operStatus || '').toUpperCase().trim();
+            if (st === 'ACTIVE' || st === 'IN QUEUE') activeRows.push(r);
+          }
+          if (activeRows.length === 0) continue;
+
+          progHasOrders = true;
+          hasUndecodedOrders = true;
+          umPartNoSet.add(partNo);
+
+          const card = document.createElement('div');
+          card.className = 'order-card';
+
+          const firstRow = rows[0];
+          let html = '<div class="order-row">';
+
+          // Order info
+          html += '<div class="order-info">';
+          html += '<div class="field"><span class="label">Order </span><span class="value">' + esc(orderNo) + '</span><a href="#" class="top-link" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">(Back to top)</a></div>';
+          html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
+          const holdText = firstRow.orderHoldStatus ? firstRow.orderHoldStatus.substring(0, 12) : '';
+          if (holdText) {
+            html += '<div class="field"><span class="hold-flag">' + esc(holdText) + '</span></div>';
+          }
+          html += '</div>';
+
+          // Gate bar — single blank column with active/in-queue ops, left-justified
+          html += '<div class="gate-bar">';
+          html += '<div class="gate-col">';
+          html += '<div class="gate-name blank">&nbsp;</div>';
+          html += '<div class="gate-opers" style="justify-content:flex-start;">';
+          for (const r of activeRows) {
+            const status = (r.operStatus || '').toUpperCase().trim();
+            const dept = (r.workDept || '').toUpperCase().trim();
+            const showDept = r.workDept && dept !== 'SMART';
+            const tooltip = esc(r.operTitle) + ' \u2014 ' + esc(r.operStatus) + (showDept ? ' \u2014 ' + esc(r.workDept) : '') + (r.totalDays ? ' \u2014 ' + esc(r.totalDays) + ' days' : '');
+            let colorClass;
+            if (status === 'IN QUEUE') {
+              colorClass = 'active-yellow';
+            } else if (status === 'ACTIVE') {
+              if (dept.endsWith('_QA')) {
+                colorClass = 'active-blue';
+              } else if (dept === 'SMART') {
+                colorClass = 'active-green';
+              } else {
+                colorClass = 'active-pink';
+              }
+            } else {
+              colorClass = 'inactive';
+            }
+            html += '<span class="oper-chip ' + colorClass + '" title="' + tooltip + '">' + esc(r.operNo) + '</span>';
+          }
+          html += '</div></div>';
+          html += '</div></div>';
+
+          card.innerHTML = html;
+          section.appendChild(card);
+        }
+
+        if (progHasOrders) progSection.appendChild(section);
+      }
+
+      if (progHasOrders) undecodedOutput.appendChild(progSection);
+    }
+
+    if (hasUndecodedOrders) {
+      // Collect unmapped programs (only those with active orders)
+      umAllPrograms = [];
+      for (const pgm of undecodedPrograms) {
+        if (document.querySelector('#undecoded-output .program-section[data-program="' + CSS.escape(pgm) + '"]')) {
+          umAllPrograms.push(pgm);
+        }
+      }
+      umSelectedPrograms = new Set(umAllPrograms);
+      umAllPartNos = Array.from(umPartNoSet).sort();
+      umSelectedPartNo = null;
+
+      // Build unmapped program filter chips
+      const umPgmChips = document.getElementById('unmapped-pgm-chips');
+      const umPgmFilter = document.getElementById('unmapped-pgm-filter');
+      if (umAllPrograms.length > 0) {
+        umPgmFilter.style.display = 'block';
+        const allBtn = document.createElement('span');
+        allBtn.className = 'filter-chip selected';
+        allBtn.textContent = 'Show All';
+        allBtn.style.fontWeight = 'bold';
+        allBtn.addEventListener('click', selectAllUmPrograms);
+        umPgmChips.appendChild(allBtn);
+        for (const pgm of umAllPrograms) {
+          const chip = document.createElement('span');
+          chip.className = 'filter-chip selected';
+          chip.textContent = pgm;
+          chip.dataset.pgm = pgm;
+          chip.addEventListener('click', function() { toggleUmProgram(pgm); });
+          umPgmChips.appendChild(chip);
+        }
+      }
+
+      // Build unmapped part number filter chips
+      const umPnChips = document.getElementById('unmapped-pn-chips');
+      const umPnFilter = document.getElementById('unmapped-pn-filter');
+      if (umAllPartNos.length > 0) {
+        umPnFilter.style.display = 'block';
+        const pnAllBtn = document.createElement('span');
+        pnAllBtn.className = 'filter-chip pn-chip selected';
+        pnAllBtn.id = 'unmapped-pn-show-all';
+        pnAllBtn.textContent = 'Show All';
+        pnAllBtn.style.fontWeight = 'bold';
+        pnAllBtn.addEventListener('click', showAllUmParts);
+        umPnChips.appendChild(pnAllBtn);
+        for (const pn of umAllPartNos) {
+          const chip = document.createElement('span');
+          chip.className = 'filter-chip pn-chip';
+          chip.textContent = pn;
+          chip.dataset.pn = pn;
+          chip.addEventListener('click', function() { selectUmPartNo(pn); });
+          umPnChips.appendChild(chip);
+        }
+      }
+
+      // Show toggle button and default to visible
+      document.getElementById('unmapped-toggle').style.display = 'inline-block';
+      document.getElementById('undecoded-view').style.display = 'block';
+      document.getElementById('unmapped-toggle').innerHTML = '&#9660; Hide Unmapped Operations';
+    }
+  }
+}
+
+function parseNum(s) {
+  if (!s) return 0;
+  var n = parseFloat(String(s).trim());
+  if (!isNaN(n)) return n;
+  // Fallback: extract first number from string
+  var m = String(s).match(/[\d.]+/);
+  return m ? (parseFloat(m[0]) || 0) : 0;
+}
+
+function normOper(s) {
+  const n = String(s).replace(/^0+/, '');
+  return n === '' ? '0' : n;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function saveSnapshot() {
+  // Capture the rendered HTML content
+  var gateViewHtml = document.getElementById('gate-view-output').innerHTML;
+  var detailViewHtml = document.getElementById('detail-view').innerHTML;
+
+  // Capture CSS from the style element
+  var css = document.querySelector('style').textContent;
+
+  // Serialize data needed for interactivity
+  var programsJson = JSON.stringify(allPrograms);
+  var partNosJson = JSON.stringify(allPartNos);
+
+  // Build date string for filename
+  var now = new Date();
+  var dateStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  var timeStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+
+  // Build the self-contained HTML document
+  var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n';
+  html += '<meta charset="UTF-8">\n';
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
+  html += '<title>Gate Tracker Snapshot - ' + dateStr + '</title>\n';
+  html += '<style>\n' + css + '\n</style>\n';
+  html += '</head>\n<body>\n';
+  html += '<div style="background:#fef3c7;border:2px solid #f59e0b;padding:8px 14px;text-align:center;font-weight:bold;font-size:0.9rem;color:#92400e;margin-bottom:1rem;border-radius:4px;">Proprietary &mdash; Internal Use Only</div>\n';
+  html += '<h1>Gate Tracker <span style="font-size:0.6em;color:#666;">(Snapshot)</span></h1>\n';
+  html += '<p style="font-size:0.85rem;color:#555;margin-bottom:1rem;">Snapshot taken: ' + timeStr + '</p>\n';
+  html += '<button id="print-btn" onclick="printPage()" style="display:inline-block;">Print / Export PDF</button>\n';
+  html += '<div id="print-timestamp" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;"></div>\n';
+
+  // Gate View
+  html += '<div id="gate-view-output">' + gateViewHtml + '</div>\n';
+
+  // Detail toggle
+  html += '<button id="detail-toggle" onclick="toggleDetailView()" style="display:inline-block;">&#9654; Show Detail View</button>\n';
+
+  // Detail View (hidden by default)
+  html += '<div id="detail-view" style="display:none">\n';
+  html += detailViewHtml + '\n';
+  html += '</div>\n';
+
+  // JavaScript for interactivity — sanitize JSON to prevent script tag breakout
+  var safeProgramsJson = programsJson.replace(/\x3c/g, '\\u003c');
+  var safePartNosJson = partNosJson.replace(/\x3c/g, '\\u003c');
+  html += '<script>\n';
+  html += 'var allPrograms = ' + safeProgramsJson + ';\n';
+  html += 'var allPartNos = ' + safePartNosJson + ';\n';
+  html += 'var selectedPrograms = new Set(allPrograms);\n';
+  html += 'var selectedPartNo = null;\n';
+  html += 'var selectedGvOrders = new Set();\n\n';
+
+  // Include interactive functions
+  html += toggleDetailView.toString() + '\n\n';
+  html += toggleGvOrder.toString() + '\n\n';
+  html += toggleProgram.toString() + '\n\n';
+  html += selectAllPrograms.toString() + '\n\n';
+  html += selectPartNo.toString() + '\n\n';
+  html += showAllParts.toString() + '\n\n';
+  html += applyFilters.toString() + '\n\n';
+
+  // Print function for snapshot
+  html += 'function printPage() {\n';
+  html += '  var ts = document.getElementById("print-timestamp");\n';
+  html += '  var now = new Date();\n';
+  html += '  ts.textContent = "Exported: " + now.toLocaleDateString() + " " + now.toLocaleTimeString();\n';
+  html += '  ts.style.display = "block";\n';
+  html += '  setTimeout(function() { window.print(); }, 100);\n';
+  html += '}\n\n';
+
+  // Re-attach event listeners on load
+  html += '(function() {\n';
+
+  // Gate view card click delegation
+  html += '  var gv = document.getElementById("gate-view-output");\n';
+  html += '  if (gv) {\n';
+  html += '    gv.addEventListener("click", function(e) {\n';
+  html += '      var card = e.target.closest(".gv-order-card");\n';
+  html += '      if (card && card.dataset.orderno) toggleGvOrder(card.dataset.orderno);\n';
+  html += '    });\n';
+  html += '  }\n\n';
+
+  // Program filter chip click delegation
+  html += '  var pgmChips = document.getElementById("pgm-filter-chips");\n';
+  html += '  if (pgmChips) {\n';
+  html += '    pgmChips.addEventListener("click", function(e) {\n';
+  html += '      var chip = e.target.closest(".filter-chip");\n';
+  html += '      if (!chip) return;\n';
+  html += '      if (chip.dataset.pgm) { toggleProgram(chip.dataset.pgm); }\n';
+  html += '      else if (chip.textContent.trim() === "Show All") { selectAllPrograms(); }\n';
+  html += '    });\n';
+  html += '  }\n\n';
+
+  // Part No. filter chip click delegation
+  html += '  var pnChips = document.getElementById("pn-filter-chips");\n';
+  html += '  if (pnChips) {\n';
+  html += '    pnChips.addEventListener("click", function(e) {\n';
+  html += '      var chip = e.target.closest(".filter-chip");\n';
+  html += '      if (!chip) return;\n';
+  html += '      if (chip.dataset.pn) { selectPartNo(chip.dataset.pn); }\n';
+  html += '      else if (chip.id === "pn-show-all" || chip.textContent.trim() === "Show All") { showAllParts(); }\n';
+  html += '    });\n';
+  html += '  }\n';
+
+  html += '})();\n';
+  html += '<\/script>\n';
+  html += '</body>\n</html>';
+
+  // Trigger download
+  var blob = new Blob([html], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'gate-tracker-' + dateStr + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---- Generate Mobile Audit ----
+function generateMobileAudit() {
+  var ordersJSON = JSON.stringify(mobileAuditOrders).replace(/</g, '\\u003c');
+  var gatesJSON = JSON.stringify(mobileAuditGates).replace(/</g, '\\u003c');
+  var techsJSON = JSON.stringify(mobileAuditTechs).replace(/</g, '\\u003c');
+  var now = new Date();
+  var dateStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+
+  var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+  html += '<title>Gate Audit \u2014 ' + esc(dateStr) + '</title>\n';
+  html += '<style>\n';
+  html += '  * { box-sizing: border-box; margin: 0; padding: 0; }\n';
+  html += '  body { font-family: Arial, sans-serif; padding: 12px; background: #f5f5f5; }\n';
+  html += '  h2 { text-align: center; margin-bottom: 4px; }\n';
+  html += '  .gen-date { text-align: center; font-size: 12px; color: #888; margin-bottom: 10px; }\n';
+  html += '  .gate-grid { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 16px; }\n';
+  html += '  .gate-btn { min-width: 56px; height: 44px; font-size: 14px; font-weight: bold; border: 2px solid #334155; background: #fff; border-radius: 6px; cursor: pointer; padding: 4px 8px; }\n';
+  html += '  .gate-btn.selected { background: #2563eb; color: #fff; border-color: #1d4ed8; }\n';
+  html += '  .gate-btn.hold-btn { border-color: #991b1b; color: #991b1b; }\n';
+  html += '  .gate-btn.hold-btn.selected { background: #991b1b; color: #fff; }\n';
+  html += '  .search-section { display: none; }\n';
+  html += '  .search-section.visible { display: block; }\n';
+  html += '  .search-label { font-size: 14px; color: #555; margin-bottom: 4px; }\n';
+  html += '  #searchInput { width: 100%; font-size: 20px; padding: 10px; border: 2px solid #999; border-radius: 6px; text-align: center; letter-spacing: 2px; }\n';
+  html += '  #searchInput::placeholder { letter-spacing: normal; font-size: 14px; }\n';
+  html += '  .tech-section { display: none; margin-top: 8px; margin-bottom: 8px; }\n';
+  html += '  .tech-section.visible { display: block; }\n';
+  html += '  .tech-label { font-size: 13px; color: #555; margin-bottom: 4px; }\n';
+  html += '  .tech-grid { display: flex; flex-wrap: wrap; gap: 6px; }\n';
+  html += '  .tech-btn { padding: 6px 12px; font-size: 13px; font-weight: bold; border: 2px solid #16a34a; background: #fff; color: #16a34a; border-radius: 6px; cursor: pointer; }\n';
+  html += '  .tech-btn.selected { background: #16a34a; color: #fff; }\n';
+  html += '  .manual-section { margin-top: 10px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }\n';
+  html += '  .manual-section .manual-title { font-size: 13px; font-weight: bold; color: #555; margin-bottom: 6px; }\n';
+  html += '  .manual-row { display: flex; gap: 6px; margin-bottom: 6px; }\n';
+  html += '  .manual-row input { flex: 1; font-size: 14px; padding: 8px; border: 2px solid #999; border-radius: 6px; }\n';
+  html += '  .manual-row input::placeholder { font-size: 12px; }\n';
+  html += '  #addManualBtn { width: 100%; font-size: 14px; padding: 10px; background: #f59e0b; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }\n';
+  html += '  #addManualBtn:active { background: #d97706; }\n';
+  html += '  .results { margin-top: 8px; max-height: 250px; overflow-y: auto; border: 1px solid #ccc; border-radius: 6px; background: #fff; }\n';
+  html += '  .results.empty { display: none; }\n';
+  html += '  .result-item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; }\n';
+  html += '  .result-item:active { background: #dbeafe; }\n';
+  html += '  .result-item .wo-line { font-size: 16px; }\n';
+  html += '  .result-item .match { font-weight: bold; color: #2563eb; }\n';
+  html += '  .result-item .detail-line { font-size: 12px; color: #666; margin-top: 2px; }\n';
+  html += '  .added-section { margin-top: 16px; }\n';
+  html += '  .gate-tag { display: inline-block; background: #334155; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 6px; }\n';
+  html += '  .gate-tag.hold-tag { background: #991b1b; }\n';
+  html += '  .added-list { list-style: none; }\n';
+  html += '  .added-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 4px; }\n';
+  html += '  .added-info { font-size: 14px; }\n';
+  html += '  .added-info .wo-num { font-weight: bold; }\n';
+  html += '  .added-info .added-detail { font-size: 11px; color: #666; }\n';
+  html += '  .added-info .tech-name { font-size: 11px; color: #16a34a; font-style: italic; }\n';
+  html += '  .remove-btn { background: #dc2626; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 14px; cursor: pointer; flex-shrink: 0; }\n';
+  html += '  #copyBtn { display: none; width: 100%; padding: 14px; font-size: 18px; font-weight: bold; background: #16a34a; color: #fff; border: none; border-radius: 8px; cursor: pointer; margin-top: 16px; }\n';
+  html += '  #copyBtn:active { background: #15803d; }\n';
+  html += '  #copyBtn.copied { background: #334155; }\n';
+  html += '  #copyMsg { text-align: center; font-size: 13px; color: #16a34a; font-weight: bold; margin-top: 6px; display: none; }\n';
+  html += '  .count { text-align: center; font-size: 13px; color: #666; margin-top: 8px; }\n';
+  html += '</style>\n</head>\n<body>\n\n';
+  html += '<h2>Gate Audit</h2>\n';
+  html += '<div class="gen-date">Generated: ' + esc(dateStr) + ' | ' + esc(String(mobileAuditOrders.length)) + ' work orders loaded</div>\n';
+  html += '<p style="text-align:center; font-size:14px; color:#555; margin-bottom:8px;">Select a gate, then search by last 4 digits</p>\n';
+  html += '<div class="gate-grid" id="gateGrid"></div>\n';
+  html += '<div class="search-section" id="searchSection">\n';
+  html += '  <div class="search-label">Selected gate: <strong id="currentGateLabel">&mdash;</strong></div>\n';
+  html += '  <div class="tech-section" id="techSection">\n';
+  html += '    <div class="tech-label">Technician (optional \u2014 tap to tag orders):</div>\n';
+  html += '    <div class="tech-grid" id="techGrid"></div>\n';
+  html += '  </div>\n';
+  html += '  <input type="text" id="searchInput" inputmode="numeric" maxlength="4" placeholder="Type last 4 digits of W/O">\n';
+  html += '  <div class="results empty" id="resultsList"></div>\n';
+  html += '  <div class="manual-section">\n';
+  html += '    <div class="manual-title">Manual Entry (if W/O not in list)</div>\n';
+  html += '    <div class="manual-row"><input type="text" id="manualWO" placeholder="W/O Number *"></div>\n';
+  html += '    <div class="manual-row"><input type="text" id="manualPN" placeholder="Part No. (optional)"><input type="text" id="manualSN" placeholder="S/N (optional)"></div>\n';
+  html += '    <button id="addManualBtn">+ Add Manual Entry</button>\n';
+  html += '  </div>\n';
+  html += '</div>\n';
+  html += '<div class="added-section" id="addedSection"></div>\n';
+  html += '<button id="copyBtn">Copy to Clipboard</button>\n';
+  html += '<div id="copyMsg">Copied! Now paste into Outlook.</div>\n';
+  html += '<div class="count" id="countDiv"></div>\n\n';
+  html += '<script>\n';
+  html += 'var WORK_ORDERS = ' + ordersJSON + ';\n';
+  html += 'var GATES = ' + gatesJSON + ';\n';
+  html += 'var TECHS_BY_GATE = ' + techsJSON + ';\n';
+  html += 'var woLookup = {};\n';
+  html += 'for (var w = 0; w < WORK_ORDERS.length; w++) { woLookup[WORK_ORDERS[w].orderNo] = WORK_ORDERS[w]; }\n';
+  html += 'var currentGate = null;\n';
+  html += 'var currentTech = "";\n';
+  html += 'var addedOrders = {};\n\n';
+  html += 'function esc(s) { return String(s).replace(/&/g,"\\x26amp;").replace(/</g,"\\x26lt;").replace(/>/g,"\\x26gt;").replace(/"/g,"\\x26quot;").replace(/\x27/g,"\\x26#39;"); }\n\n';
+  // Build gate buttons — include HOLD button (Req 1)
+  html += 'var gateGrid = document.getElementById("gateGrid");\n';
+  html += '// Add HOLD button first\n';
+  html += 'var holdBtn = document.createElement("button");\n';
+  html += 'holdBtn.className = "gate-btn hold-btn";\n';
+  html += 'holdBtn.textContent = "HOLD";\n';
+  html += 'holdBtn.setAttribute("data-gate", "HOLD");\n';
+  html += 'holdBtn.setAttribute("data-name", "Hold");\n';
+  html += 'holdBtn.addEventListener("click", function() { selectGate("HOLD", "Hold"); });\n';
+  html += 'gateGrid.appendChild(holdBtn);\n';
+  html += 'for (var i = 0; i < GATES.length; i++) {\n';
+  html += '  var btn = document.createElement("button");\n';
+  html += '  btn.className = "gate-btn";\n';
+  html += '  btn.textContent = GATES[i].number + ". " + GATES[i].name;\n';
+  html += '  btn.setAttribute("data-gate", GATES[i].number);\n';
+  html += '  btn.setAttribute("data-name", GATES[i].name);\n';
+  html += '  btn.addEventListener("click", function() { selectGate(this.getAttribute("data-gate"), this.getAttribute("data-name")); });\n';
+  html += '  gateGrid.appendChild(btn);\n';
+  html += '}\n\n';
+  html += 'function selectGate(num, name) {\n';
+  html += '  currentGate = num;\n';
+  html += '  currentTech = "";\n';
+  html += '  var btns = document.querySelectorAll(".gate-btn");\n';
+  html += '  for (var i = 0; i < btns.length; i++) { var b = btns[i]; var sel = b.getAttribute("data-gate") === num; b.classList.toggle("selected", sel); }\n';
+  html += '  document.getElementById("currentGateLabel").textContent = num === "HOLD" ? "Hold" : "Gate " + num + " \\u2014 " + name;\n';
+  html += '  document.getElementById("searchSection").className = "search-section visible";\n';
+  html += '  // Show technician buttons if available for this gate\n';
+  html += '  var techSection = document.getElementById("techSection");\n';
+  html += '  var techGrid = document.getElementById("techGrid");\n';
+  html += '  techGrid.innerHTML = "";\n';
+  html += '  var gateTechs = TECHS_BY_GATE[num] || [];\n';
+  html += '  if (gateTechs.length > 0) {\n';
+  html += '    techSection.className = "tech-section visible";\n';
+  html += '    for (var t = 0; t < gateTechs.length; t++) {\n';
+  html += '      var tb = document.createElement("button");\n';
+  html += '      tb.className = "tech-btn";\n';
+  html += '      tb.textContent = gateTechs[t].name;\n';
+  html += '      tb.setAttribute("data-tech", gateTechs[t].name);\n';
+  html += '      tb.addEventListener("click", function() { selectTech(this.getAttribute("data-tech")); });\n';
+  html += '      techGrid.appendChild(tb);\n';
+  html += '    }\n';
+  html += '  } else { techSection.className = "tech-section"; }\n';
+  html += '  var input = document.getElementById("searchInput"); input.value = ""; input.focus();\n';
+  html += '  document.getElementById("resultsList").className = "results empty";\n';
+  html += '}\n\n';
+  html += 'function selectTech(name) {\n';
+  html += '  currentTech = (currentTech === name) ? "" : name;\n';
+  html += '  var btns = document.querySelectorAll(".tech-btn");\n';
+  html += '  for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("selected", btns[i].getAttribute("data-tech") === currentTech); }\n';
+  html += '}\n\n';
+  // Search
+  html += 'var searchInput = document.getElementById("searchInput");\n';
+  html += 'var resultsList = document.getElementById("resultsList");\n';
+  html += 'searchInput.addEventListener("input", function() {\n';
+  html += '  var query = this.value.trim();\n';
+  html += '  if (query.length === 0) { resultsList.className = "results empty"; resultsList.innerHTML = ""; return; }\n';
+  html += '  var matches = WORK_ORDERS.filter(function(wo) { return wo.orderNo.slice(-4).indexOf(query) === 0; });\n';
+  // Exclude already-added orders across ALL gates
+  html += '  var allAdded = {}; for (var g in addedOrders) { for (var k = 0; k < addedOrders[g].length; k++) { allAdded[addedOrders[g][k].orderNo] = true; } }\n';
+  html += '  matches = matches.filter(function(wo) { return !allAdded[wo.orderNo]; });\n';
+  html += '  if (matches.length === 0) { resultsList.className = "results empty"; resultsList.innerHTML = ""; return; }\n';
+  html += '  resultsList.className = "results";\n';
+  html += '  var h = "";\n';
+  html += '  for (var i = 0; i < matches.length; i++) {\n';
+  html += '    var wo = matches[i], prefix = wo.orderNo.slice(0,-4), suffix = wo.orderNo.slice(-4);\n';
+  html += '    var hl = suffix.slice(0, query.length), rest = suffix.slice(query.length);\n';
+  html += '    var dp = [];\n';
+  html += '    if (wo.partNo) dp.push("P/N: " + esc(wo.partNo));\n';
+  html += '    if (wo.serialNo) dp.push("S/N: " + esc(wo.serialNo));\n';
+  html += '    h += \'<div class="result-item" data-wo="\' + esc(wo.orderNo) + \'">\' + \'<div class="wo-line">\' + esc(prefix) + \'<span class="match">\' + esc(hl) + "</span>" + esc(rest) + "</div>" + (dp.length ? \'<div class="detail-line">\' + dp.join(" | ") + "</div>" : "") + "</div>";\n';
+  html += '  }\n';
+  html += '  resultsList.innerHTML = h;\n';
+  html += '  var items = resultsList.querySelectorAll(".result-item");\n';
+  html += '  for (var j = 0; j < items.length; j++) { items[j].addEventListener("click", function() {\n';
+  html += '    var d = woLookup[this.getAttribute("data-wo")];\n';
+  html += '    addOrder({ orderNo: d.orderNo, partNo: d.partNo, serialNo: d.serialNo, tech: currentTech });\n';
+  html += '  }); }\n';
+  html += '});\n\n';
+  // Manual entry
+  html += 'document.getElementById("addManualBtn").addEventListener("click", function() {\n';
+  html += '  var wo = document.getElementById("manualWO").value.trim(); if (!wo || !currentGate) return;\n';
+  html += '  var pn = document.getElementById("manualPN").value.trim();\n';
+  html += '  var sn = document.getElementById("manualSN").value.trim();\n';
+  html += '  addOrder({ orderNo: wo, partNo: pn, serialNo: sn, tech: currentTech });\n';
+  html += '  document.getElementById("manualWO").value = ""; document.getElementById("manualPN").value = ""; document.getElementById("manualSN").value = "";\n';
+  html += '});\n\n';
+  // addOrder / removeOrder / renderAdded
+  html += 'function addOrder(entry) {\n';
+  html += '  if (!currentGate) return;\n';
+  html += '  if (!addedOrders[currentGate]) addedOrders[currentGate] = [];\n';
+  html += '  for (var i = 0; i < addedOrders[currentGate].length; i++) { if (addedOrders[currentGate][i].orderNo === entry.orderNo) return; }\n';
+  html += '  addedOrders[currentGate].push(entry);\n';
+  html += '  searchInput.value = ""; resultsList.className = "results empty"; resultsList.innerHTML = ""; searchInput.focus();\n';
+  html += '  renderAdded();\n';
+  html += '}\n\n';
+  html += 'function removeOrder(gate, orderNo) {\n';
+  html += '  if (!addedOrders[gate]) return;\n';
+  html += '  addedOrders[gate] = addedOrders[gate].filter(function(o) { return o.orderNo !== orderNo; });\n';
+  html += '  if (addedOrders[gate].length === 0) delete addedOrders[gate];\n';
+  html += '  renderAdded();\n';
+  html += '}\n\n';
+  html += 'function renderAdded() {\n';
+  html += '  var section = document.getElementById("addedSection");\n';
+  html += '  var gates = Object.keys(addedOrders).sort(function(a,b){ if(a==="HOLD")return -1; if(b==="HOLD")return 1; return a-b; });\n';
+  html += '  var totalCount = 0;\n';
+  html += '  if (gates.length === 0) { section.innerHTML = ""; document.getElementById("copyBtn").style.display = "none"; document.getElementById("countDiv").textContent = ""; return; }\n';
+  html += '  var h = "";\n';
+  html += '  for (var i = 0; i < gates.length; i++) {\n';
+  html += '    var g = gates[i], orders = addedOrders[g]; totalCount += orders.length;\n';
+  html += '    var gName = ""; if (g === "HOLD") { gName = "Hold"; } else { for (var gi = 0; gi < GATES.length; gi++) { if (String(GATES[gi].number) === String(g)) { gName = GATES[gi].name; break; } } }\n';
+  html += '    var tagClass = g === "HOLD" ? "gate-tag hold-tag" : "gate-tag";\n';
+  html += '    h += \'<div><span class="\' + tagClass + \'">\' + (g === "HOLD" ? "Hold" : "Gate " + g) + (gName && g !== "HOLD" ? " \\u2014 " + esc(gName) : "") + "</span>";\n';
+  html += '    h += \'<ul class="added-list">\';\n';
+  html += '    for (var j = 0; j < orders.length; j++) {\n';
+  html += '      var o = orders[j], dp = [];\n';
+  html += '      if (o.partNo) dp.push("P/N: " + esc(o.partNo));\n';
+  html += '      if (o.serialNo) dp.push("S/N: " + esc(o.serialNo));\n';
+  html += '      var techHtml = o.tech ? \'<div class="tech-name">with \' + esc(o.tech) + "</div>" : "";\n';
+  html += '      h += \'<li class="added-item"><div class="added-info"><div class="wo-num">\' + esc(o.orderNo) + "</div>" + (dp.length ? \'<div class="added-detail">\' + dp.join(" | ") + "</div>" : "") + techHtml + "</div>";\n';
+  html += '      h += \'<button class="remove-btn" data-gate="\' + g + \'" data-wo="\' + esc(o.orderNo) + \'">X</button></li>\';\n';
+  html += '    }\n';
+  html += '    h += "</ul></div>";\n';
+  html += '  }\n';
+  html += '  section.innerHTML = h;\n';
+  html += '  document.getElementById("copyBtn").style.display = "block";\n';
+  html += '  document.getElementById("countDiv").textContent = totalCount + " order(s) across " + gates.length + " gate(s)";\n';
+  html += '  var removeBtns = section.querySelectorAll(".remove-btn");\n';
+  html += '  for (var k = 0; k < removeBtns.length; k++) { removeBtns[k].addEventListener("click", function() { removeOrder(this.getAttribute("data-gate"), this.getAttribute("data-wo")); }); }\n';
+  html += '}\n\n';
+  // Copy to clipboard — includes Technician column
+  html += 'document.getElementById("copyBtn").addEventListener("click", function() {\n';
+  html += '  var gates = Object.keys(addedOrders).sort(function(a,b){ if(a==="HOLD")return -1; if(b==="HOLD")return 1; return a-b; });\n';
+  html += '  var csvLines = ["Gate Number,Order No.,Part No.,Serial No.,Technician"];\n';
+  html += '  for (var i = 0; i < gates.length; i++) {\n';
+  html += '    var g = gates[i], orders = addedOrders[g];\n';
+  html += '    for (var j = 0; j < orders.length; j++) { var o = orders[j]; csvLines.push(g + "," + o.orderNo + "," + (o.partNo||"") + "," + (o.serialNo||"") + "," + (o.tech||"")); }\n';
+  html += '  }\n';
+  html += '  var csvText = csvLines.join("\\n");\n';
+  html += '  var btn = this, msg = document.getElementById("copyMsg");\n';
+  html += '  navigator.clipboard.writeText(csvText).then(function() {\n';
+  html += '    btn.textContent = "Copied!"; btn.className = "copied"; btn.id = "copyBtn"; msg.style.display = "block";\n';
+  html += '    setTimeout(function() { btn.textContent = "Copy to Clipboard"; btn.className = ""; btn.id = "copyBtn"; msg.style.display = "none"; }, 3000);\n';
+  html += '  }).catch(function() {\n';
+  html += '    var ta = document.createElement("textarea"); ta.value = csvText; ta.style.position = "fixed"; ta.style.opacity = "0";\n';
+  html += '    document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);\n';
+  html += '    btn.textContent = "Copied!"; msg.style.display = "block";\n';
+  html += '    setTimeout(function() { btn.textContent = "Copy to Clipboard"; msg.style.display = "none"; }, 3000);\n';
+  html += '  });\n';
+  html += '});\n';
+  html += '<\/script>\n</body>\n</html>';
+
+  var blob = new Blob([html], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'gate-audit-' + dateStr + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
