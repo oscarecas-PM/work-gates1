@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gate Audit Test</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 12px; background: #f5f5f5; }
+  h2 { text-align: center; margin-bottom: 12px; }
+
+  /* Gate selector */
+  .gate-grid { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 16px; }
+  .gate-btn { width: 56px; height: 44px; font-size: 16px; font-weight: bold; border: 2px solid #334155; background: #fff; border-radius: 6px; cursor: pointer; }
+  .gate-btn.selected { background: #2563eb; color: #fff; border-color: #1d4ed8; }
+
+  /* Search */
+  .search-section { display: none; }
+  .search-section.visible { display: block; }
+  .search-label { font-size: 14px; color: #555; margin-bottom: 4px; }
+  #searchInput { width: 100%; font-size: 20px; padding: 10px; border: 2px solid #999; border-radius: 6px; text-align: center; letter-spacing: 2px; }
+  #searchInput::placeholder { letter-spacing: normal; font-size: 14px; }
+
+  /* Manual entry */
+  .manual-section { margin-top: 10px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+  .manual-section .manual-title { font-size: 13px; font-weight: bold; color: #555; margin-bottom: 6px; }
+  .manual-row { display: flex; gap: 6px; margin-bottom: 6px; }
+  .manual-row input { flex: 1; font-size: 14px; padding: 8px; border: 2px solid #999; border-radius: 6px; }
+  .manual-row input::placeholder { font-size: 12px; }
+  #addManualBtn { width: 100%; font-size: 14px; padding: 10px; background: #f59e0b; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+  #addManualBtn:active { background: #d97706; }
+
+  /* Results list */
+  .results { margin-top: 8px; max-height: 250px; overflow-y: auto; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+  .results.empty { display: none; }
+  .result-item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; }
+  .result-item:active { background: #dbeafe; }
+  .result-item .wo-line { font-size: 16px; }
+  .result-item .match { font-weight: bold; color: #2563eb; }
+  .result-item .detail-line { font-size: 12px; color: #666; margin-top: 2px; }
+
+  /* Added orders */
+  .added-section { margin-top: 16px; }
+  .gate-tag { display: inline-block; background: #334155; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 6px; }
+  .added-list { list-style: none; }
+  .added-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 4px; }
+  .added-info { font-size: 14px; }
+  .added-info .wo-num { font-weight: bold; }
+  .added-info .added-detail { font-size: 11px; color: #666; }
+  .remove-btn { background: #dc2626; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 14px; cursor: pointer; flex-shrink: 0; }
+
+  /* Copy button */
+  #copyBtn { display: none; width: 100%; padding: 14px; font-size: 18px; font-weight: bold; background: #16a34a; color: #fff; border: none; border-radius: 8px; cursor: pointer; margin-top: 16px; }
+  #copyBtn:active { background: #15803d; }
+  #copyBtn.copied { background: #334155; }
+  #copyMsg { text-align: center; font-size: 13px; color: #16a34a; font-weight: bold; margin-top: 6px; display: none; }
+
+  .count { text-align: center; font-size: 13px; color: #666; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h2>Gate Audit</h2>
+
+<p style="text-align:center; font-size:14px; color:#555; margin-bottom:8px;">Select a gate, then search by last 4 digits</p>
+
+<!-- Gate selector -->
+<div class="gate-grid" id="gateGrid"></div>
+
+<!-- Search section -->
+<div class="search-section" id="searchSection">
+  <div class="search-label">Selected gate: <strong id="currentGateLabel">—</strong></div>
+  <input type="text" id="searchInput" inputmode="numeric" maxlength="4" placeholder="Type last 4 digits of W/O">
+  <div class="results empty" id="resultsList"></div>
+  <div class="manual-section">
+    <div class="manual-title">Manual Entry (if W/O not in list)</div>
+    <div class="manual-row">
+      <input type="text" id="manualWO" placeholder="W/O Number *">
+    </div>
+    <div class="manual-row">
+      <input type="text" id="manualPN" placeholder="Part No. (optional)">
+      <input type="text" id="manualSN" placeholder="S/N (optional)">
+    </div>
+    <button id="addManualBtn">+ Add Manual Entry</button>
+  </div>
+</div>
+
+<!-- Added orders -->
+<div class="added-section" id="addedSection"></div>
+
+<!-- Copy -->
+<button id="copyBtn">Copy to Clipboard</button>
+<div id="copyMsg">Copied! Now paste into Outlook.</div>
+
+<div class="count" id="countDiv"></div>
+
+<script>
+// --- DUMMY WORK ORDERS (would be embedded from Daily Upload) ---
+var WORK_ORDERS = [
+  { orderNo: '100120001234', partNo: 'PN-7001', serialNo: 'SN-A001' },
+  { orderNo: '100120001235', partNo: 'PN-7001', serialNo: 'SN-A002' },
+  { orderNo: '100120001299', partNo: 'PN-7001', serialNo: 'SN-A003' },
+  { orderNo: '100120004501', partNo: 'PN-8200', serialNo: 'SN-B010' },
+  { orderNo: '100120004502', partNo: 'PN-8200', serialNo: 'SN-B011' },
+  { orderNo: '100120004510', partNo: 'PN-8200', serialNo: '' },
+  { orderNo: '100120007788', partNo: 'PN-3050', serialNo: 'SN-C100' },
+  { orderNo: '100120007790', partNo: 'PN-3050', serialNo: 'SN-C101' },
+  { orderNo: '100120007801', partNo: 'PN-3050', serialNo: 'SN-C102' },
+  { orderNo: '100120009901', partNo: 'PN-4400', serialNo: 'SN-D200' },
+  { orderNo: '100120009950', partNo: 'PN-4400', serialNo: '' },
+  { orderNo: '100120009999', partNo: 'PN-4400', serialNo: 'SN-D202' },
+  { orderNo: '100130001111', partNo: 'PN-5500', serialNo: 'SN-E300' },
+  { orderNo: '100130002222', partNo: 'PN-5500', serialNo: 'SN-E301' },
+  { orderNo: '100130003333', partNo: 'PN-6600', serialNo: '' },
+  { orderNo: '100130004444', partNo: 'PN-6600', serialNo: 'SN-F400' },
+  { orderNo: '100130005555', partNo: 'PN-6600', serialNo: 'SN-F401' },
+  { orderNo: '100130006666', partNo: 'PN-7700', serialNo: 'SN-G500' },
+  { orderNo: '100130007777', partNo: 'PN-7700', serialNo: 'SN-G501' },
+  { orderNo: '100130008888', partNo: 'PN-7700', serialNo: '' },
+  { orderNo: '100130009000', partNo: 'PN-8800', serialNo: 'SN-H600' },
+  { orderNo: '100120001300', partNo: 'PN-9900', serialNo: 'SN-J700' },
+  { orderNo: '100120005678', partNo: 'PN-9900', serialNo: 'SN-J701' },
+  { orderNo: '100120006543', partNo: 'PN-9900', serialNo: '' }
+];
+
+// Build lookup by orderNo
+var woLookup = {};
+for (var w = 0; w < WORK_ORDERS.length; w++) {
+  woLookup[WORK_ORDERS[w].orderNo] = WORK_ORDERS[w];
+}
+
+var currentGate = null;
+// addedOrders: { gateNumber: [ { orderNo, partNo, serialNo }, ... ] }
+var addedOrders = {};
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Build gate buttons (1-20)
+var gateGrid = document.getElementById('gateGrid');
+for (var i = 1; i <= 20; i++) {
+  var btn = document.createElement('button');
+  btn.className = 'gate-btn';
+  btn.textContent = i;
+  btn.setAttribute('data-gate', i);
+  btn.addEventListener('click', function() {
+    selectGate(parseInt(this.getAttribute('data-gate')));
+  });
+  gateGrid.appendChild(btn);
+}
+
+function selectGate(num) {
+  currentGate = num;
+  var btns = document.querySelectorAll('.gate-btn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].className = 'gate-btn' + (parseInt(btns[i].getAttribute('data-gate')) === num ? ' selected' : '');
+  }
+  document.getElementById('currentGateLabel').textContent = 'Gate ' + num;
+  document.getElementById('searchSection').className = 'search-section visible';
+  var input = document.getElementById('searchInput');
+  input.value = '';
+  input.focus();
+  document.getElementById('resultsList').className = 'results empty';
+}
+
+// Search by last 4 digits
+var searchInput = document.getElementById('searchInput');
+var resultsList = document.getElementById('resultsList');
+
+searchInput.addEventListener('input', function() {
+  var query = this.value.trim();
+  if (query.length === 0) {
+    resultsList.className = 'results empty';
+    resultsList.innerHTML = '';
+    return;
+  }
+
+  // Filter work orders where last 4 digits match
+  var matches = WORK_ORDERS.filter(function(wo) {
+    var last4 = wo.orderNo.slice(-4);
+    return last4.indexOf(query) === 0;
+  });
+
+  // Exclude already added to current gate
+  var gateList = addedOrders[currentGate] || [];
+  var addedWOs = gateList.map(function(o) { return o.orderNo; });
+  matches = matches.filter(function(wo) {
+    return addedWOs.indexOf(wo.orderNo) === -1;
+  });
+
+  if (matches.length === 0) {
+    resultsList.className = 'results empty';
+    resultsList.innerHTML = '';
+    return;
+  }
+
+  resultsList.className = 'results';
+  var html = '';
+  for (var i = 0; i < matches.length; i++) {
+    var wo = matches[i];
+    var prefix = wo.orderNo.slice(0, -4);
+    var suffix = wo.orderNo.slice(-4);
+    var highlighted = suffix.slice(0, query.length);
+    var rest = suffix.slice(query.length);
+    var detailParts = [];
+    if (wo.partNo) detailParts.push('P/N: ' + esc(wo.partNo));
+    if (wo.serialNo) detailParts.push('S/N: ' + esc(wo.serialNo));
+    html += '<div class="result-item" data-wo="' + esc(wo.orderNo) + '">' +
+            '<div class="wo-line">' + esc(prefix) + '<span class="match">' + esc(highlighted) + '</span>' + esc(rest) + '</div>' +
+            (detailParts.length ? '<div class="detail-line">' + detailParts.join(' &nbsp;|&nbsp; ') + '</div>' : '') +
+            '</div>';
+  }
+  resultsList.innerHTML = html;
+
+  var items = resultsList.querySelectorAll('.result-item');
+  for (var j = 0; j < items.length; j++) {
+    items[j].addEventListener('click', function() {
+      var orderNo = this.getAttribute('data-wo');
+      var data = woLookup[orderNo];
+      addOrder({ orderNo: data.orderNo, partNo: data.partNo, serialNo: data.serialNo });
+    });
+  }
+});
+
+// Manual entry
+document.getElementById('addManualBtn').addEventListener('click', function() {
+  var wo = document.getElementById('manualWO').value.trim();
+  if (!wo || !currentGate) return;
+  var pn = document.getElementById('manualPN').value.trim();
+  var sn = document.getElementById('manualSN').value.trim();
+  addOrder({ orderNo: wo, partNo: pn, serialNo: sn });
+  document.getElementById('manualWO').value = '';
+  document.getElementById('manualPN').value = '';
+  document.getElementById('manualSN').value = '';
+});
+
+function addOrder(entry) {
+  if (!currentGate) return;
+  if (!addedOrders[currentGate]) addedOrders[currentGate] = [];
+  // Check for duplicate by orderNo
+  for (var i = 0; i < addedOrders[currentGate].length; i++) {
+    if (addedOrders[currentGate][i].orderNo === entry.orderNo) return;
+  }
+  addedOrders[currentGate].push(entry);
+  searchInput.value = '';
+  resultsList.className = 'results empty';
+  resultsList.innerHTML = '';
+  searchInput.focus();
+  renderAdded();
+}
+
+function removeOrder(gate, orderNo) {
+  if (!addedOrders[gate]) return;
+  addedOrders[gate] = addedOrders[gate].filter(function(o) { return o.orderNo !== orderNo; });
+  if (addedOrders[gate].length === 0) delete addedOrders[gate];
+  renderAdded();
+}
+
+function renderAdded() {
+  var section = document.getElementById('addedSection');
+  var gates = Object.keys(addedOrders).sort(function(a, b) { return a - b; });
+  var totalCount = 0;
+
+  if (gates.length === 0) {
+    section.innerHTML = '';
+    document.getElementById('copyBtn').style.display = 'none';
+    document.getElementById('countDiv').textContent = '';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < gates.length; i++) {
+    var g = gates[i];
+    var orders = addedOrders[g];
+    totalCount += orders.length;
+    html += '<div><span class="gate-tag">Gate ' + g + '</span>';
+    html += '<ul class="added-list">';
+    for (var j = 0; j < orders.length; j++) {
+      var o = orders[j];
+      var detailParts = [];
+      if (o.partNo) detailParts.push('P/N: ' + esc(o.partNo));
+      if (o.serialNo) detailParts.push('S/N: ' + esc(o.serialNo));
+      html += '<li class="added-item"><div class="added-info">' +
+              '<div class="wo-num">' + esc(o.orderNo) + '</div>' +
+              (detailParts.length ? '<div class="added-detail">' + detailParts.join(' | ') + '</div>' : '') +
+              '</div>' +
+              '<button class="remove-btn" data-gate="' + g + '" data-wo="' + esc(o.orderNo) + '">X</button></li>';
+    }
+    html += '</ul></div>';
+  }
+  section.innerHTML = html;
+
+  document.getElementById('copyBtn').style.display = 'block';
+  document.getElementById('countDiv').textContent = totalCount + ' order(s) across ' + gates.length + ' gate(s)';
+
+  var removeBtns = section.querySelectorAll('.remove-btn');
+  for (var k = 0; k < removeBtns.length; k++) {
+    removeBtns[k].addEventListener('click', function() {
+      removeOrder(this.getAttribute('data-gate'), this.getAttribute('data-wo'));
+    });
+  }
+}
+
+// Copy to clipboard
+document.getElementById('copyBtn').addEventListener('click', function() {
+  var gates = Object.keys(addedOrders).sort(function(a, b) { return a - b; });
+  var csvLines = ['Gate Number,Order No.,Part No.,Serial No.'];
+  for (var i = 0; i < gates.length; i++) {
+    var g = gates[i];
+    var orders = addedOrders[g];
+    for (var j = 0; j < orders.length; j++) {
+      var o = orders[j];
+      csvLines.push(g + ',' + o.orderNo + ',' + (o.partNo || '') + ',' + (o.serialNo || ''));
+    }
+  }
+  var csvText = csvLines.join('\n');
+  var btn = this;
+  var msg = document.getElementById('copyMsg');
+  navigator.clipboard.writeText(csvText).then(function() {
+    btn.textContent = 'Copied!';
+    btn.className = 'copied';
+    btn.id = 'copyBtn';
+    msg.style.display = 'block';
+    setTimeout(function() {
+      btn.textContent = 'Copy to Clipboard';
+      btn.className = '';
+      btn.id = 'copyBtn';
+      msg.style.display = 'none';
+    }, 3000);
+  }).catch(function() {
+    var ta = document.createElement('textarea');
+    ta.value = csvText;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = 'Copied!';
+    msg.style.display = 'block';
+    setTimeout(function() {
+      btn.textContent = 'Copy to Clipboard';
+      msg.style.display = 'none';
+    }, 3000);
+  });
+});
+</script>
+</body>
+</html>
