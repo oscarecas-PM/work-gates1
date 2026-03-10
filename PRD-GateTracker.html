@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>5.0</td></tr>
-    <tr><td class="label">Date:</td><td>March 1, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.0</td></tr>
+    <tr><td class="label">Date:</td><td>March 10, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Adds Gate Technicians input, Unmapped Operations section, deterministic colors, tooltip days, back-to-top, and two security fixes</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-10.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Audit-based Gate View overhaul, Mobile Audit generation, DR Operations styling, OPER STOP per-operation handling, &ldquo;Not found on a rack&rdquo; section</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-17.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -224,6 +224,20 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 </table>
 
 <p><span class="tag tag-explicit">EXPLICIT</span> Multiple technicians per gate are represented as separate rows with the same Gate Number but different Priority values. A single technician may appear on multiple gates (support coverage).</p>
+
+<h3>3.4 Mobile Audit CSV &mdash; Optional</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file produced by the Mobile Audit tool (see F-102). When loaded, this file <strong>drives Gate View placement</strong> instead of the algorithmic approach. Each row represents one work order observed on a physical rack (gate) during a floor audit.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier as entered during audit. Value "HOLD" places the order on the Hold gate.</td></tr>
+  <tr><td>Order No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order number (matched against Daily Upload for enrichment)</td></tr>
+  <tr><td>Part No.</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (informational; Daily Upload is source of truth if available)</td></tr>
+  <tr><td>Serial No.</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (informational)</td></tr>
+  <tr><td>Technician</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Technician name if the order was assigned to a specific tech bench. Orders with a technician appear first (far left) within their gate.</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> When no Mobile Audit CSV is loaded, the Gate View displays a placeholder message instead of gate cards. The audit CSV is the sole source of Gate View placement; the old algorithmic approach (F-60) is superseded when audit data is present.</p>
 
 
 <!-- ============================================================ -->
@@ -380,7 +394,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-60</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Single-gate placement:</strong> Each order is assigned to exactly one gate. The algorithm walks the decoder ring for that order's Part No. in CSV order and selects the <strong>first gate</strong> that contains a non-ignored Active or In Queue operation. "First" means the earliest gate in the decoder ring's row order, not the lowest gate number.</td>
+    <td><strong>Single-gate placement (legacy algorithm):</strong> <em>Superseded by F-95 when an Audit CSV is loaded.</em> Each order is assigned to exactly one gate. The algorithm walks the decoder ring for that order's Part No. in CSV order and selects the <strong>first gate</strong> that contains a non-ignored Active or In Queue operation. "First" means the earliest gate in the decoder ring's row order, not the lowest gate number.</td>
   </tr>
   <tr>
     <td class="req-id">F-61</td>
@@ -390,7 +404,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-62</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Hold gate:</strong> An order is placed on the Hold gate (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found.</td>
+    <td><strong>Hold gate:</strong> An order is placed on the Hold gate (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found. <em>When an Audit CSV is loaded, orders with gate value "HOLD" (case-insensitive) are placed on the Hold gate.</em></td>
   </tr>
   <tr>
     <td class="req-id">F-63</td>
@@ -405,7 +419,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-65</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Gate ordering:</strong> Gates are displayed in this order: Hold gate first, then remaining gates in ascending gate number order.</td>
+    <td><strong>Gate ordering:</strong> Gates are displayed in this order: Hold gate first, then numbered gates in ascending gate number order, then the &ldquo;Not found on a rack&rdquo; section last (see F-96).</td>
   </tr>
   <tr>
     <td class="req-id">F-66</td>
@@ -441,6 +455,36 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">F-87</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>"Include Unmapped Operations" checkbox:</strong> A checkbox next to the Process button (checked by default) controls whether part numbers absent from the decoder ring are rendered in the Unmapped Operations section. When unchecked, unmapped data is not processed.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-95</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Audit-CSV-driven placement:</strong> When a Mobile Audit CSV (Section 3.4) is loaded, Gate View placement is driven entirely by the audit data. The legacy algorithmic placement (F-60) is not used. Orders appear within each gate in the order they appear in the CSV file. When no audit CSV is loaded, the Gate View area displays a dashed-border placeholder message instead of gate cards.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-96</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; section:</strong> When an audit CSV is loaded, any active work orders from the Daily Upload that are <strong>not</strong> present in the audit CSV are collected into a &ldquo;Not found on a rack&rdquo; section displayed after all numbered gates. This section uses an amber header and helps identify orders that may have been missed during the physical audit.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-97</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Missing from daily upload&rdquo;:</strong> If an order in the audit CSV is not found in the Daily Upload, its card displays an amber &ldquo;Missing from daily upload&rdquo; label instead of normal enrichment data. The card still appears on the gate it was audited on, using Part No. and Serial No. from the audit CSV if available.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-98</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>DR Operations indicator (Gate View):</strong> If an order has any active operations in the 7000&ndash;7999 range (DR Operations) that appear in the decoder ring, the Gate View card displays a red &ldquo;DR Operations&rdquo; label and a red 3px border to visually flag it for technicians.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-99</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>OPER STOP per-operation (Gate View):</strong> In Gate View card tooltips, individual operations whose order has &ldquo;OPER STOP&rdquo; hold status show &ldquo;OPER STOP&rdquo; text per operation line. On the card face itself, only &ldquo;ORDER STOP&rdquo; is displayed (OPER STOP is <strong>not</strong> shown on the card).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-100</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Technician-bench display:</strong> If an audit CSV entry includes a Technician value, the Gate View card shows &ldquo;with &lt;tech name&gt;&rdquo; in italic muted text below the order details. Tech-bench orders are positioned first (far left) within their gate.</td>
   </tr>
 </table>
 
@@ -501,6 +545,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Back to top link:</strong> Each order card in the Detail View and Unmapped Operations section includes a "(Back to top)" text link below the Order Number. Clicking it smoothly scrolls to the top of the page. The link is hidden in print output.</td>
   </tr>
+  <tr>
+    <td class="req-id">F-101</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>OPER STOP chip styling (Detail View):</strong> Operations belonging to an order with &ldquo;OPER STOP&rdquo; hold status receive a red 2px solid border on their operation chip and &ldquo;OPER STOP&rdquo; appended to the tooltip text. The order-info area on the left side of the card only displays &ldquo;ORDER STOP&rdquo;&mdash;if the hold status is &ldquo;OPER STOP&rdquo;, it is <strong>not</strong> shown in the order-info area.</td>
+  </tr>
 </table>
 
 <h3>4.10 Save Snapshot</h3>
@@ -533,6 +582,43 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
 </table>
 
+<h3>4.11 Mobile Audit Generation</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The application generates a self-contained HTML file designed for use on a mobile device (iPhone with Edge browser) during physical floor audits of gate racks. The generated file allows technicians to record which work orders are on which racks, then import the resulting CSV back into the Gate Tracker.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-102</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Generate Mobile Audit&rdquo; button:</strong> After processing, a green button labeled &ldquo;Generate Mobile Audit&rdquo; downloads a self-contained HTML file named <code>gate-audit-YYYY-MM-DD.html</code>. The file requires no network access or external dependencies.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-103</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Embedded data:</strong> The mobile audit HTML embeds all work orders and gate definitions as inline JSON. This allows the file to be opened on any device without re-uploading CSVs.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-104</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Search by last 4 digits:</strong> The mobile audit UI includes a search field that matches by the last 4 digits of the Order No. (since all orders in a batch typically share the first 4&ndash;5 digits). Results display matching orders with Part No. and Serial No.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-105</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Manual entry:</strong> A manual entry mode allows the technician to type an Order No., Part No. (optional), and Serial No. (optional) for orders not found by search.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-106</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>HOLD gate button and technician buttons:</strong> The gate selection UI includes a &ldquo;HOLD&rdquo; button (red, displayed first) and, if a Gate Technicians CSV was loaded, a technician button for each tech assigned to the selected gate. Selecting a technician records the tech name in the CSV output.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-107</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Copy to Clipboard (CSV output):</strong> A &ldquo;Copy to Clipboard&rdquo; button copies all recorded entries as CSV text in the format: <code>Gate Number,Order No.,Part No.,Serial No.,Technician</code>. The clipboard approach is used instead of <code>mailto:</code> because iPhone opens Apple Mail by default and the user requires Outlook.</td>
+  </tr>
+</table>
+
 
 <!-- ============================================================ -->
 <!-- 5. VISUAL / UI REQUIREMENTS                                    -->
@@ -545,7 +631,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">V-01</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Page order (top to bottom):</strong> Title &amp; file inputs &rarr; Process / Print / Save buttons &rarr; <strong>Gate View</strong> (primary) &rarr; Detail View toggle button &rarr; <strong>Detail View</strong> (hidden by default, contains filters and order cards).</td>
+    <td><strong>Page order (top to bottom):</strong> Title &amp; file inputs (4 files) &rarr; Process / Print / Save / Generate Mobile Audit buttons &rarr; <strong>Gate View</strong> (primary, audit-CSV-driven) &rarr; Detail View toggle button &rarr; <strong>Detail View</strong> (hidden by default, contains filters and order cards).</td>
   </tr>
 </table>
 
@@ -571,6 +657,31 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-05</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Program color palette:</strong> Cards are colored by program using a cycling palette: <span class="swatch" style="background:#dbeafe;"></span>Blue (#dbeafe), <span class="swatch" style="background:#fef3c7;"></span>Amber (#fef3c7), <span class="swatch" style="background:#dcfce7;"></span>Green (#dcfce7), <span class="swatch" style="background:#fce7f3;"></span>Pink (#fce7f3).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-42</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>DR Operations card styling:</strong> Gate View cards for orders with DR Operations (7000&ndash;7999) have a <span class="swatch" style="background:#dc2626;"></span> red 3px solid border (#dc2626) and a red &ldquo;DR Operations&rdquo; label (font-size 0.72rem, bold).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-43</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; header:</strong> The &ldquo;Not found on a rack&rdquo; gate section uses an <span class="swatch" style="background:#b45309;"></span> amber (#b45309) header background, visually distinct from the standard dark slate headers.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-44</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Missing from daily upload&rdquo; label:</strong> Cards for audit orders not found in the Daily Upload display an <span class="swatch" style="background:#b45309;"></span> amber (#b45309) &ldquo;Missing from daily upload&rdquo; text label (font-size 0.72rem, bold).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-45</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Technician label:</strong> Cards with a technician assignment display &ldquo;with &lt;tech name&gt;&rdquo; in italic, muted color (rgba(0,0,0,0.55)), font-size 0.72rem.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-46</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>No-audit placeholder:</strong> When no Mobile Audit CSV is loaded, the Gate View area displays a centered placeholder message with a dashed border (2px dashed #ccc), white background, and muted text, informing the user to load an audit file.</td>
   </tr>
 </table>
 
@@ -606,6 +717,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-11</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Order card:</strong> Single horizontal row per order. Left side has a <strong>fixed width (280px)</strong> containing: Order No., S/N, and Hold Status (if present, truncated to 12 chars, red, word-wrapped at 80px max-width). Right side: gate progress bar.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-47</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>OPER STOP chip border:</strong> In the Detail View, operation chips belonging to orders with &ldquo;OPER STOP&rdquo; hold status receive a <span class="swatch" style="background:#dc2626;"></span> red 2px solid border (#dc2626) via the <code>.oper-stop-border</code> CSS class. This visually flags affected operations without changing the chip's status color.</td>
   </tr>
 </table>
 
@@ -683,7 +799,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">V-31</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Gate View card tooltips:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days oper number, and a list of all Active/In Queue operations with oper number, title, status, and work dept.</td>
+    <td><strong>Gate View card tooltips:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days oper number, and a list of all Active/In Queue operations with oper number, title, status, work dept, and days at operation. If the order has &ldquo;OPER STOP&rdquo; hold status, each operation line also shows &ldquo;OPER STOP&rdquo;.</td>
   </tr>
   <tr>
     <td class="req-id">V-32</td>
@@ -820,6 +936,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 <div class="retro-item">
   <strong>Observation 9: Total Days column matching required multiple fallbacks</strong><br>
   The "Total Days at Operation" column (column Z / 26th column) initially showed 0 for all cards. The fix required: (1) a fallback partial-match search if the exact column name doesn't match (handles embedded newlines from Excel), (2) a robust <code>parseNum()</code> helper that extracts numbers from strings even with unexpected formatting. This highlights the fragility of CSV column matching when files pass through Excel&mdash;a header validation step at load time could surface these issues earlier.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 10: Audit-CSV architecture shift</strong><br>
+  The Gate View transitioned from an algorithmic placement model (walk the decoder ring, find the first active gate) to an audit-CSV-driven model (a physical rack audit determines placement). This is a fundamental architecture change that makes the Gate View a true reflection of physical reality rather than a computed approximation. The <code>dailyLookup</code> map pattern introduced for this&mdash;a pre-built map of orderNo &rarr; enrichment data (program, partNo, holdStatus, activeOps, maxDays, hasDrOps)&mdash;is cleaner than the previous inline computation approach and makes the rendering logic easier to follow.
+</div>
+
+<div class="retro-item">
+  <strong>Observation 11: Mobile Audit as a companion tool</strong><br>
+  The Mobile Audit generation (F-102&ndash;F-107) effectively makes the Gate Tracker a two-tool system: the desktop app processes and visualizes data, while the mobile audit tool captures physical-world state. The audit CSV closes the loop by feeding real observations back into the visualization. This pattern&mdash;generate a data-collection tool, then consume its output&mdash;could be extended to other use cases (e.g., quality inspections, material receiving).
 </div>
 
 
@@ -986,6 +1112,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>3.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Added Gate View as primary view (F-60&ndash;F-69): single-gate placement algorithm, Hold gate, FIFO ordering, program-colored cards, card click interaction. Added collapsible Detail View (F-70&ndash;F-72). Added Save Snapshot feature (F-80&ndash;F-83, N-07). Updated Modifier column to EXPLICIT/used ("ignore"). Restructured Visual/UI section (V-01&ndash;V-41). Added retrospective observations 8&ndash;9. Resolved Decoder Ring Modifier open question.</td></tr>
   <tr><td>4.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Security hardening based on combined ChatGPT + Claude Chat assessment. Implemented: single-quote escaping in esc() (S-01), textContent for error messages (S-02), CSP meta tag in app and snapshot (S-03), CSV field length limit of 500 chars (S-04), "Proprietary &mdash; Internal Use Only" banner in snapshots (S-05, F-84), visible version number v1.0 (S-06). Added new Section 10 &mdash; Data &amp; Security documenting full security posture (S-01&ndash;S-09), remaining risks (SR-01&ndash;SR-07), and summary matrix. Updated N-01 and N-05. Renamed app file to gate-tracker-10.html.</td></tr>
   <tr><td>5.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Feature update: Added Gate Technicians optional CSV input (Section 3.3, F-86). Added Unmapped Operations section for part numbers not in the decoder ring (F-87, F-90&ndash;F-94) with independent program/part filters and toggle button. Added deterministic program card colors by first letter (F-66 updated). Added tooltip days per operation with [ignore] label (F-68 updated). Added ignore-aware maxDays calculation (F-85). Added "(Back to top)" link on order cards (F-73). Security fixes: CSS.escape() for querySelector injection (S-10), JSON &lt; sanitization in snapshots (S-11). Updated security summary matrix.</td></tr>
+  <tr><td>6.0</td><td>2026-03-10</td><td>Claude (AI)</td><td>Major overhaul: Audit-based Gate View. Added 4th CSV input &mdash; Mobile Audit CSV (Section 3.4). Gate View placement now driven by audit CSV instead of algorithmic approach (F-95, supersedes F-60). Added &ldquo;Not found on a rack&rdquo; section for active orders missing from audit (F-96, V-43). Added &ldquo;Missing from daily upload&rdquo; amber labels (F-97, V-44). Added DR Operations red border + label on Gate View cards (F-98, V-42). Added per-operation OPER STOP in Gate View tooltips (F-99) and Detail View red-border chips (F-101, V-47). Added technician-bench display on cards (F-100, V-45). Added no-audit placeholder (V-46). Added Mobile Audit generation feature (F-102&ndash;F-107) with HOLD button, technician buttons, search-by-last-4, manual entry, and clipboard CSV output. Updated F-62, F-65, V-01, V-31. Added retrospective observations 10&ndash;11. App file: gate-tracker-17.html.</td></tr>
 </table>
 
 </body>
