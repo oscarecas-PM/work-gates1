@@ -79,10 +79,10 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.0</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.1</td></tr>
     <tr><td class="label">Date:</td><td>March 10, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Audit-based Gate View overhaul, Mobile Audit generation, DR Operations styling, OPER STOP per-operation handling, &ldquo;Not found on a rack&rdquo; section</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Part Number &amp; Program filter interaction, audit-based Gate View overhaul, Mobile Audit generation, DR Operations styling, OPER STOP per-operation handling, &ldquo;Not found on a rack&rdquo; section</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-17.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
@@ -380,8 +380,8 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
   <tr>
     <td class="req-id">F-51</td>
-    <td><span class="tag tag-open">OPEN</span></td>
-    <td>Should the Part No. filter interact with the Program filter? (e.g., if a Part No. appears under two programs, does selecting it show both, or only the currently-visible programs?)</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>The Part No. filter interacts with the Program filter. The Program filter is the <strong>master filter</strong>; Part Number chips reflect and respond to the current program selection. See F-110&ndash;F-117 for full interaction specification.</td>
   </tr>
 </table>
 
@@ -619,6 +619,53 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
 </table>
 
+<h3>4.12 Part Number &amp; Program Filter Interaction</h3>
+<p><span class="tag tag-resolved">RESOLVED</span> The Program filter is the <strong>master filter</strong>. Part Number chips dynamically reflect program visibility and support three distinct states. This interaction applies independently to both the Detail View and the Unmapped Operations section (each has its own filter set).</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-110</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Three-state Part Number chips:</strong> Each Part Number chip has one of three states: <strong>Off</strong> (part belongs only to deselected programs), <strong>On</strong> (part belongs to at least one visible program, shown alongside other On parts), or <strong>Isolated</strong> (user has focused on this single part).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-111</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Program filter drives Part chip state:</strong> When a program is toggled, all Part Number chips recalculate their state. A part is <strong>On</strong> if at least one of its parent programs is visible; <strong>Off</strong> if none of its parent programs are visible. Any active isolation is reset when a program chip is toggled.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-112</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Clicking an On chip &rarr; Isolate:</strong> Clicking a Part Number chip in the On state isolates it. Only that part&rsquo;s orders are shown, scoped to currently-visible programs only. All other On chips return to On (non-isolated) appearance.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-113</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Clicking an Isolated chip &rarr; Show All:</strong> Clicking the currently-isolated Part Number chip de-isolates it and returns to showing all On parts for the currently-visible programs.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-114</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Clicking an Off chip &rarr; Enable program + Isolate:</strong> Clicking a Part Number chip in the Off state enables the chip&rsquo;s parent program(s) in the program filter and then isolates the part. This provides a shortcut to &ldquo;show me this part wherever it lives.&rdquo;</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-115</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Single isolation:</strong> Only one Part Number may be isolated at a time. Clicking a different On chip replaces the current isolation.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-116</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Show All&rdquo; part chip:</strong> The existing &ldquo;Show All&rdquo; chip in the Part Number filter is retained. Clicking it de-isolates any active isolation and shows all On parts for the currently-visible programs (same behavior as clicking the isolated chip).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-117</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Scope:</strong> This interaction is scoped to the <strong>Detail View</strong> and <strong>Unmapped Operations</strong> section only. The Gate View is not affected by Part Number filter state.</td>
+  </tr>
+</table>
+
 
 <!-- ============================================================ -->
 <!-- 5. VISUAL / UI REQUIREMENTS                                    -->
@@ -722,6 +769,26 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-47</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>OPER STOP chip border:</strong> In the Detail View, operation chips belonging to orders with &ldquo;OPER STOP&rdquo; hold status receive a <span class="swatch" style="background:#dc2626;"></span> red 2px solid border (#dc2626) via the <code>.oper-stop-border</code> CSS class. This visually flags affected operations without changing the chip's status color.</td>
+  </tr>
+</table>
+
+<h3>5.4 Part Number Chip States</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-50</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Off state:</strong> Part Number chips whose parent programs are all deselected are displayed with reduced opacity (0.45), grey background (#e5e7eb), and muted text. The chip retains pointer cursor to indicate it is still clickable.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-51</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>On state:</strong> Part Number chips with at least one visible parent program are displayed in their normal active style (current chip appearance). This is the default state after processing.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-52</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Isolated state:</strong> The isolated Part Number chip receives a prominent highlight &mdash; bold text, darker background, and a 2px solid border (#2563eb) &mdash; to clearly indicate it is the active focus. All other On chips remain in their normal On appearance.</td>
   </tr>
 </table>
 
@@ -957,7 +1024,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 
 <ol>
   <li><strong>API Migration Architecture (1.2):</strong> Should the current code be refactored to isolate CSV parsing behind a data-adapter interface to ease future API swap?</li>
-  <li><strong>Part No. + Program Filter Interaction (F-51):</strong> When a Part No. is selected in the filter, should it override the Program filter or work in conjunction with it?</li>
+  <li><del><strong>Part No. + Program Filter Interaction (F-51):</strong></del> <span class="tag tag-resolved">RESOLVED</span> in v6.1. Program filter is the master; Part Number chips have three states (Off/On/Isolated). See F-110&ndash;F-117, V-50&ndash;V-52.</li>
   <li><strong>Color-Blind Accessibility (C-06):</strong> Product owner is open to improvements. Suggested approach: add a pattern or icon overlay to colored chips (e.g., hatching on yellow, dot on blue) so color is not the sole differentiator. To be proposed in detail.</li>
   <li><strong>Decoder Ring Work Dept column:</strong> The Modifier column question is resolved ("ignore" is now used). What is the intended purpose of the Work Dept column in the Decoder Ring, given that the Daily Upload's Work Dept drives chip color logic?</li>
 </ol>
@@ -1113,6 +1180,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>4.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Security hardening based on combined ChatGPT + Claude Chat assessment. Implemented: single-quote escaping in esc() (S-01), textContent for error messages (S-02), CSP meta tag in app and snapshot (S-03), CSV field length limit of 500 chars (S-04), "Proprietary &mdash; Internal Use Only" banner in snapshots (S-05, F-84), visible version number v1.0 (S-06). Added new Section 10 &mdash; Data &amp; Security documenting full security posture (S-01&ndash;S-09), remaining risks (SR-01&ndash;SR-07), and summary matrix. Updated N-01 and N-05. Renamed app file to gate-tracker-10.html.</td></tr>
   <tr><td>5.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Feature update: Added Gate Technicians optional CSV input (Section 3.3, F-86). Added Unmapped Operations section for part numbers not in the decoder ring (F-87, F-90&ndash;F-94) with independent program/part filters and toggle button. Added deterministic program card colors by first letter (F-66 updated). Added tooltip days per operation with [ignore] label (F-68 updated). Added ignore-aware maxDays calculation (F-85). Added "(Back to top)" link on order cards (F-73). Security fixes: CSS.escape() for querySelector injection (S-10), JSON &lt; sanitization in snapshots (S-11). Updated security summary matrix.</td></tr>
   <tr><td>6.0</td><td>2026-03-10</td><td>Claude (AI)</td><td>Major overhaul: Audit-based Gate View. Added 4th CSV input &mdash; Mobile Audit CSV (Section 3.4). Gate View placement now driven by audit CSV instead of algorithmic approach (F-95, supersedes F-60). Added &ldquo;Not found on a rack&rdquo; section for active orders missing from audit (F-96, V-43). Added &ldquo;Missing from daily upload&rdquo; amber labels (F-97, V-44). Added DR Operations red border + label on Gate View cards (F-98, V-42). Added per-operation OPER STOP in Gate View tooltips (F-99) and Detail View red-border chips (F-101, V-47). Added technician-bench display on cards (F-100, V-45). Added no-audit placeholder (V-46). Added Mobile Audit generation feature (F-102&ndash;F-107) with HOLD button, technician buttons, search-by-last-4, manual entry, and clipboard CSV output. Updated F-62, F-65, V-01, V-31. Added retrospective observations 10&ndash;11. App file: gate-tracker-17.html.</td></tr>
+  <tr><td>6.1</td><td>2026-03-10</td><td>Claude (AI)</td><td>Resolved open question F-51: Part Number &amp; Program filter interaction. Program filter is the master filter; Part Number chips have three states (Off, On, Isolated). Added Section 4.12 with F-110&ndash;F-117 defining interaction rules: Off chip enables program + isolates, On chip isolates, Isolated chip de-isolates, program change resets isolation, single isolation only, scoped to Detail View and Unmapped only. Added V-50&ndash;V-52 for chip visual states (reduced opacity for Off, normal for On, blue border highlight for Isolated). &ldquo;Show All&rdquo; chip retained for discoverability.</td></tr>
 </table>
 
 </body>
