@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PRD — Gate Decoder Ring Builder</title>
+<style>
+  @page { size: letter; margin: 0.75in 1in; }
+  @media print {
+    body { font-size: 10pt; }
+    .no-print { display: none; }
+    h2 { break-after: avoid; }
+    .req-table, .req-table tr, .req-table td { break-inside: avoid; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1a1a1a; line-height: 1.5; padding: 0.75in 1in; max-width: 8.5in; margin: 0 auto; background: #fff; }
+
+  /* Print button */
+  .no-print { position: fixed; top: 16px; right: 16px; z-index: 100; }
+  .no-print button { padding: 10px 20px; font-size: 14px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  .no-print button:hover { background: #1d4ed8; }
+
+  /* Title block */
+  .title-block { border-bottom: 3px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 24px; }
+  .title-block h1 { font-size: 22pt; color: #1e3a5f; margin-bottom: 4px; }
+  .title-block .subtitle { font-size: 11pt; color: #555; }
+  .meta-table { margin-top: 12px; font-size: 9pt; color: #444; }
+  .meta-table td { padding: 1px 12px 1px 0; }
+  .meta-table .label { font-weight: bold; min-width: 100px; }
+
+  /* Section headings */
+  h2 { font-size: 14pt; color: #1e3a5f; margin-top: 28px; margin-bottom: 10px; padding-bottom: 3px; border-bottom: 1.5px solid #cbd5e1; }
+  h3 { font-size: 11pt; color: #334155; margin-top: 16px; margin-bottom: 6px; }
+
+  p, li { font-size: 10pt; margin-bottom: 6px; }
+  ul, ol { padding-left: 20px; margin-bottom: 10px; }
+
+  /* Requirement tags */
+  .tag { display: inline-block; font-size: 8pt; font-weight: bold; padding: 1px 7px; border-radius: 3px; vertical-align: middle; margin-right: 4px; letter-spacing: 0.3px; }
+  .tag-explicit { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .tag-assumed  { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+  .tag-open     { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .tag-resolved { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
+  .tag-future   { background: #f3e8ff; color: #6b21a8; border: 1px solid #c4b5fd; }
+
+  /* Legend */
+  .legend { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; font-size: 9pt; }
+  .legend-row { display: flex; gap: 20px; flex-wrap: wrap; }
+
+  /* Requirement tables */
+  .req-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt; }
+  .req-table th { background: #334155; color: #fff; padding: 6px 8px; text-align: left; font-size: 9pt; }
+  .req-table td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  .req-table tr:nth-child(even) { background: #f8fafc; }
+  .req-id { font-weight: bold; white-space: nowrap; color: #475569; }
+
+  /* Color swatches */
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 2px; vertical-align: middle; margin-right: 4px; border: 1px solid #ccc; }
+
+  /* Data format tables */
+  .data-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9pt; }
+  .data-table th { background: #f1f5f9; color: #334155; padding: 4px 8px; text-align: left; border: 1px solid #e2e8f0; }
+  .data-table td { padding: 4px 8px; border: 1px solid #e2e8f0; }
+
+  /* Cross-reference callout */
+  .xref { background: #f0f9ff; border-left: 3px solid #2563eb; padding: 8px 12px; margin-bottom: 10px; font-size: 9.5pt; }
+  .xref strong { color: #1e3a5f; }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()">Print / Save as PDF</button>
+</div>
+
+<!-- ============================================================ -->
+<!-- TITLE BLOCK                                                    -->
+<!-- ============================================================ -->
+<div class="title-block">
+  <h1>Product Requirements Document</h1>
+  <div class="subtitle">Gate Decoder Ring Builder &mdash; Visual Gate Assignment Tool</div>
+  <table class="meta-table">
+    <tr><td class="label">Document Version:</td><td>1.0</td></tr>
+    <tr><td class="label">Date:</td><td>March 10, 2026</td></tr>
+    <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
+    <tr><td class="label">Status:</td><td>INITIAL &mdash; Core tool with drag-and-drop gate assignment, CSV export, and HTML snapshot save</td></tr>
+    <tr><td class="label">App File:</td><td>decoder-ring-builder-1.html</td></tr>
+    <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
+    <tr><td class="label">Related PRD:</td><td>PRD-GateTracker.html (v6.1) &mdash; consumes this tool&rsquo;s output</td></tr>
+  </table>
+</div>
+
+<!-- ============================================================ -->
+<!-- LEGEND                                                         -->
+<!-- ============================================================ -->
+<div class="legend">
+  <strong>Requirement Source Legend</strong>
+  <div class="legend-row" style="margin-top:6px;">
+    <span><span class="tag tag-explicit">EXPLICIT</span> Direct instruction from product owner</span>
+    <span><span class="tag tag-assumed">ASSUMED</span> Decision made by developer</span>
+    <span><span class="tag tag-resolved">RESOLVED</span> Was OPEN, now answered</span>
+    <span><span class="tag tag-open">OPEN</span> Still needs definition</span>
+    <span><span class="tag tag-future">FUTURE</span> Deferred enhancement</span>
+  </div>
+</div>
+
+
+<!-- ============================================================ -->
+<!-- 1. PURPOSE & BACKGROUND                                        -->
+<!-- ============================================================ -->
+<h2>1. Purpose &amp; Background</h2>
+
+<p><span class="tag tag-explicit">EXPLICIT</span>
+The Gate Decoder Ring Builder is a companion tool to the Gate Tracker application. It provides a visual, drag-and-drop interface for assigning manufacturing operations to numbered gates, then exporting the result as a Gate Decoder Ring CSV file.</p>
+
+<p><span class="tag tag-explicit">EXPLICIT</span>
+The Decoder Ring is currently maintained by hand&mdash;a tedious, error-prone process. This tool replaces manual CSV editing with a visual workflow: the user uploads an MES operation listing for a single part number, drags operations into gate groupings, assigns gate numbers from a dropdown, and exports a properly formatted CSV that can be pasted into the master Decoder Ring file.</p>
+
+<div class="xref">
+  <strong>Cross-reference:</strong> The output CSV format is defined in <em>PRD-GateTracker.html</em>, Section 3.1 &ldquo;Gate Decoder Ring (CSV)&rdquo;. The Gate Tracker application consumes this file as one of its primary data inputs.
+</div>
+
+<h3>1.1 Intended Users</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span>
+<strong>Primary:</strong> Lab leadership and operations planners who define which operations belong to which gates for a given part number.</p>
+
+<h3>1.2 Relationship to Gate Tracker</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span>
+This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <strong>consumes</strong> it. The two tools share:</p>
+<ul>
+  <li>The Decoder Ring CSV schema (Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier)</li>
+  <li>The Gate Technician CSV format (Gate Number, Gate Name, Tech Name, Priority)</li>
+  <li>Shared utility functions (CSV parser, XSS escaping, column lookup)</li>
+  <li>Visual design conventions (color palette, header styles, card styling)</li>
+</ul>
+
+
+<!-- ============================================================ -->
+<!-- 2. SCOPE & CONSTRAINTS                                         -->
+<!-- ============================================================ -->
+<h2>2. Scope &amp; Constraints</h2>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">C-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Single self-contained HTML file. No external libraries, frameworks, CDN links, or build steps.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-02</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>All processing is client-side. No data leaves the browser. No server, no network calls.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-03</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>No persistent browser storage (no cookies, localStorage, IndexedDB). State is preserved only via explicit snapshot export.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-04</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Target browsers: Google Chrome and Microsoft Edge (latest versions).</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-05</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Operates on <strong>one part number at a time</strong>. The user builds a gate mapping for a single part, exports it, then starts fresh for the next part.</td>
+  </tr>
+  <tr>
+    <td class="req-id">C-06</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The exported CSV is designed to be <strong>appended</strong> to a larger master Decoder Ring file that contains mappings for multiple parts.</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 3. DATA INPUTS                                                 -->
+<!-- ============================================================ -->
+<h2>3. Data Inputs</h2>
+
+<h3>3.1 Gate Technician CSV (Optional)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The same Gate Technician file used by the Gate Tracker. Provides the list of available gates for the dropdown.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Description</th></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td>Numeric gate identifier. Gates &ge;1 have fixed names; gate 0 is a catch-all for work outside the lab.</td></tr>
+  <tr><td>Gate Name</td><td>Yes</td><td>Descriptive gate name. The gate number&ndash;to&ndash;name pairing is extracted from this file and used to populate dropdowns.</td></tr>
+  <tr><td>Tech Name</td><td>Yes</td><td>Technician name (used by Gate Tracker but not by this tool directly).</td></tr>
+  <tr><td>Priority</td><td>Yes</td><td>Technician priority within the gate (used by Gate Tracker but not by this tool directly).</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> The gate number&ndash;to&ndash;name mapping is repeated across multiple rows (one per technician). This tool deduplicates to build a unique mapping. The user expressed a desire to define this pairing only once; however, adding a separate file was rejected to minimize the number of input files.</p>
+
+<p><span class="tag tag-assumed">ASSUMED</span> If no Gate Technician CSV is uploaded, the user can still create gates on the fly via the &ldquo;New Gate&rdquo; option in the dropdown.</p>
+
+<h3>3.2 MES Operations CSV</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> A downloaded listing of all operations for a single work order from the Manufacturing Execution System.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Used</th><th>Description</th></tr>
+  <tr><td>Oper No</td><td>Yes</td><td>Yes</td><td>Operation number. Normalized by stripping leading zeros (e.g., &ldquo;0050&rdquo; &rarr; &ldquo;50&rdquo;).</td></tr>
+  <tr><td>Oper Title</td><td>Yes</td><td>Yes</td><td>Descriptive operation name. Displayed on the card face.</td></tr>
+  <tr><td>Work Dept</td><td>Yes</td><td>Yes</td><td>Department code. Drives card color and is carried through to the exported CSV.</td></tr>
+  <tr><td>Oper Type</td><td>No</td><td>Tooltip</td><td>Operation type (e.g., LABOR, INSPECT). Shown in tooltip.</td></tr>
+  <tr><td>Labor Hours Per Unit</td><td>No</td><td>Tooltip</td><td>Estimated labor hours. Shown in tooltip.</td></tr>
+  <tr><td>Earnable Hours Flag</td><td>No</td><td>Tooltip</td><td>Whether hours are earnable. Shown in tooltip.</td></tr>
+  <tr><td colspan="4" style="font-style:italic;color:#666;">Additional columns (Oper Status, Optional Operation, Oper Hold Status, Actual Start/End Date, Updt Userid, Work Center, Sched Start/End Date, Work Loc, Process type, Skill Category, Crew Qty, Building/Room, LAC, Oper Network, Labor Hours Setup, Process Hours, Labor Hours Inspect, Total Time) are present in the file but ignored by this tool.</td></tr>
+</table>
+
+<h3>3.3 Part Information (Manual Entry)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The user manually enters the Part Number and Part Name. Part Number is required; Part Name is optional but recommended.</p>
+
+
+<!-- ============================================================ -->
+<!-- 4. FUNCTIONAL REQUIREMENTS                                     -->
+<!-- ============================================================ -->
+<h2>4. Functional Requirements</h2>
+
+<h3>4.1 File Loading</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-01</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The Gate Technician CSV is loaded first (optional). The application extracts unique gate number&ndash;to&ndash;name pairs and populates the gate assignment dropdown.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-02</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The user enters Part Number (required) and Part Name (optional) in text fields.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-03</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The MES Operations CSV is loaded and parsed. Required columns: Oper No, Oper Title, Work Dept. Optional columns: Oper Type, Labor Hours Per Unit, Earnable Hours Flag.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-04</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The &ldquo;Load Operations&rdquo; button is disabled until Part Number is entered and MES Operations CSV is loaded. Clicking it parses the CSV and renders the workspace.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-05</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Operations with Oper No of &ldquo;0&rdquo; or blank are skipped during parsing.</td>
+  </tr>
+</table>
+
+<h3>4.2 Workspace &amp; Card Display</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-10</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>After loading, each operation is displayed as a <strong>card</strong> within its own <strong>gate outline</strong> (a dashed-border container). Gate outlines are arranged horizontally, left-to-right, in ascending Oper No order.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-11</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Each card displays: the <strong>Oper No</strong> (prominent) and <strong>Oper Title</strong> (smaller, below).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-12</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Each card has a <strong>tooltip</strong> showing: Oper No, Oper Title, Work Dept, Labor Hours Per Unit, Earnable Hours Flag, and Oper Type (when available).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-13</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Card color is determined by <strong>Work Dept</strong>:
+      <ul style="margin-top:4px;">
+        <li><span class="swatch" style="background:#16a34a;"></span> <strong>Green</strong> (#16a34a) &mdash; Work Dept equals &ldquo;SMART&rdquo;</li>
+        <li><span class="swatch" style="background:#2563eb;"></span> <strong>Blue</strong> (#2563eb) &mdash; Work Dept ends with &ldquo;_QA&rdquo;</li>
+        <li><span class="swatch" style="background:#db2777;"></span> <strong>Pink</strong> (#db2777) &mdash; All other Work Dept values</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td class="req-id">F-14</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Within any gate outline, operations are always sorted in ascending Oper No order (numerically). This sort is enforced after every drag-and-drop action.</td>
+  </tr>
+</table>
+
+<h3>4.3 Gate Assignment Dropdown</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-20</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Each gate outline has a <strong>dropdown</strong> in its header to assign a gate number. The dropdown is populated with:
+      <ol style="margin-top:4px;">
+        <li>&ldquo;(select gate)&rdquo; &mdash; default, unassigned</li>
+        <li>All unique gate entries from the Gate Technician CSV, formatted as &ldquo;Gate N: Name&rdquo;</li>
+        <li>&ldquo;+ New Gate&hellip;&rdquo; &mdash; for creating a gate not in the CSV</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td class="req-id">F-21</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Selecting &ldquo;+ New Gate&hellip;&rdquo; prompts the user for a new gate number and gate name. The new gate is added to the dropdown for future use within the session.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-22</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>When a gate outline is assigned a gate number, its border changes from dashed to solid, and a label (&ldquo;Gate N: Name&rdquo;) appears above the dropdown.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-23</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Multiple gate outlines may be assigned the <strong>same gate number</strong> without merging. This supports <strong>gate re-entry</strong> patterns (e.g., gate 3 &rarr; 5 &rarr; 6 &rarr; 3 again). Only dragging operations into another outline combines them; dropdown assignment never merges outlines.</td>
+  </tr>
+</table>
+
+<h3>4.4 Drag and Drop</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-30</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Operation cards are <strong>draggable</strong>. Dragging a card <strong>into</strong> another gate outline moves the operation to that gate. The gate re-sorts by Oper No after the drop.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-31</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>If a drag operation leaves a gate outline <strong>empty</strong>, that gate outline is removed from the workspace.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-32</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Dragging a card into the <strong>space between</strong> two gate outlines creates a new, unassigned gate outline at that position containing the dropped operation(s).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-33</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Multi-select:</strong> Clicking a card selects it (highlighted border). Ctrl+click toggles additional cards into the selection. Dragging any selected card moves <strong>all selected</strong> cards together.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-34</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>When dragging multiple cards, a ghost label shows the count (e.g., &ldquo;3 operations&rdquo;).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-35</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Visual feedback during drag: gate outlines highlight with a blue border when a card is dragged over them; drop zones between gates show a blue bar.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-36</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Selection is cleared after a successful drop.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-37</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Clicking a selected card (without Ctrl) deselects all. Clicking an unselected card (without Ctrl) selects only that card.</td>
+  </tr>
+</table>
+
+<h3>4.5 Modifiers</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-40</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Each operation card has a small <strong>modifier dropdown</strong> with options: blank (no modifier) and &ldquo;ignore&rdquo;.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-41</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>When modifier is set to &ldquo;ignore&rdquo;, the card is visually dimmed (50% opacity) and the Oper Title is struck through.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-42</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The modifier value is included in the exported Decoder Ring CSV Modifier column.</td>
+  </tr>
+</table>
+
+<div class="xref">
+  <strong>Cross-reference:</strong> The &ldquo;ignore&rdquo; modifier is defined in <em>PRD-GateTracker.html</em>, Section 3.1. When the Gate Tracker processes a Decoder Ring with this modifier, it skips the operation when determining which gate a work order belongs on.
+</div>
+
+<h3>4.5.1 Omit from Export</h3>
+<table class="req-table">
+  <tr><th style="width:60px">ID</th><th style="width:90px">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-43</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Each operation card has an <strong>omit button</strong> (&times;) that appears on hover in the top-right corner. Clicking it toggles the operation&rsquo;s <code>omitted</code> state.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-44</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Omitted operations remain visible on screen (not removed) so the user can review and undo the action. They are visually distinguished with reduced opacity (0.35), strikethrough on the title, and a diagonal-stripe overlay.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-45</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Clicking the omit button on an already-omitted operation <strong>un-omits</strong> it, restoring it to normal appearance and re-including it in the CSV export.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-46</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Omitted operations are <strong>excluded</strong> from the Decoder Ring CSV export. They are still included in the saved HTML snapshot state so they can be un-omitted later.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-47</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Omitted operations remain draggable, selectable, and editable (modifier dropdown still functional). Omit is independent of the modifier field.</td>
+  </tr>
+</table>
+
+<h3>4.6 Export</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-50</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Export Decoder Ring CSV:</strong> Generates a CSV file with columns: Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier. Rows follow the <strong>workspace left-to-right order</strong> (not sorted by gate number), preserving gate re-entry sequences. Within each gate outline, operations are sorted by Oper No ascending. The same gate number may appear multiple times in the output.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-51</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>If any gate outlines have no gate number assigned, the user is warned. Operations in unassigned gates are skipped in the export.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-52</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Filename format: <code>decoder-ring-{partNo}-{YYYY-MM-DD}.csv</code>. Special characters in the part number are replaced with underscores.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-53</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>The exported CSV rows are designed to be <strong>copied into a larger master Decoder Ring file</strong> that contains mappings for all part numbers.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-60</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Save for Editing:</strong> Exports a self-contained HTML snapshot file that preserves all current state (part info, gate map, operations, gate assignments, modifiers). Opening the snapshot restores the full editing workspace.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-61</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The snapshot includes: all CSS, all JavaScript functions (serialized via <code>Function.toString()</code>), state as sanitized JSON, and the proprietary banner.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-62</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>When opened, the snapshot hides file input fields (data is already embedded) but provides a Gate Technician CSV upload option (collapsed by default) so the user can add new gate definitions.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-63</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The user can export CSV and save further snapshots from within a loaded snapshot, enabling iterative refinement without starting from scratch.</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 5. VISUAL & UI REQUIREMENTS                                    -->
+<!-- ============================================================ -->
+<h2>5. Visual &amp; UI Requirements</h2>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-01</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The workspace is a horizontally scrolling container with a light slate background (#e2e8f0). Gate outlines are flex items arranged left-to-right.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-02</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Gate outlines: min-width 180px, max-width 300px, white background, 2px dashed #94a3b8 border (unassigned) or 2px solid #64748b border (assigned).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-03</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Gate headers: dark slate (#334155) background with white text, matching the gate header style from Gate Tracker.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-04</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td>Operation card colors follow the Work Dept logic:
+      <span class="swatch" style="background:#16a34a;"></span> Green for SMART,
+      <span class="swatch" style="background:#2563eb;"></span> Blue for *_QA,
+      <span class="swatch" style="background:#db2777;"></span> Pink for all others.
+      All cards have white text.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-05</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Selected cards have a 2.5px solid black outline.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-06</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Cards with &ldquo;ignore&rdquo; modifier: 50% opacity, Oper Title has strikethrough text decoration.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-07</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Drop zones between gates: 12px wide transparent bars that turn blue (#2563eb) when a card is dragged over them.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-08</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Buttons follow the Gate Tracker color scheme: primary actions are blue (#2563eb), export is green (#16a34a), save is dark slate (#334155).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-09</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Snapshot files display a &ldquo;Proprietary &mdash; Internal Use Only&rdquo; banner (amber background, amber border).</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 6. DATA & SECURITY                                             -->
+<!-- ============================================================ -->
+<h2>6. Data &amp; Security</h2>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">S-01</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>XSS prevention: all user-entered and CSV-sourced text is escaped via the <code>esc()</code> function (5-character escaping: &amp;, &lt;, &gt;, &quot;, &#39;) before insertion into HTML.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-02</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>CSP meta tag: <code>default-src 'self' 'unsafe-inline'</code> included in both the tool and snapshot files.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-03</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>CSV field length limit: 500 characters maximum per field, enforced via <code>csvField()</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-04</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>JSON sanitization in snapshots: all <code>&lt;</code> characters in JSON strings are replaced with <code>\u003c</code> to prevent script tag breakout.</td>
+  </tr>
+  <tr>
+    <td class="req-id">S-05</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>CSS.escape() used for querySelector calls with dynamic operation numbers.</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 7. OPEN QUESTIONS                                              -->
+<!-- ============================================================ -->
+<h2>7. Open Questions</h2>
+
+<table class="req-table">
+  <tr><th style="width:30px;">#</th><th style="width:70px;">Status</th><th>Question</th></tr>
+  <tr>
+    <td>1</td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>Multi-part sessions:</strong> Should the tool support building gate mappings for multiple part numbers in a single session (e.g., load part A, export, load part B, export), or is the current one-at-a-time-then-reload approach sufficient?</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>Undo/Redo:</strong> Should the tool support undoing drag-and-drop actions? Currently, the only way to undo is to manually drag cards back.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Gate ordering in export:</strong> The export preserves left-to-right workspace order, not gate-number sort order. This is required to support gate re-entry patterns (e.g., gate 3 &rarr; 5 &rarr; 6 &rarr; 3). The Gate Tracker PRD confirms &ldquo;row order dictates left-to-right display order of gates.&rdquo;</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><span class="tag tag-open">OPEN</span></td>
+    <td><strong>Additional modifiers:</strong> Are there modifier values beyond &ldquo;ignore&rdquo; that should be supported? The Gate Tracker PRD notes &ldquo;other values are reserved for future use.&rdquo;</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><span class="tag tag-future">FUTURE</span></td>
+    <td><strong>Import existing Decoder Ring:</strong> Could the tool import an existing Decoder Ring CSV to edit previously defined gate mappings, rather than only creating new ones?</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td><span class="tag tag-future">FUTURE</span></td>
+    <td><strong>Gate number&ndash;to&ndash;name single source of truth:</strong> The user noted frustration with repeating gate number/name pairings in the Tech CSV. A future enhancement could allow a dedicated gate definition file or a header section in the Tech CSV for unique gate definitions.</td>
+  </tr>
+</table>
+
+
+<!-- ============================================================ -->
+<!-- 8. ARCHITECTURE NOTES                                          -->
+<!-- ============================================================ -->
+<h2>8. Architecture Notes</h2>
+
+<h3>8.1 Shared Utilities</h3>
+<p>The following functions are copied from <code>gate-tracker-18.html</code> to maintain consistency and enable future extraction into a shared utility module:</p>
+<ul>
+  <li><code>parseCSV(text)</code> &mdash; RFC 4180 compliant CSV parser</li>
+  <li><code>csvField(s)</code> &mdash; Field length limiter (500 chars)</li>
+  <li><code>colIndex(headers, name)</code> &mdash; Case-insensitive column index lookup</li>
+  <li><code>loadCSV(file, callback, statusId)</code> &mdash; FileReader wrapper with error handling</li>
+  <li><code>esc(s)</code> &mdash; XSS-safe HTML escaping</li>
+  <li><code>normOper(s)</code> &mdash; Leading-zero stripping for operation numbers</li>
+</ul>
+
+<h3>8.2 State Model</h3>
+<p>Application state consists of five globals:</p>
+<ul>
+  <li><code>partInfo</code> &mdash; { partNo, partName }</li>
+  <li><code>gateMap</code> &mdash; { gateNumber: gateName } from the Tech CSV + user-created gates</li>
+  <li><code>operations</code> &mdash; Array of operation objects, each with a <code>gateId</code> linking it to a gate outline</li>
+  <li><code>gates</code> &mdash; Ordered array of gate outline objects { id, gateNumber, gateName }</li>
+  <li><code>selectedOps</code> &mdash; Set of selected operation numbers for multi-select</li>
+</ul>
+
+<h3>8.3 Drag-and-Drop Implementation</h3>
+<p>Uses the HTML5 native Drag and Drop API (dragstart, dragover, dragleave, drop events). No external library required. Drop targets include gate outlines (for &ldquo;move into&rdquo;) and thin drop zones between outlines (for &ldquo;create new gate&rdquo;).</p>
+
+<h3>8.4 Snapshot Serialization</h3>
+<p>The &ldquo;Save for Editing&rdquo; feature creates a self-contained HTML file following the same pattern as Gate Tracker snapshots: CSS inlined in a &lt;style&gt; tag, state embedded as sanitized JSON in a &lt;script&gt; tag, and all JavaScript functions serialized via <code>Function.toString()</code>. On load, the snapshot reads the embedded state and calls <code>render()</code> to rebuild the interactive workspace.</p>
+
+
+</body>
+</html>
