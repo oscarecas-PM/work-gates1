@@ -79,10 +79,10 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Decoder Ring Builder &mdash; Visual Gate Assignment Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>1.0</td></tr>
-    <tr><td class="label">Date:</td><td>March 10, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>1.1</td></tr>
+    <tr><td class="label">Date:</td><td>March 11, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>INITIAL &mdash; Core tool with drag-and-drop gate assignment, CSV export, and HTML snapshot save</td></tr>
+    <tr><td class="label">Status:</td><td>UPDATED &mdash; Added labor hours tallies, earnable hours summary, and hover action buttons for omit/ignore</td></tr>
     <tr><td class="label">App File:</td><td>decoder-ring-builder-1.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
     <tr><td class="label">Related PRD:</td><td>PRD-GateTracker.html (v6.1) &mdash; consumes this tool&rsquo;s output</td></tr>
@@ -203,8 +203,8 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   <tr><td>Oper Title</td><td>Yes</td><td>Yes</td><td>Descriptive operation name. Displayed on the card face.</td></tr>
   <tr><td>Work Dept</td><td>Yes</td><td>Yes</td><td>Department code. Drives card color and is carried through to the exported CSV.</td></tr>
   <tr><td>Oper Type</td><td>No</td><td>Tooltip</td><td>Operation type (e.g., LABOR, INSPECT). Shown in tooltip.</td></tr>
-  <tr><td>Labor Hours Per Unit</td><td>No</td><td>Tooltip</td><td>Estimated labor hours. Shown in tooltip.</td></tr>
-  <tr><td>Earnable Hours Flag</td><td>No</td><td>Tooltip</td><td>Whether hours are earnable. Shown in tooltip.</td></tr>
+  <tr><td>Labor Hours Per Unit</td><td>No</td><td>Yes</td><td>Estimated labor hours. Shown in tooltip. Summed per gate outline (see F-70) and used for total earnable hours calculation (see F-71).</td></tr>
+  <tr><td>Earnable Hours Flag</td><td>No</td><td>Yes</td><td>Whether hours are earnable (Y/Yes/1/True). Shown in tooltip. Used to compute total earnable labor hours across the work order (see F-71).</td></tr>
   <tr><td colspan="4" style="font-style:italic;color:#666;">Additional columns (Oper Status, Optional Operation, Oper Hold Status, Actual Start/End Date, Updt Userid, Work Center, Sched Start/End Date, Work Loc, Process type, Skill Category, Crew Qty, Building/Room, LAC, Oper Network, Labor Hours Setup, Process Hours, Labor Hours Inspect, Total Time) are present in the file but ignored by this tool.</td></tr>
 </table>
 
@@ -365,7 +365,12 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   <tr>
     <td class="req-id">F-40</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Each operation card has a small <strong>modifier dropdown</strong> with options: blank (no modifier) and &ldquo;ignore&rdquo;.</td>
+    <td>Each operation card has two <strong>hover action buttons</strong> in the top-right corner:
+      <ul style="margin-top:4px;">
+        <li><strong>IGN</strong> &mdash; Toggles the &ldquo;ignore&rdquo; modifier. When active, the button shows an amber background and remains visible.</li>
+        <li><strong>&times;</strong> &mdash; Toggles &ldquo;omit from export&rdquo; (see F-43). When active, the button shows a red background and remains visible.</li>
+      </ul>
+      Both buttons appear on card hover. Active-state buttons remain visible even without hover. Replaces the previous modifier dropdown.</td>
   </tr>
   <tr>
     <td class="req-id">F-41</td>
@@ -376,6 +381,11 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
     <td class="req-id">F-42</td>
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td>The modifier value is included in the exported Decoder Ring CSV Modifier column.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-48</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Omit and ignore are independent but practically exclusive:</strong> An operation can be omitted (excluded from CSV entirely), ignored (exported with modifier &ldquo;ignore&rdquo;), or neither. If an operation is omitted, the ignore state is irrelevant since the row is not exported. The IGN button is visually muted on omitted cards.</td>
   </tr>
 </table>
 
@@ -389,7 +399,7 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   <tr>
     <td class="req-id">F-43</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Each operation card has an <strong>omit button</strong> (&times;) that appears on hover in the top-right corner. Clicking it toggles the operation&rsquo;s <code>omitted</code> state.</td>
+    <td>Each operation card has an <strong>omit button</strong> (&times;) that appears on hover in the top-right corner (as part of the card action buttons; see F-40). Clicking it toggles the operation&rsquo;s <code>omitted</code> state.</td>
   </tr>
   <tr>
     <td class="req-id">F-44</td>
@@ -413,7 +423,32 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   </tr>
 </table>
 
-<h3>4.6 Export</h3>
+<h3>4.6 Labor Hours Tallies</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-70</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Per-gate labor hours:</strong> Each gate outline displays the sum of <code>Labor Hours Per Unit</code> for all non-omitted operations in that gate. Shown below the gate header and above the operation cards. Updates dynamically as operations are dragged in/out or omitted.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-71</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Total earnable hours:</strong> A summary element above the workspace displays the sum of <code>Labor Hours Per Unit</code> for all non-omitted operations where <code>Earnable Hours Flag</code> is truthy (Y, Yes, 1, or True). Updates dynamically on every render.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-72</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>Hours display format: whole numbers shown without decimal; fractional values shown with up to 2 decimal places (e.g., &ldquo;4 hrs&rdquo;, &ldquo;3.50 hrs&rdquo;).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-73</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td>The earnable hours summary is hidden when no operations are loaded. It appears as a blue-bordered box above the workspace after operations are loaded.</td>
+  </tr>
+</table>
+
+<h3>4.7 Export</h3>
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
@@ -515,6 +550,21 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td>Snapshot files display a &ldquo;Proprietary &mdash; Internal Use Only&rdquo; banner (amber background, amber border).</td>
   </tr>
+  <tr>
+    <td class="req-id">V-10</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate hours label:</strong> Centered text below the gate header, 0.72rem, #64748b color, with a 1px bottom border separator. Format: &ldquo;X.XX hrs&rdquo; or &ldquo;X hrs&rdquo;.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-11</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Earnable hours summary:</strong> White box with 2px solid #2563eb border, above the workspace. Label: &ldquo;TOTAL EARNABLE HOURS&rdquo; (uppercase, small, grey). Value: 1.5rem bold blue (#2563eb).</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-12</td>
+    <td><span class="tag tag-assumed">ASSUMED</span></td>
+    <td><strong>Hover action buttons:</strong> Two 20&times;16px rounded buttons (3px radius), semi-transparent dark background (rgba 0,0,0,0.35), white text, 0.6rem font. Darker on hover. Positioned absolute top-right of card. IGN active state: amber (rgba 180,120,0,0.8). Omit active state: red (rgba 180,0,0,0.7).</td>
+  </tr>
 </table>
 
 
@@ -607,6 +657,7 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   <li><code>loadCSV(file, callback, statusId)</code> &mdash; FileReader wrapper with error handling</li>
   <li><code>esc(s)</code> &mdash; XSS-safe HTML escaping</li>
   <li><code>normOper(s)</code> &mdash; Leading-zero stripping for operation numbers</li>
+  <li><code>isEarnable(flag)</code> &mdash; Truthy check for earnable hours flag (Y/Yes/1/True)</li>
 </ul>
 
 <h3>8.2 State Model</h3>

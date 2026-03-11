@@ -33,6 +33,11 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
 
 .action-bar { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
 
+/* Earnable hours summary */
+.earnable-summary { background: #fff; border: 2px solid #2563eb; border-radius: 6px; padding: 10px 14px; margin-bottom: 1rem; display: none; }
+.earnable-summary .earnable-label { font-size: 0.78rem; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+.earnable-summary .earnable-value { font-size: 1.5rem; font-weight: bold; color: #2563eb; }
+
 /* Workspace */
 .workspace { display: flex; gap: 0; overflow-x: auto; padding: 16px 8px; min-height: 200px; background: #e2e8f0; border-radius: 6px; align-items: flex-start; }
 .workspace.empty-msg { justify-content: center; align-items: center; color: #888; font-size: 0.95rem; }
@@ -50,6 +55,7 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
 .gate-header select { width: 100%; padding: 3px 4px; border-radius: 3px; font-size: 0.78rem; border: 1px solid #ccc; }
 .gate-label { font-size: 0.75rem; font-weight: bold; text-align: center; }
 
+.gate-hours { font-size: 0.72rem; color: #64748b; text-align: center; padding: 2px 8px 4px; border-bottom: 1px solid #e2e8f0; }
 .gate-ops { padding: 6px; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
 
 /* Operation cards */
@@ -58,17 +64,24 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
 .op-card.selected { outline: 2.5px solid #111; outline-offset: -1px; }
 .op-card .op-no { font-size: 0.85rem; }
 .op-card .op-title { font-size: 0.72rem; font-weight: normal; margin-top: 2px; opacity: 0.92; }
-.op-card .modifier-ctrl { position: absolute; bottom: 3px; right: 4px; }
-.op-card .modifier-ctrl select { font-size: 0.65rem; padding: 1px 2px; border-radius: 2px; background: rgba(255,255,255,0.85); color: #333; border: 1px solid rgba(0,0,0,0.2); cursor: pointer; }
 .op-card.mod-ignore { opacity: 0.5; }
 .op-card.mod-ignore .op-title { text-decoration: line-through; }
-
-/* Omit button + omitted state */
-.omit-btn { position: absolute; top: 2px; right: 3px; width: 16px; height: 16px; line-height: 16px; text-align: center; font-size: 0.7rem; font-weight: bold; border-radius: 50%; background: rgba(0,0,0,0.35); color: #fff; cursor: pointer; display: none; z-index: 2; }
-.op-card:hover .omit-btn { display: block; }
-.op-card.omitted .omit-btn { display: block; background: rgba(180,0,0,0.7); }
 .op-card.omitted { opacity: 0.35; background-image: repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(255,255,255,0.18) 4px, rgba(255,255,255,0.18) 6px); }
 .op-card.omitted .op-title { text-decoration: line-through; }
+
+/* Hover action buttons (top-right) */
+.card-actions { position: absolute; top: 2px; right: 3px; display: none; gap: 3px; z-index: 2; }
+.op-card:hover .card-actions { display: flex; }
+.card-action-btn { width: 20px; height: 16px; line-height: 16px; text-align: center; font-size: 0.6rem; font-weight: bold; border-radius: 3px; background: rgba(0,0,0,0.35); color: #fff; cursor: pointer; }
+.card-action-btn:hover { background: rgba(0,0,0,0.55); }
+/* Keep omit button visible when active */
+.op-card.omitted .card-actions { display: flex; }
+.op-card.omitted .card-action-btn.omit-active { background: rgba(180,0,0,0.7); }
+/* Keep ignore button visible when active */
+.op-card.mod-ignore .card-actions { display: flex; }
+.op-card.mod-ignore .card-action-btn.ign-active { background: rgba(180,120,0,0.8); }
+/* Mute ignore button when omitted (irrelevant) */
+.op-card.omitted .card-action-btn.ign-btn { opacity: 0.4; }
 
 /* Color classes */
 .clr-green { background: #16a34a; }
@@ -123,6 +136,10 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
   <button class="btn btn-slate" id="save-btn" style="display:none" onclick="saveSnapshot()">Save for Editing</button>
 </div>
 
+<div class="earnable-summary" id="earnable-summary">
+  <div class="earnable-label">Total Earnable Hours</div>
+  <div class="earnable-value" id="earnable-value">0</div>
+</div>
 <div class="workspace empty-msg" id="workspace">Upload files and click "Load Operations" to begin.</div>
 
 <script>
@@ -358,11 +375,31 @@ function render() {
     return;
   }
 
+  // Compute total earnable hours (labor hours where earnableFlag is truthy and not omitted)
+  var totalEarnable = 0;
+  for (var ei = 0; ei < operations.length; ei++) {
+    var eop = operations[ei];
+    if (!eop.omitted && isEarnable(eop.earnableFlag)) {
+      totalEarnable += parseFloat(eop.laborHours) || 0;
+    }
+  }
+  var earnEl = document.getElementById('earnable-summary');
+  if (earnEl) {
+    earnEl.style.display = operations.length > 0 ? 'block' : 'none';
+    document.getElementById('earnable-value').textContent = totalEarnable % 1 === 0 ? totalEarnable : totalEarnable.toFixed(2);
+  }
+
   var html = '';
   for (var gi = 0; gi < gates.length; gi++) {
     var g = gates[gi];
     var ops = getGateOps(g.id);
     var isAssigned = g.gateNumber !== '';
+
+    // Compute gate labor hours (non-omitted ops only)
+    var gateHrs = 0;
+    for (var hi = 0; hi < ops.length; hi++) {
+      if (!ops[hi].omitted) gateHrs += parseFloat(ops[hi].laborHours) || 0;
+    }
 
     // Drop zone before each gate
     html += '<div class="drop-zone" data-insert-idx="' + gi + '"></div>';
@@ -375,6 +412,7 @@ function render() {
     }
     html += '<select onchange="onGateSelect(\'' + esc(g.id) + '\', this.value)">' + gateDropdownHTML(g.gateNumber) + '</select>';
     html += '</div>';
+    html += '<div class="gate-hours">' + (gateHrs % 1 === 0 ? gateHrs : gateHrs.toFixed(2)) + ' hrs</div>';
     html += '<div class="gate-ops" data-gateid="' + esc(g.id) + '">';
 
     for (var oi = 0; oi < ops.length; oi++) {
@@ -390,13 +428,13 @@ function render() {
       if (op.operType) tooltip += '\nOper Type: ' + op.operType;
 
       html += '<div class="op-card ' + clr + (isSel ? ' selected' : '') + modClass + omitClass + '" draggable="true" data-operno="' + esc(op.operNo) + '" title="' + esc(tooltip) + '">';
-      html += '<span class="omit-btn" onclick="event.stopPropagation(); toggleOmit(\'' + esc(op.operNo) + '\')" title="' + (op.omitted ? 'Include in export' : 'Omit from export') + '">&#x2715;</span>';
+      // Hover action buttons
+      html += '<div class="card-actions">';
+      html += '<span class="card-action-btn ign-btn' + (op.modifier === 'ignore' ? ' ign-active' : '') + '" onclick="event.stopPropagation(); toggleIgnore(\'' + esc(op.operNo) + '\')" title="' + (op.modifier === 'ignore' ? 'Remove ignore' : 'Ignore in gate tracker') + '">IGN</span>';
+      html += '<span class="card-action-btn' + (op.omitted ? ' omit-active' : '') + '" onclick="event.stopPropagation(); toggleOmit(\'' + esc(op.operNo) + '\')" title="' + (op.omitted ? 'Include in export' : 'Omit from export') + '">&#x2715;</span>';
+      html += '</div>';
       html += '<div class="op-no">' + esc(op.operNo) + '</div>';
       html += '<div class="op-title">' + esc(op.operTitle) + '</div>';
-      html += '<div class="modifier-ctrl"><select data-operno="' + esc(op.operNo) + '" onchange="setModifier(\'' + esc(op.operNo) + '\', this.value)">';
-      html += '<option value=""' + (op.modifier === '' ? ' selected' : '') + '></option>';
-      html += '<option value="ignore"' + (op.modifier === 'ignore' ? ' selected' : '') + '>ignore</option>';
-      html += '</select></div>';
       html += '</div>';
     }
 
@@ -556,20 +594,21 @@ function assignGate(gateId, gateNumber, gateName) {
   render();
 }
 
-// ---- Modifier ----
-function setModifier(operNo, value) {
+// ---- Helper: is earnable flag truthy ----
+function isEarnable(flag) {
+  var v = String(flag).trim().toUpperCase();
+  return v === 'Y' || v === 'YES' || v === '1' || v === 'TRUE';
+}
+
+// ---- Toggle ignore modifier ----
+function toggleIgnore(operNo) {
   for (var i = 0; i < operations.length; i++) {
     if (operations[i].operNo === operNo) {
-      operations[i].modifier = value;
+      operations[i].modifier = operations[i].modifier === 'ignore' ? '' : 'ignore';
       break;
     }
   }
-  // Update card visual without full re-render
-  var card = document.querySelector('.op-card[data-operno="' + CSS.escape(operNo) + '"]');
-  if (card) {
-    if (value === 'ignore') { card.classList.add('mod-ignore'); }
-    else { card.classList.remove('mod-ignore'); }
-  }
+  render();
 }
 
 // ---- Toggle omit (exclude from export but keep visible) ----
@@ -580,12 +619,7 @@ function toggleOmit(operNo) {
       break;
     }
   }
-  var card = document.querySelector('.op-card[data-operno="' + CSS.escape(operNo) + '"]');
-  if (card) {
-    card.classList.toggle('omitted');
-    var btn = card.querySelector('.omit-btn');
-    if (btn) btn.title = operations.find(function(o) { return o.operNo === operNo; }).omitted ? 'Include in export' : 'Omit from export';
-  }
+  render();
 }
 
 // ---- Export Decoder Ring CSV ----
@@ -696,7 +730,8 @@ function saveSnapshot() {
   html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button>';
   html += '</div>\n';
 
-  // Workspace
+  // Earnable summary + Workspace
+  html += '<div class="earnable-summary" id="earnable-summary"><div class="earnable-label">Total Earnable Hours</div><div class="earnable-value" id="earnable-value">0</div></div>\n';
   html += '<div class="workspace" id="workspace"></div>\n';
 
   // JavaScript
@@ -715,12 +750,12 @@ function saveSnapshot() {
 
   // Include all needed functions
   var fns = [parseCSV, csvField, colIndex, showStatus, loadCSV, esc, normOper,
-             parseTechCSV, getColorClass, getGateOps, gateDropdownHTML, render,
+             parseTechCSV, getColorClass, getGateOps, gateDropdownHTML, isEarnable, render,
              attachDragListeners, onDragStart, onCardClick,
              onGateOver, onGateLeave, onGateDrop,
              onZoneOver, onZoneLeave, onZoneDrop,
              moveOpsToGate, onGateSelect, assignGate,
-             setModifier, toggleOmit, exportCSV, csvQuote, sanitizeFilename, dateStr,
+             toggleIgnore, toggleOmit, exportCSV, csvQuote, sanitizeFilename, dateStr,
              downloadFile, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) {
     html += fns[fi].toString() + '\n\n';
