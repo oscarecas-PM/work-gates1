@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.1</td></tr>
-    <tr><td class="label">Date:</td><td>March 10, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.3</td></tr>
+    <tr><td class="label">Date:</td><td>March 12, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Part Number &amp; Program filter interaction, audit-based Gate View overhaul, Mobile Audit generation, DR Operations styling, OPER STOP per-operation handling, &ldquo;Not found on a rack&rdquo; section</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-17.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; QA Operations label + lighter border, collapsible &ldquo;Not found on rack&rdquo; with improved sorting, quick navigation links</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-20.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -160,7 +160,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">C-05</td>
     <td><span class="tag tag-resolved">RESOLVED</span></td>
-    <td>Expected maximum: ~1,000 rows in Daily Upload. The application should display a <strong>warning popup if more than 500 rows</strong> are detected, to alert the user that the dataset is unusually large.</td>
+    <td>The Daily Upload regularly contains ~7,500 rows (including PENDING operations). The application should display a <strong>warning popup if more than 8,000 rows</strong> are detected, to alert the user that the dataset is unusually large.</td>
   </tr>
   <tr>
     <td class="req-id">C-06</td>
@@ -192,25 +192,27 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 <p><span class="tag tag-explicit">EXPLICIT</span> The row order in this file dictates the left-to-right display order of gates. The application must not re-sort gates by gate number.</p>
 
 <h3>3.2 Daily Upload (CSV)</h3>
-<p><span class="tag tag-explicit">EXPLICIT</span> A daily snapshot from the MES of work order operations, pre-filtered by the user before loading. The application performs no Oper Status filtering of its own.</p>
+<p><span class="tag tag-explicit">EXPLICIT</span> A daily snapshot from the MES of work order operations. The file may include PENDING operations in addition to ACTIVE and IN QUEUE. The application performs no Oper Status filtering of its own.</p>
 
 <table class="data-table">
   <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
-  <tr><td>Order No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order identifier</td></tr>
-  <tr><td>Oper No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Operation number (4-digit with leading zeros, e.g. "0050")</td></tr>
-  <tr><td>Oper Title</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive operation name (shown in tooltip)</td></tr>
-  <tr><td>Oper Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Status value (e.g. "ACTIVE", "IN QUEUE") &mdash; drives chip color</td></tr>
-  <tr><td>Part No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (must match decoder ring)</td></tr>
+  <tr><td>Order No</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order identifier</td></tr>
+  <tr><td>Operation No</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Operation number (4-digit with leading zeros, e.g. "0050")</td></tr>
+  <tr><td>Operation title</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive operation name (shown in tooltip)</td></tr>
+  <tr><td>Operation Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Status value (e.g. "ACTIVE", "IN QUEUE", "PENDING") &mdash; drives chip color</td></tr>
+  <tr><td>Part Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (must match decoder ring)</td></tr>
   <tr><td>Program</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Program name (top-level grouping)</td></tr>
-  <tr><td>Serial No</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (shown in order header)</td></tr>
-  <tr><td>Order Hold Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Hold flag (shown in red when present, truncated to 12 characters)</td></tr>
-  <tr><td>Total Days at Operation</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Column 26 &mdash; displayed in tooltip</td></tr>
-  <tr><td>Work Dept</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Department assignment &mdash; drives chip color logic</td></tr>
+  <tr><td>Serial Numbers</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (shown in order header)</td></tr>
+  <tr><td>Hold Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Hold flag (shown in red when present, truncated to 12 characters)</td></tr>
+  <tr><td>Avg. DaysCurrentOper</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Average days at the current operation &mdash; displayed on Gate View cards and in tooltips as &ldquo;avg days&rdquo;. Used for FIFO sorting within gates.</td></tr>
+  <tr><td>Work Department</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Department assignment &mdash; drives chip color logic and QA border indicator</td></tr>
 </table>
 
 <p><span class="tag tag-explicit">EXPLICIT</span> The Daily Upload uses 4-digit operation numbers with leading zeros (e.g. "0050") while the Decoder Ring uses bare numbers (e.g. "50"). The application normalizes these via leading-zero stripping for matching.</p>
 
-<p><span class="tag tag-resolved">RESOLVED</span> The Daily Upload contains 30 columns. At this time it is not clear what additional columns may be needed. Current column set is sufficient.</p>
+<p><span class="tag tag-resolved">RESOLVED</span> <strong>Column name history:</strong> Prior to v19, the Daily Upload used different column names from the previous data source: Order No., Oper No., Oper Title, Oper Status, Part No., Serial No, Order Hold Status, Total Days at Operation, Work Dept. The current column names reflect a new upstream data source adopted in v19.</p>
+
+<p><span class="tag tag-resolved">RESOLVED</span> The Daily Upload may contain 7,500+ rows including PENDING operations. This is expected and does not impact performance.</p>
 
 <h3>3.3 Gate Technicians (CSV) &mdash; Optional</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file mapping technicians to gates with priority ordering. Keyed by Gate Number. Multiple technicians per gate are supported with priority integers (1 = primary, 2 = secondary, etc.).</p>
@@ -281,7 +283,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-07</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Row count warning:</strong> If the daily upload contains more than 500 data rows, a warning popup is displayed before processing continues.</td>
+    <td><strong>Row count warning:</strong> If the daily upload contains more than 8,000 data rows, a warning popup is displayed before processing continues. The Daily Upload regularly contains ~7,500 rows including PENDING operations.</td>
   </tr>
 </table>
 
@@ -305,8 +307,8 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
   <tr>
     <td class="req-id">F-13</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>No Oper Status filtering is performed. The user pre-filters the Daily Upload before loading.</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td>No Oper Status filtering is performed. The Daily Upload may contain all operation statuses (ACTIVE, IN QUEUE, PENDING, COMPLETE, CLOSED, etc.). PENDING operations are displayed in the Detail View (F-118); only ACTIVE and IN QUEUE operations affect Gate View placement and sorting.</td>
   </tr>
   <tr>
     <td class="req-id">F-14</td>
@@ -444,7 +446,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-85</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Ignore-aware max days:</strong> The "days" displayed on gate view cards and used for FIFO sorting <strong>excludes</strong> operations marked with the "ignore" modifier. Only non-ignored Active/In Queue operations contribute to the max days calculation.</td>
+    <td><strong>Ignore-aware avg days:</strong> The &ldquo;avg days&rdquo; displayed on Gate View cards and used for FIFO sorting is sourced from the <strong>Avg. DaysCurrentOper</strong> column. The max value <strong>excludes</strong> operations marked with the &ldquo;ignore&rdquo; modifier. Only non-ignored Active/In Queue operations contribute to the max calculation. The label reads &ldquo;X avg days&rdquo; on cards and &ldquo;Avg Days at Current Op&rdquo; in tooltips.</td>
   </tr>
   <tr>
     <td class="req-id">F-86</td>
@@ -464,7 +466,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-96</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>&ldquo;Not found on a rack&rdquo; section:</strong> When an audit CSV is loaded, any active work orders from the Daily Upload that are <strong>not</strong> present in the audit CSV are collected into a &ldquo;Not found on a rack&rdquo; section displayed after all numbered gates. This section uses an amber header and helps identify orders that may have been missed during the physical audit.</td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; section:</strong> When an audit CSV is loaded, any active work orders from the Daily Upload that are <strong>not</strong> present in the audit CSV are collected into a &ldquo;Not found on a rack&rdquo; section displayed after all numbered gates. This section uses an amber header and helps identify orders that may have been missed during the physical audit. The section is collapsible (F-120) and sorted (F-121).</td>
   </tr>
   <tr>
     <td class="req-id">F-97</td>
@@ -485,6 +487,26 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">F-100</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Technician-bench display:</strong> If an audit CSV entry includes a Technician value, the Gate View card shows &ldquo;with &lt;tech name&gt;&rdquo; in italic muted text below the order details. Tech-bench orders are positioned first (far left) within their gate.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-119</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>QA Operations indicator (Gate View):</strong> If an order has any Active or In Queue operations where the Work Department ends in &ldquo;_QA&rdquo; (case-insensitive), the Gate View card receives a bright blue 3px border and a blue &ldquo;QA Operations&rdquo; label. <strong>Priority:</strong> The DR Operations red border and label (F-98) takes precedence &mdash; if an order has both DR Operations and QA operations, only the red border and &ldquo;DR Operations&rdquo; label is shown (no double borders, no double labels).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-120</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; collapsible:</strong> The &ldquo;Not found on a rack&rdquo; section (F-96) is collapsible. Clicking the amber header toggles the card row open/closed. <strong>Default state: closed.</strong> A triangle icon in the header indicates the current state (&blacktriangleright; closed, &blacktriangledown; open).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-121</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; sort order:</strong> Cards in the &ldquo;Not found on a rack&rdquo; section are sorted by: (1) Program ascending, (2) orders with DR Operations first, (3) Part Number ascending, (4) Order Number ascending.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-122</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Quick navigation links:</strong> After processing, two small text links appear near the top of the page: &ldquo;Jump to Detail View&rdquo; and &ldquo;Jump to Unmapped Operations.&rdquo; Each link opens its respective section (if not already open) and smooth-scrolls to it. Links are hidden in print/PDF output.</td>
   </tr>
 </table>
 
@@ -549,6 +571,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">F-101</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>OPER STOP chip styling (Detail View):</strong> Operations belonging to an order with &ldquo;OPER STOP&rdquo; hold status receive a red 2px solid border on their operation chip and &ldquo;OPER STOP&rdquo; appended to the tooltip text. The order-info area on the left side of the card only displays &ldquo;ORDER STOP&rdquo;&mdash;if the hold status is &ldquo;OPER STOP&rdquo;, it is <strong>not</strong> shown in the order-info area.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-118</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>PENDING operations (Detail View):</strong> Operations with Oper Status = &ldquo;PENDING&rdquo; are displayed in the Detail View gate progress bar in their correct gate column (as defined by the decoder ring). They appear as greyed-out chips with reduced opacity to visually distinguish them from Active/In Queue chips. PENDING operations do <strong>not</strong> affect Gate View placement, FIFO sorting, or max-days calculations &mdash; they are display-only in the Detail View. PENDING operations are also shown in the Unmapped Operations section if applicable.</td>
   </tr>
 </table>
 
@@ -708,7 +735,22 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">V-42</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>DR Operations card styling:</strong> Gate View cards for orders with DR Operations (7000&ndash;7999) have a <span class="swatch" style="background:#dc2626;"></span> red 3px solid border (#dc2626) and a red &ldquo;DR Operations&rdquo; label (font-size 0.72rem, bold).</td>
+    <td><strong>DR Operations card styling:</strong> Gate View cards for orders with DR Operations (7000&ndash;7999) have a <span class="swatch" style="background:#dc2626;"></span> red 3px solid border (#dc2626) and a red &ldquo;DR Operations&rdquo; label (font-size 0.72rem, bold). This border and label take priority over the QA border and label (V-53) &mdash; no double borders or labels.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-53</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>QA Operations card styling:</strong> Gate View cards for orders with Active/In Queue operations in a *_QA Work Department have a <span class="swatch" style="background:#3b82f6;"></span> bright blue 3px solid border (#3b82f6) and a blue &ldquo;QA Operations&rdquo; label (font-size 0.72rem, bold, color #3b82f6). If the order also has DR Operations, the red DR border and label (V-42) takes priority &mdash; no double borders or double labels.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-54</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; collapse controls:</strong> The amber header has <code>cursor: pointer</code> and <code>user-select: none</code>. A collapse icon (<code>.nf-collapse-icon</code>, margin-left 8px, font-size 0.8rem) displays &blacktriangleright; when collapsed and &blacktriangledown; when expanded. The card row uses class <code>.nf-collapsed</code> (<code>display: none</code>) to hide cards.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-55</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Quick navigation links:</strong> Displayed in a block-level div (<code>#nav-links</code>) below the action buttons, font-size 0.85rem, link color #2563eb with 14px gap between links. Hidden via <code>display:none</code> until processing completes. Excluded from print styles.</td>
   </tr>
   <tr>
     <td class="req-id">V-43</td>
@@ -848,10 +890,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td>4th</td>
   </tr>
   <tr>
+    <td><span class="swatch" style="background:#e5e7eb; opacity:0.6;"></span></td>
+    <td>Grey (pending)</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span> Oper Status = "PENDING" (case-insensitive) &mdash; displayed as grey with <strong>reduced opacity (0.6)</strong> to visually distinguish from inactive and other-status chips. Retains tooltip. Does not affect Gate View placement or sorting.</td>
+    <td>5th</td>
+  </tr>
+  <tr>
     <td><span class="swatch" style="background:#e5e7eb;"></span></td>
     <td>Grey (other)</td>
     <td><span class="tag tag-resolved">RESOLVED</span> Any other Oper Status (e.g. "CLOSED", "COMPLETE") &mdash; displayed as grey, same style as inactive chips but retains tooltip</td>
-    <td>5th</td>
+    <td>6th</td>
   </tr>
 </table>
 

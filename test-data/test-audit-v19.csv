@@ -1,0 +1,6 @@
+Gate Number,Order No.,Part No.,Serial No.,Technician
+2,WO-1001,ABC-100,SN-001,
+3,WO-1002,ABC-100,SN-002,John Smith
+2,WO-1003,DEF-200,SN-003,
+HOLD,WO-1004,ABC-100,SN-004,
+3,WO-1005,ABC-100,SN-005,
