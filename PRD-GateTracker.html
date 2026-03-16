@@ -79,8 +79,8 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.4</td></tr>
-    <tr><td class="label">Date:</td><td>March 15, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.5</td></tr>
+    <tr><td class="label">Date:</td><td>March 16, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
     <tr><td class="label">Status:</td><td>REVISED &mdash; Split-location detection for multi-gate orders, mobile audit already-added order visibility</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-21.html</td></tr>
@@ -232,7 +232,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 
 <table class="data-table">
   <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
-  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier as entered during audit. Value "HOLD" places the order on the Hold gate.</td></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier as entered during audit. Value "HOLD" places the order on the Hold Rack.</td></tr>
   <tr><td>Order No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order number (matched against Daily Upload for enrichment)</td></tr>
   <tr><td>Part No.</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (informational; Daily Upload is source of truth if available)</td></tr>
   <tr><td>Serial No.</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (informational)</td></tr>
@@ -406,7 +406,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-62</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Hold gate:</strong> An order is placed on the Hold gate (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found. <em>When an Audit CSV is loaded, orders with gate value "HOLD" (case-insensitive) are placed on the Hold gate.</em></td>
+    <td><strong>Hold Rack:</strong> An order is placed on the Hold Rack (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found. <em>When an Audit CSV is loaded, orders with gate value "HOLD" (case-insensitive) are placed on the Hold Rack.</em> The display label is &ldquo;Hold Rack&rdquo; everywhere: Gate View header, Detail View audit location, multi-gate warnings, and mobile audit UI.</td>
   </tr>
   <tr>
     <td class="req-id">F-63</td>
@@ -421,7 +421,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-65</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Gate ordering:</strong> Gates are displayed in this order: Hold gate first, then numbered gates in ascending gate number order, then the &ldquo;Not found on a rack&rdquo; section last (see F-96).</td>
+    <td><strong>Gate ordering:</strong> Gates are displayed in this order: Hold Rack first, then numbered gates in ascending gate number order, then the &ldquo;Not found on a rack&rdquo; section last (see F-96).</td>
   </tr>
   <tr>
     <td class="req-id">F-66</td>
@@ -511,12 +511,17 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-123</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Split Location Detection (Multi-Gate Orders):</strong> When processing the Audit CSV, the app detects work orders that appear in more than one gate. Both cards display an orange warning label showing which other gate(s) the order also appears on (e.g., &ldquo;&#9888; Also on Gate 5&rdquo; or &ldquo;&#9888; Also on Hold&rdquo;). The tooltip also includes &ldquo;SPLIT LOCATION: Also on [gate]&rdquo; for additional visibility. This helps manufacturing engineers identify hardware that has been separated across racks and needs to be reunited.</td>
+    <td><strong>Split Location Detection (Multi-Gate Orders):</strong> When processing the Audit CSV, the app detects work orders that appear in more than one gate. Both cards display an orange warning label showing which other gate(s) the order also appears on (e.g., &ldquo;&#9888; Also on Gate 5&rdquo; or &ldquo;&#9888; Also on Hold Rack&rdquo;). The tooltip also includes &ldquo;SPLIT LOCATION: Also on [gate]&rdquo; for additional visibility. This helps manufacturing engineers identify hardware that has been separated across racks and needs to be reunited.</td>
   </tr>
   <tr>
     <td class="req-id">F-124</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Mobile Audit &mdash; Already-Added Order Visibility:</strong> During mobile audit scanning, work orders that have already been added to a gate are no longer hidden from search results. Instead, they appear with an orange left border and a warning label showing which gate they are already on (e.g., &ldquo;&#9888; Already on Gate 5&rdquo;). Users can still tap to add the order to the current gate, supporting legitimate multi-box scenarios where the same work order occupies multiple physical locations.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-125</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Detail View &mdash; Audit Location Indicator:</strong> When an audit CSV is loaded, each work order in the Detail View displays its audit location below the S/N field. Three states: (1) <strong>Single gate</strong> &mdash; green text showing the gate label (e.g., &ldquo;Gate 3&rdquo; or &ldquo;Hold Rack&rdquo;); (2) <strong>Split location</strong> &mdash; orange warning badge with &#9888; icon listing all gates (e.g., &ldquo;&#9888; Gate 2, Hold Rack&rdquo;), matching the Gate View multi-gate warning style; (3) <strong>Not found</strong> &mdash; amber badge reading &ldquo;Not found at rack/tech bench&rdquo; for orders present in the daily upload but absent from the audit CSV. When no audit CSV is loaded, the indicator is hidden. Applies to both the main Detail View and the Unmapped Operations section.</td>
   </tr>
 </table>
 
@@ -725,7 +730,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">V-02</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Gate sections:</strong> Each gate is displayed as a section with a dark header bar (#334155) showing "GateNumber. GateName (N orders)". The Hold gate header uses dark red (#991b1b).</td>
+    <td><strong>Gate sections:</strong> Each gate is displayed as a section with a dark header bar (#334155) showing "GateNumber. GateName (N orders)". The Hold Rack header uses dark red (#991b1b) and displays &ldquo;Hold Rack (N orders)&rdquo;.</td>
   </tr>
   <tr>
     <td class="req-id">V-03</td>
@@ -771,6 +776,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-57</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Mobile Audit Already-Added Indicator:</strong> Search result items for already-added orders (<code>.result-item.already-added</code>): background <span class="swatch" style="background:#fff7ed;"></span> #fff7ed (light orange), border-left 3px solid <span class="swatch" style="background:#fb923c;"></span> #fb923c (orange). Warning text: font-size 12px, color <span class="swatch" style="background:#c2410c;"></span> #c2410c, font-weight bold.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-58</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Detail View Audit Location Indicator:</strong> Container (<code>.audit-loc</code>): full width, font-size 0.72rem, white-space nowrap. Single gate (<code>.audit-loc-gate</code>): color <span class="swatch" style="background:#166534;"></span> #166534 (green), font-weight 600. Split location (<code>.audit-loc-split</code>): color <span class="swatch" style="background:#c2410c;"></span> #c2410c, font-weight bold, background <span class="swatch" style="background:#fff7ed;"></span> #fff7ed, border 1px solid <span class="swatch" style="background:#fb923c;"></span> #fb923c, border-radius 3px, padding 1px 4px. Uses &#9888; Unicode prefix. Not found (<code>.audit-loc-notfound</code>): color <span class="swatch" style="background:#92400e;"></span> #92400e, font-weight 600, background <span class="swatch" style="background:#fef3c7;"></span> #fef3c7, border 1px solid <span class="swatch" style="background:#f59e0b;"></span> #f59e0b, border-radius 3px, padding 1px 4px.</td>
   </tr>
   <tr>
     <td class="req-id">V-43</td>
@@ -1255,6 +1265,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>6.0</td><td>2026-03-10</td><td>Claude (AI)</td><td>Major overhaul: Audit-based Gate View. Added 4th CSV input &mdash; Mobile Audit CSV (Section 3.4). Gate View placement now driven by audit CSV instead of algorithmic approach (F-95, supersedes F-60). Added &ldquo;Not found on a rack&rdquo; section for active orders missing from audit (F-96, V-43). Added &ldquo;Missing from daily upload&rdquo; amber labels (F-97, V-44). Added DR Operations red border + label on Gate View cards (F-98, V-42). Added per-operation OPER STOP in Gate View tooltips (F-99) and Detail View red-border chips (F-101, V-47). Added technician-bench display on cards (F-100, V-45). Added no-audit placeholder (V-46). Added Mobile Audit generation feature (F-102&ndash;F-107) with HOLD button, technician buttons, search-by-last-4, manual entry, and clipboard CSV output. Updated F-62, F-65, V-01, V-31. Added retrospective observations 10&ndash;11. App file: gate-tracker-17.html.</td></tr>
   <tr><td>6.1</td><td>2026-03-10</td><td>Claude (AI)</td><td>Resolved open question F-51: Part Number &amp; Program filter interaction. Program filter is the master filter; Part Number chips have three states (Off, On, Isolated). Added Section 4.12 with F-110&ndash;F-117 defining interaction rules: Off chip enables program + isolates, On chip isolates, Isolated chip de-isolates, program change resets isolation, single isolation only, scoped to Detail View and Unmapped only. Added V-50&ndash;V-52 for chip visual states (reduced opacity for Off, normal for On, blue border highlight for Isolated). &ldquo;Show All&rdquo; chip retained for discoverability.</td></tr>
   <tr><td>6.4</td><td>2026-03-15</td><td>Claude (AI)</td><td>Split-location detection and mobile audit fix. Added F-123 (multi-gate order detection with orange warning labels on both Gate View cards and tooltip). Added F-124 (mobile audit search no longer hides already-added orders; shows orange indicator with gate label instead). Added V-56 (multi-gate warning label styling) and V-57 (mobile audit already-added indicator styling). Added retrospective observation 12 documenting the real-world bug that drove these changes. App file: gate-tracker-21.html.</td></tr>
+  <tr><td>6.5</td><td>2026-03-16</td><td>Claude (AI)</td><td>Detail View audit location indicator and Hold Rack rename. Added F-125 (audit location indicator below S/N in Detail View &mdash; shows gate, split locations with &#9888; warning, or &ldquo;Not found at rack/tech bench&rdquo;; hidden when no audit CSV loaded). Added V-58 (audit location indicator styling). Renamed &ldquo;Hold&rdquo; display label to &ldquo;Hold Rack&rdquo; across Gate View header, Detail View, multi-gate warnings, and mobile audit UI (updated F-62, V-31). App file: gate-tracker-22.html.</td></tr>
 </table>
 
 </body>
