@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.3</td></tr>
-    <tr><td class="label">Date:</td><td>March 12, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.4</td></tr>
+    <tr><td class="label">Date:</td><td>March 15, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; QA Operations label + lighter border, collapsible &ldquo;Not found on rack&rdquo; with improved sorting, quick navigation links</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-20.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Split-location detection for multi-gate orders, mobile audit already-added order visibility</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-21.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -508,6 +508,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Quick navigation links:</strong> After processing, two small text links appear near the top of the page: &ldquo;Jump to Detail View&rdquo; and &ldquo;Jump to Unmapped Operations.&rdquo; Each link opens its respective section (if not already open) and smooth-scrolls to it. Links are hidden in print/PDF output.</td>
   </tr>
+  <tr>
+    <td class="req-id">F-123</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Split Location Detection (Multi-Gate Orders):</strong> When processing the Audit CSV, the app detects work orders that appear in more than one gate. Both cards display an orange warning label showing which other gate(s) the order also appears on (e.g., &ldquo;&#9888; Also on Gate 5&rdquo; or &ldquo;&#9888; Also on Hold&rdquo;). The tooltip also includes &ldquo;SPLIT LOCATION: Also on [gate]&rdquo; for additional visibility. This helps manufacturing engineers identify hardware that has been separated across racks and needs to be reunited.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-124</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Mobile Audit &mdash; Already-Added Order Visibility:</strong> During mobile audit scanning, work orders that have already been added to a gate are no longer hidden from search results. Instead, they appear with an orange left border and a warning label showing which gate they are already on (e.g., &ldquo;&#9888; Already on Gate 5&rdquo;). Users can still tap to add the order to the current gate, supporting legitimate multi-box scenarios where the same work order occupies multiple physical locations.</td>
+  </tr>
 </table>
 
 <h3>4.8 Unmapped Operations</h3>
@@ -751,6 +761,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-55</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Quick navigation links:</strong> Displayed in a block-level div (<code>#nav-links</code>) below the action buttons, font-size 0.85rem, link color #2563eb with 14px gap between links. Hidden via <code>display:none</code> until processing completes. Excluded from print styles.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-56</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Multi-Gate Warning Label:</strong> Orange warning label on Gate View cards (<code>.gv-multi-gate</code>): font-size 0.72rem, color <span class="swatch" style="background:#c2410c;"></span> #c2410c (burnt orange), font-weight bold, background <span class="swatch" style="background:#fff7ed;"></span> #fff7ed (light orange), border 1px solid <span class="swatch" style="background:#fb923c;"></span> #fb923c, border-radius 3px, padding 1px 4px, margin-top 2px. Uses &#9888; Unicode prefix.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-57</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Mobile Audit Already-Added Indicator:</strong> Search result items for already-added orders (<code>.result-item.already-added</code>): background <span class="swatch" style="background:#fff7ed;"></span> #fff7ed (light orange), border-left 3px solid <span class="swatch" style="background:#fb923c;"></span> #fb923c (orange). Warning text: font-size 12px, color <span class="swatch" style="background:#c2410c;"></span> #c2410c, font-weight bold.</td>
   </tr>
   <tr>
     <td class="req-id">V-43</td>
@@ -1063,6 +1083,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   The Mobile Audit generation (F-102&ndash;F-107) effectively makes the Gate Tracker a two-tool system: the desktop app processes and visualizes data, while the mobile audit tool captures physical-world state. The audit CSV closes the loop by feeding real observations back into the visualization. This pattern&mdash;generate a data-collection tool, then consume its output&mdash;could be extended to other use cases (e.g., quality inspections, material receiving).
 </div>
 
+<div class="retro-item">
+  <strong>Observation 12: Split-location detection driven by real-world bug</strong><br>
+  The split-location detection (F-123) and mobile audit already-added visibility (F-124) were driven by a real-world bug discovery: the mobile audit search was hiding already-scanned orders, causing auditors to manually re-enter work orders that occupied multiple physical boxes (e.g., the same W/O on Gate 2 and Gate 3). The root cause was the search filter that excluded already-added orders across all gates. Instead of simply removing the filter, the fix preserves visibility of already-added orders with a clear warning indicator, supporting the legitimate multi-box scenario while preventing accidental duplicates. This is a good example of how field usage reveals requirements that are invisible during desktop development.
+</div>
+
 
 <!-- ============================================================ -->
 <!-- 9. OPEN QUESTIONS SUMMARY                                      -->
@@ -1229,6 +1254,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>5.0</td><td>2026-03-01</td><td>Claude (AI)</td><td>Feature update: Added Gate Technicians optional CSV input (Section 3.3, F-86). Added Unmapped Operations section for part numbers not in the decoder ring (F-87, F-90&ndash;F-94) with independent program/part filters and toggle button. Added deterministic program card colors by first letter (F-66 updated). Added tooltip days per operation with [ignore] label (F-68 updated). Added ignore-aware maxDays calculation (F-85). Added "(Back to top)" link on order cards (F-73). Security fixes: CSS.escape() for querySelector injection (S-10), JSON &lt; sanitization in snapshots (S-11). Updated security summary matrix.</td></tr>
   <tr><td>6.0</td><td>2026-03-10</td><td>Claude (AI)</td><td>Major overhaul: Audit-based Gate View. Added 4th CSV input &mdash; Mobile Audit CSV (Section 3.4). Gate View placement now driven by audit CSV instead of algorithmic approach (F-95, supersedes F-60). Added &ldquo;Not found on a rack&rdquo; section for active orders missing from audit (F-96, V-43). Added &ldquo;Missing from daily upload&rdquo; amber labels (F-97, V-44). Added DR Operations red border + label on Gate View cards (F-98, V-42). Added per-operation OPER STOP in Gate View tooltips (F-99) and Detail View red-border chips (F-101, V-47). Added technician-bench display on cards (F-100, V-45). Added no-audit placeholder (V-46). Added Mobile Audit generation feature (F-102&ndash;F-107) with HOLD button, technician buttons, search-by-last-4, manual entry, and clipboard CSV output. Updated F-62, F-65, V-01, V-31. Added retrospective observations 10&ndash;11. App file: gate-tracker-17.html.</td></tr>
   <tr><td>6.1</td><td>2026-03-10</td><td>Claude (AI)</td><td>Resolved open question F-51: Part Number &amp; Program filter interaction. Program filter is the master filter; Part Number chips have three states (Off, On, Isolated). Added Section 4.12 with F-110&ndash;F-117 defining interaction rules: Off chip enables program + isolates, On chip isolates, Isolated chip de-isolates, program change resets isolation, single isolation only, scoped to Detail View and Unmapped only. Added V-50&ndash;V-52 for chip visual states (reduced opacity for Off, normal for On, blue border highlight for Isolated). &ldquo;Show All&rdquo; chip retained for discoverability.</td></tr>
+  <tr><td>6.4</td><td>2026-03-15</td><td>Claude (AI)</td><td>Split-location detection and mobile audit fix. Added F-123 (multi-gate order detection with orange warning labels on both Gate View cards and tooltip). Added F-124 (mobile audit search no longer hides already-added orders; shows orange indicator with gate label instead). Added V-56 (multi-gate warning label styling) and V-57 (mobile audit already-added indicator styling). Added retrospective observation 12 documenting the real-world bug that drove these changes. App file: gate-tracker-21.html.</td></tr>
 </table>
 
 </body>
