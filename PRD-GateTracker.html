@@ -79,8 +79,8 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.5</td></tr>
-    <tr><td class="label">Date:</td><td>March 16, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.6</td></tr>
+    <tr><td class="label">Date:</td><td>March 19, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
     <tr><td class="label">Status:</td><td>REVISED &mdash; Split-location detection for multi-gate orders, mobile audit already-added order visibility</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-21.html</td></tr>
@@ -521,7 +521,32 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-125</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Detail View &mdash; Audit Location Indicator:</strong> When an audit CSV is loaded, each work order in the Detail View displays its audit location below the S/N field. Three states: (1) <strong>Single gate</strong> &mdash; green text showing the gate label (e.g., &ldquo;Gate 3&rdquo; or &ldquo;Hold Rack&rdquo;); (2) <strong>Split location</strong> &mdash; orange warning badge with &#9888; icon listing all gates (e.g., &ldquo;&#9888; Gate 2, Hold Rack&rdquo;), matching the Gate View multi-gate warning style; (3) <strong>Not found</strong> &mdash; amber badge reading &ldquo;Not found at rack/tech bench&rdquo; for orders present in the daily upload but absent from the audit CSV. When no audit CSV is loaded, the indicator is hidden. Applies to both the main Detail View and the Unmapped Operations section.</td>
+    <td><strong>Detail View &mdash; Audit Location Indicator:</strong> When an audit CSV is loaded, each work order in the Detail View displays its audit location below the S/N field. Three states: (1) <strong>Single gate</strong> &mdash; green text showing the gate label (e.g., &ldquo;Gate 3&rdquo; or &ldquo;Hold Rack&rdquo;); (2) <strong>Split location</strong> &mdash; orange warning badge with &#9888; icon listing all gates (e.g., &ldquo;&#9888; Gate 2, Hold Rack&rdquo;), matching the Gate View multi-gate warning style; (3) <strong>Not found</strong> &mdash; amber badge reading &ldquo;Not found at rack/tech bench&rdquo; for orders present in the daily upload but absent from the audit CSV. When a technician is associated with the order in the audit CSV, the technician name is appended in parentheses (e.g., &ldquo;Gate 3 (with John Smith)&rdquo;). When no audit CSV is loaded, the indicator is hidden. Applies to both the main Detail View and the Unmapped Operations section.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-126</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Detail View &mdash; ORDER STOP detection across all rows:</strong> The ORDER STOP hold flag in the Detail View must scan <strong>all</strong> operation rows for a given work order, not just the first row. If any row for the order has &ldquo;ORDER STOP&rdquo; in the Hold Status column, the red hold flag is displayed on the order card. This matches the Gate View behavior which already scanned all rows.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-127</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Hold Rack collapsible:</strong> The Hold Rack section in the Gate View is collapsible, using the same interaction pattern as &ldquo;Not found on a rack&rdquo; (F-120). Click the header to toggle open/closed. Default state: closed. Triangle icon indicates current state.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-128</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate View &mdash; Show all decoder ring gates:</strong> The Gate View displays all gates present in the Decoder Ring that are numbered greater than 0 and less than 100, even if no work order cards are assigned to them. Empty gates show the gate header with &ldquo;(0 orders)&rdquo; and technician names (if loaded), followed by an empty card row. This provides a complete visual of the factory floor layout.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-129</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate View &mdash; Legend:</strong> A legend is displayed above the Gate View gate sections (below the title). It shows: (1) a color swatch and label for each active program; (2) a yellow swatch labeled &ldquo;Not found on daily upload&rdquo;; (3) a blue-outlined swatch labeled &ldquo;QA Operations&rdquo;; (4) a red-outlined swatch labeled &ldquo;DR Operations.&rdquo; The legend is included in the saved snapshot.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-130</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Snapshot &mdash; Navigation links and Unmapped Operations:</strong> The saved snapshot includes the &ldquo;Jump to Detail View&rdquo; and &ldquo;Jump to Unmapped Operations&rdquo; navigation links. It also includes the Unmapped Operations toggle button and view (if unmapped data exists), with full filter interactivity preserved.</td>
   </tr>
 </table>
 
@@ -801,6 +826,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-46</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>No-audit placeholder:</strong> When no Mobile Audit CSV is loaded, the Gate View area displays a centered placeholder message with a dashed border (2px dashed #ccc), white background, and muted text, informing the user to load an audit file.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-59</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate View Legend:</strong> Displayed between the Gate View title and the first gate section. Container: white background, 1px solid #ccc border, border-radius 6px, padding 10px 14px, margin-bottom 1rem. Title &ldquo;Legend&rdquo; in bold, font-size 0.82rem, color #555. Items in a flex-wrap row with 8px/18px gap. Each item: inline-flex with a 14px&times;14px color swatch (border-radius 3px) and text label. Program swatches use the program&rsquo;s background color with a 1px border in the program&rsquo;s border color. &ldquo;Not found on daily upload&rdquo; swatch: background #fef3c7, border 1px solid #f59e0b. QA Operations swatch: white background, 3px solid #3b82f6 border. DR Operations swatch: white background, 3px solid #dc2626 border.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-60</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Hold Rack collapse controls:</strong> The Hold Rack header (<code>.hold-gate</code>) has <code>cursor: pointer</code> and <code>user-select: none</code>. A collapse icon (<code>.nf-collapse-icon</code>, margin-left 8px, font-size 0.8rem) displays &blacktriangleright; when collapsed and &blacktriangledown; when expanded. The card row uses id <code>hold-cards-row</code> and class <code>.nf-collapsed</code> (<code>display: none</code>) to hide cards. Default state: collapsed. Same visual pattern as V-54 (&ldquo;Not found on a rack&rdquo; collapse controls).</td>
   </tr>
 </table>
 
@@ -1266,6 +1301,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>6.1</td><td>2026-03-10</td><td>Claude (AI)</td><td>Resolved open question F-51: Part Number &amp; Program filter interaction. Program filter is the master filter; Part Number chips have three states (Off, On, Isolated). Added Section 4.12 with F-110&ndash;F-117 defining interaction rules: Off chip enables program + isolates, On chip isolates, Isolated chip de-isolates, program change resets isolation, single isolation only, scoped to Detail View and Unmapped only. Added V-50&ndash;V-52 for chip visual states (reduced opacity for Off, normal for On, blue border highlight for Isolated). &ldquo;Show All&rdquo; chip retained for discoverability.</td></tr>
   <tr><td>6.4</td><td>2026-03-15</td><td>Claude (AI)</td><td>Split-location detection and mobile audit fix. Added F-123 (multi-gate order detection with orange warning labels on both Gate View cards and tooltip). Added F-124 (mobile audit search no longer hides already-added orders; shows orange indicator with gate label instead). Added V-56 (multi-gate warning label styling) and V-57 (mobile audit already-added indicator styling). Added retrospective observation 12 documenting the real-world bug that drove these changes. App file: gate-tracker-21.html.</td></tr>
   <tr><td>6.5</td><td>2026-03-16</td><td>Claude (AI)</td><td>Detail View audit location indicator and Hold Rack rename. Added F-125 (audit location indicator below S/N in Detail View &mdash; shows gate, split locations with &#9888; warning, or &ldquo;Not found at rack/tech bench&rdquo;; hidden when no audit CSV loaded). Added V-58 (audit location indicator styling). Renamed &ldquo;Hold&rdquo; display label to &ldquo;Hold Rack&rdquo; across Gate View header, Detail View, multi-gate warnings, and mobile audit UI (updated F-62, V-31). App file: gate-tracker-22.html.</td></tr>
+  <tr><td>6.6</td><td>2026-03-19</td><td>Claude (AI)</td><td>Gate View enhancements and Detail View fixes. Updated F-125 to include technician name in audit location indicator (e.g., &ldquo;Gate 3 (with John Smith)&rdquo;). Added F-126 (ORDER STOP detection scans all rows, not just first). Added F-127 (Hold Rack collapsible, default closed). Added F-128 (show all decoder ring gates 1&ndash;99 in Gate View, even empty). Added F-129 (Gate View legend: program colors, yellow for missing, blue/red outlines). Added F-130 (snapshot includes nav links and unmapped operations view). Added V-59 (legend styling) and V-60 (Hold Rack collapse controls). App file: gate-tracker-23.html.</td></tr>
 </table>
 
 </body>
