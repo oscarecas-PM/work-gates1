@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.6</td></tr>
-    <tr><td class="label">Date:</td><td>March 19, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.7</td></tr>
+    <tr><td class="label">Date:</td><td>March 20, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Split-location detection for multi-gate orders, mobile audit already-added order visibility</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-21.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Data-driven gate locations, sub-gates, multiple hold racks</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-24.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -215,24 +215,24 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 <p><span class="tag tag-resolved">RESOLVED</span> The Daily Upload may contain 7,500+ rows including PENDING operations. This is expected and does not impact performance.</p>
 
 <h3>3.3 Gate Technicians (CSV) &mdash; Optional</h3>
-<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file mapping technicians to gates with priority ordering. Keyed by Gate Number. Multiple technicians per gate are supported with priority integers (1 = primary, 2 = secondary, etc.).</p>
+<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file that serves as the <strong>authoritative list of physical gate locations</strong> and optionally maps technicians to those gates. Keyed by Gate Number. When loaded, this file drives which gates appear in the Mobile Audit and Gate View (F-131). Multiple technicians per gate are supported with priority integers (1 = primary, 2 = secondary, etc.).</p>
 
 <table class="data-table">
   <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
-  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Numeric gate identifier (must match decoder ring gate numbers)</td></tr>
-  <tr><td>Gate Name</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive name (informational, matching is on Gate Number)</td></tr>
-  <tr><td>Tech Name</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Full name of the technician assigned to this gate</td></tr>
-  <tr><td>Priority</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Integer priority (1 = primary, 2 = secondary, 3 = tertiary, etc.). Names are displayed in priority order, comma-separated.</td></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier. May be an integer (e.g., &ldquo;3&rdquo;), a decimal for sub-gates (e.g., &ldquo;7.1&rdquo;), or a HOLD-prefixed string for hold racks (e.g., &ldquo;HOLD-1&rdquo;, &ldquo;HOLD-2&rdquo;). See F-132, F-133.</td></tr>
+  <tr><td>Gate Name</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive name (e.g., &ldquo;Pressure Test - Data Review&rdquo;, &ldquo;Hold Rack A&rdquo;). Used as the display label in Gate View headers and Mobile Audit buttons.</td></tr>
+  <tr><td>Tech Name</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Full name of the technician assigned to this gate. May be blank &mdash; the gate still appears in the Mobile Audit and Gate View but without technician buttons (F-134).</td></tr>
+  <tr><td>Priority</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Integer priority (1 = primary, 2 = secondary, 3 = tertiary, etc.). Names are displayed in priority order, comma-separated. Defaults to 999 if blank.</td></tr>
 </table>
 
-<p><span class="tag tag-explicit">EXPLICIT</span> Multiple technicians per gate are represented as separate rows with the same Gate Number but different Priority values. A single technician may appear on multiple gates (support coverage).</p>
+<p><span class="tag tag-explicit">EXPLICIT</span> Multiple technicians per gate are represented as separate rows with the same Gate Number but different Priority values. A single technician may appear on multiple gates (support coverage). Rows with a Gate Number but no Tech Name register the gate location without assigning a technician &mdash; this is the mechanism for defining gates before technician assignments are finalized (F-134).</p>
 
 <h3>3.4 Mobile Audit CSV &mdash; Optional</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file produced by the Mobile Audit tool (see F-102). When loaded, this file <strong>drives Gate View placement</strong> instead of the algorithmic approach. Each row represents one work order observed on a physical rack (gate) during a floor audit.</p>
 
 <table class="data-table">
   <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
-  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier as entered during audit. Value "HOLD" places the order on the Hold Rack.</td></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier as entered during audit. Any value starting with &ldquo;HOLD&rdquo; (e.g., &ldquo;HOLD-1&rdquo;, &ldquo;HOLD-2&rdquo;) places the order on the corresponding hold rack. Decimal values (e.g., &ldquo;7.1&rdquo;) are supported for sub-gates.</td></tr>
   <tr><td>Order No.</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order number (matched against Daily Upload for enrichment)</td></tr>
   <tr><td>Part No.</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (informational; Daily Upload is source of truth if available)</td></tr>
   <tr><td>Serial No.</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (informational)</td></tr>
@@ -531,12 +531,12 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-127</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Hold Rack collapsible:</strong> The Hold Rack section in the Gate View is collapsible, using the same interaction pattern as &ldquo;Not found on a rack&rdquo; (F-120). Click the header to toggle open/closed. Default state: closed. Triangle icon indicates current state.</td>
+    <td><strong>Hold Rack collapsible:</strong> Each hold rack section in the Gate View is independently collapsible, using the same interaction pattern as &ldquo;Not found on a rack&rdquo; (F-120). Click the header to toggle open/closed. Default state: closed. Triangle icon indicates current state. Multiple hold racks (e.g., HOLD-1, HOLD-2) each get their own collapsible section with unique element IDs.</td>
   </tr>
   <tr>
     <td class="req-id">F-128</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Gate View &mdash; Show all decoder ring gates:</strong> The Gate View displays all gates present in the Decoder Ring that are numbered greater than 0 and less than 100, even if no work order cards are assigned to them. Empty gates show the gate header with &ldquo;(0 orders)&rdquo; and technician names (if loaded), followed by an empty card row. This provides a complete visual of the factory floor layout.</td>
+    <td><strong>Gate View &mdash; Show all known gates:</strong> The Gate View displays all gates from the Decoder Ring and the Gate Technicians file (if loaded), even if no work order cards are assigned to them. Empty gates show the gate header with &ldquo;(0 orders)&rdquo; and technician names (if loaded), followed by an empty card row. Gate names from the Decoder Ring take priority; the Gate Technicians file fills gaps for gates not yet mapped in the Decoder Ring. Hold-prefixed gates and decimal sub-gates are included. This provides a complete visual of the factory floor layout.</td>
   </tr>
   <tr>
     <td class="req-id">F-129</td>
@@ -547,6 +547,26 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">F-130</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Snapshot &mdash; Navigation links and Unmapped Operations:</strong> The saved snapshot includes the &ldquo;Jump to Detail View&rdquo; and &ldquo;Jump to Unmapped Operations&rdquo; navigation links. It also includes the Unmapped Operations toggle button and view (if unmapped data exists), with full filter interactivity preserved.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-131</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate Technicians file as gate location authority:</strong> When a Gate Technicians CSV is loaded, it becomes the authoritative source for which gates appear in the Mobile Audit and Gate View. All gates listed in the file appear as buttons in the Mobile Audit and as columns in the Gate View (even if empty). If no Gate Technicians file is loaded, the app falls back to deriving gates from the Decoder Ring (legacy behavior). This separation allows gate locations to be defined independently of operation-to-gate mappings.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-132</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Decimal sub-gates:</strong> Gate numbers may be decimal values (e.g., &ldquo;7.1&rdquo;) to represent sub-locations within a gate. Sub-gates sort numerically between their parent gates (7 &rarr; 7.1 &rarr; 8). Sub-gates appear as independent buttons in the Mobile Audit and independent columns in the Gate View. All sorting uses <code>parseFloat</code> rather than <code>parseInt</code> to preserve decimal ordering.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-133</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Data-driven hold racks (HOLD-prefixed gates):</strong> Hold racks are no longer hardcoded. Any gate whose Gate Number starts with &ldquo;HOLD&rdquo; (case-insensitive) is treated as a hold rack &mdash; displayed with red styling, sorted before numbered gates, and independently collapsible in the Gate View (F-127). Multiple hold racks are supported (e.g., &ldquo;HOLD-1&rdquo;, &ldquo;HOLD-2&rdquo;), each with its own Gate Name. Hold racks are defined in the Gate Technicians CSV alongside regular gates. In the Mobile Audit, hold rack buttons show the Gate Name as their label (not the gate number).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-134</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gates without technicians:</strong> The Gate Technicians CSV may contain rows where the Tech Name column is blank. These rows register the gate location (Gate Number + Gate Name) without assigning a technician. The gate appears in the Mobile Audit and Gate View but without technician buttons in the audit or technician labels in the Gate View header. This supports defining new gate locations before technician assignments are finalized.</td>
   </tr>
 </table>
 
@@ -677,7 +697,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-106</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>HOLD gate button and technician buttons:</strong> The gate selection UI includes a &ldquo;HOLD&rdquo; button (red, displayed first) and, if a Gate Technicians CSV was loaded, a technician button for each tech assigned to the selected gate. Selecting a technician records the tech name in the CSV output.</td>
+    <td><strong>Gate buttons and technician buttons:</strong> The gate selection UI displays all gates from the GATES array (populated from the Gate Technicians file, or Decoder Ring as fallback). Gates with numbers starting with &ldquo;HOLD&rdquo; are displayed with red hold-rack styling and show their Gate Name as the button label. Numeric gates show &ldquo;{number}. {name}&rdquo;. If a Gate Technicians CSV was loaded, a technician button for each tech assigned to the selected gate is shown below the search input. Selecting a technician records the tech name in the CSV output. Gates without technicians show no technician buttons.</td>
   </tr>
   <tr>
     <td class="req-id">F-107</td>
@@ -1302,6 +1322,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>6.4</td><td>2026-03-15</td><td>Claude (AI)</td><td>Split-location detection and mobile audit fix. Added F-123 (multi-gate order detection with orange warning labels on both Gate View cards and tooltip). Added F-124 (mobile audit search no longer hides already-added orders; shows orange indicator with gate label instead). Added V-56 (multi-gate warning label styling) and V-57 (mobile audit already-added indicator styling). Added retrospective observation 12 documenting the real-world bug that drove these changes. App file: gate-tracker-21.html.</td></tr>
   <tr><td>6.5</td><td>2026-03-16</td><td>Claude (AI)</td><td>Detail View audit location indicator and Hold Rack rename. Added F-125 (audit location indicator below S/N in Detail View &mdash; shows gate, split locations with &#9888; warning, or &ldquo;Not found at rack/tech bench&rdquo;; hidden when no audit CSV loaded). Added V-58 (audit location indicator styling). Renamed &ldquo;Hold&rdquo; display label to &ldquo;Hold Rack&rdquo; across Gate View header, Detail View, multi-gate warnings, and mobile audit UI (updated F-62, V-31). App file: gate-tracker-22.html.</td></tr>
   <tr><td>6.6</td><td>2026-03-19</td><td>Claude (AI)</td><td>Gate View enhancements and Detail View fixes. Updated F-125 to include technician name in audit location indicator (e.g., &ldquo;Gate 3 (with John Smith)&rdquo;). Added F-126 (ORDER STOP detection scans all rows, not just first). Added F-127 (Hold Rack collapsible, default closed). Added F-128 (show all decoder ring gates 1&ndash;99 in Gate View, even empty). Added F-129 (Gate View legend: program colors, yellow for missing, blue/red outlines). Added F-130 (snapshot includes nav links and unmapped operations view). Added V-59 (legend styling) and V-60 (Hold Rack collapse controls). App file: gate-tracker-23.html.</td></tr>
+  <tr><td>6.7</td><td>2026-03-20</td><td>Claude (AI)</td><td>Data-driven gate locations, sub-gates, and multiple hold racks. Added F-131 (Gate Technicians file as authoritative gate location source, with Decoder Ring fallback). Added F-132 (decimal sub-gates, e.g., 7.1, with parseFloat sorting). Added F-133 (HOLD-prefixed gate numbers for data-driven hold racks; no more hardcoded HOLD button; multiple independent hold racks supported). Added F-134 (blank Tech Name rows allowed in Gate Technicians CSV for gates without assigned technicians). Updated F-106 (gate buttons now data-driven from GATES array). Updated F-127 (multiple hold racks each independently collapsible). Updated F-128 (gate sources include both Decoder Ring and Gate Technicians file). Updated Section 3.3 (Gate Technicians CSV description, Tech Name no longer required). Updated Section 3.4 (Audit CSV Gate Number supports HOLD-prefixed and decimal values). App file: gate-tracker-24.html.</td></tr>
 </table>
 
 </body>
