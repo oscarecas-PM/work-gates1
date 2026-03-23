@@ -1562,6 +1562,16 @@ function process() {
         return (parseFloat(a) || 0) - (parseFloat(b) || 0);
       });
 
+      // Hide empty sub-gates (non-integer gate numbers with 0 orders)
+      for (var sgi = gateOrder.length - 1; sgi >= 0; sgi--) {
+        var sgBucket = gateViewBuckets[gateOrder[sgi]];
+        if (sgBucket.orders.length > 0 || sgBucket.isHold) continue;
+        var sgNum = parseFloat(gateOrder[sgi]);
+        if (!isNaN(sgNum) && sgNum !== Math.floor(sgNum)) {
+          gateOrder.splice(sgi, 1);  // decimal sub-gate with 0 orders — remove
+        }
+      }
+
       // Within each gate: tech-bench orders (with techName) first, then rest in CSV order
       for (const gKey of gateOrder) {
         const orders = gateViewBuckets[gKey].orders;

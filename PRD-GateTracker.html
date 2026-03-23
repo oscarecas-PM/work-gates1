@@ -643,6 +643,11 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Decoder Ring Builder validation:</strong> The Decoder Ring Builder validates that Gate Number and Gate Name columns are present in the Master Gates file. Warns on duplicate gate numbers (last definition wins) and empty gate numbers (row skipped).</td>
   </tr>
+  <tr>
+    <td class="req-id">F-149</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Hide empty sub-gates:</strong> In the Gate View and snapshot, decimal (non-integer) gate numbers that have zero orders assigned are hidden. Integer gates and HOLD gates always display regardless of order count. This prevents visual clutter from sub-gate shelves that are currently unused. Sub-gates with at least one order display normally.</td>
+  </tr>
 </table>
 
 <h3>4.8 Unmapped Operations</h3>
