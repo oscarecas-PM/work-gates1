@@ -1,8 +1,12 @@
 Gate Number,Gate Name,Tech Name,Priority
-0,Outside Lab,John Smith,1
-1,CNC Bay,Mike Jones,1
-1,CNC Bay,Sarah Lee,2
-2,Weld Station,Tom Brown,1
-3,QA Inspection,Amy Chen,1
-4,Assembly,Dave Wilson,1
-5,Paint Booth,Chris Taylor,1
+1,Receiving,Mike Johnson,1
+2,CNC Machining,Sarah Chen,1
+2,CNC Machining,Tom Rivera,2
+3,Deburr / QA,John Smith,1
+4,Welding,Dave Wilson,1
+5,Weld QA,Lisa Park,1
+6,Paint,Carlos Ruiz,1
+7,Paint QA,Amy Foster,1
+8,Final Assembly,James Lee,1
+9,Final QA,Karen White,1
+10,Shipping,Bob Turner,1

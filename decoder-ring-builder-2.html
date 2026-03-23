@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>Gate Decoder Ring Builder</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: Arial, sans-serif; margin: 0; padding: 1rem; background: #f5f5f5; }
+h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
+.subtitle { font-size: 0.85rem; color: #555; margin-bottom: 1rem; }
+.input-section { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+.file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; flex: 1 1 280px; min-width: 250px; }
+.file-group label { font-weight: bold; display: block; margin-bottom: 0.4rem; font-size: 0.9rem; }
+.file-group .hint { font-size: 0.78rem; color: #888; margin-bottom: 0.4rem; }
+.status { font-size: 0.82rem; margin-top: 0.3rem; }
+.status.loaded { color: #16a34a; } .status.error { color: #dc2626; }
+
+.part-inputs { display: flex; gap: 0.8rem; flex-wrap: wrap; align-items: flex-end; }
+.part-inputs .field { display: flex; flex-direction: column; }
+.part-inputs .field label { font-weight: bold; font-size: 0.85rem; margin-bottom: 0.25rem; }
+.part-inputs .field input { padding: 6px 10px; border: 1px solid #999; border-radius: 4px; font-size: 0.9rem; width: 200px; }
+
+.btn { padding: 8px 18px; border: none; border-radius: 4px; font-weight: bold; font-size: 0.85rem; cursor: pointer; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn-primary { background: #2563eb; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn-green { background: #16a34a; color: #fff; }
+.btn-green:hover:not(:disabled) { background: #15803d; }
+.btn-slate { background: #334155; color: #fff; }
+.btn-slate:hover:not(:disabled) { background: #1e293b; }
+
+.action-bar { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+
+/* Earnable hours summary */
+.earnable-summary { background: #fff; border: 2px solid #2563eb; border-radius: 6px; padding: 10px 14px; margin-bottom: 1rem; display: none; }
+.earnable-summary .earnable-label { font-size: 0.78rem; color: #555; text-transform: uppercase; letter-spacing: 0.5px; }
+.earnable-summary .earnable-value { font-size: 1.5rem; font-weight: bold; color: #2563eb; }
+
+/* Workspace */
+.workspace { display: flex; gap: 0; overflow-x: auto; padding: 16px 8px; min-height: 200px; background: #e2e8f0; border-radius: 6px; align-items: flex-start; }
+.workspace.empty-msg { justify-content: center; align-items: center; color: #888; font-size: 0.95rem; }
+
+/* Drop zone between gates */
+.drop-zone { width: 12px; min-height: 80px; flex-shrink: 0; border-radius: 4px; transition: background 0.15s, width 0.15s; align-self: stretch; }
+.drop-zone.dz-active { background: #2563eb; width: 12px; }
+
+/* Gate outline */
+.gate-outline { min-width: 180px; max-width: 300px; background: #fff; border: 2px dashed #94a3b8; border-radius: 6px; display: flex; flex-direction: column; flex-shrink: 0; }
+.gate-outline.drag-over { border-color: #2563eb; background: #eff6ff; }
+.gate-outline.assigned { border-style: solid; border-color: #64748b; }
+
+.gate-header { background: #334155; color: #fff; padding: 6px 8px; border-radius: 3px 3px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.gate-header select { width: 100%; padding: 3px 4px; border-radius: 3px; font-size: 0.78rem; border: 1px solid #ccc; }
+.gate-label { font-size: 0.75rem; font-weight: bold; text-align: center; }
+
+.gate-hours { font-size: 0.72rem; color: #64748b; text-align: center; padding: 2px 8px 4px; border-bottom: 1px solid #e2e8f0; }
+.gate-ops { padding: 6px; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
+
+/* Operation cards */
+.op-card { padding: 7px 9px; border-radius: 4px; cursor: grab; user-select: none; font-size: 0.8rem; color: #fff; font-weight: bold; position: relative; transition: opacity 0.15s; }
+.op-card:active { cursor: grabbing; }
+.op-card.selected { outline: 2.5px solid #111; outline-offset: -1px; }
+.op-card .op-no { font-size: 0.85rem; }
+.op-card .op-title { font-size: 0.72rem; font-weight: normal; margin-top: 2px; opacity: 0.92; }
+.op-card.mod-ignore { opacity: 0.5; }
+.op-card.mod-ignore .op-title { text-decoration: line-through; }
+.op-card.omitted { opacity: 0.35; background-image: repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(255,255,255,0.18) 4px, rgba(255,255,255,0.18) 6px); }
+.op-card.omitted .op-title { text-decoration: line-through; }
+
+/* Hover action buttons (top-right) */
+.card-actions { position: absolute; top: 2px; right: 3px; display: none; gap: 3px; z-index: 2; }
+.op-card:hover .card-actions { display: flex; }
+.card-action-btn { width: 20px; height: 16px; line-height: 16px; text-align: center; font-size: 0.6rem; font-weight: bold; border-radius: 3px; background: rgba(0,0,0,0.35); color: #fff; cursor: pointer; }
+.card-action-btn:hover { background: rgba(0,0,0,0.55); }
+/* Keep omit button visible when active */
+.op-card.omitted .card-actions { display: flex; }
+.op-card.omitted .card-action-btn.omit-active { background: rgba(180,0,0,0.7); }
+/* Keep ignore button visible when active */
+.op-card.mod-ignore .card-actions { display: flex; }
+.op-card.mod-ignore .card-action-btn.ign-active { background: rgba(180,120,0,0.8); }
+/* Mute ignore button when omitted (irrelevant) */
+.op-card.omitted .card-action-btn.ign-btn { opacity: 0.4; }
+
+/* Color classes */
+.clr-green { background: #16a34a; }
+.clr-blue { background: #2563eb; }
+.clr-pink { background: #db2777; }
+
+/* Drag ghost */
+.drag-ghost { position: fixed; top: -1000px; left: -1000px; pointer-events: none; background: #334155; color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; z-index: 9999; }
+
+/* Snapshot banner */
+.snapshot-notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; color: #1e40af; margin-bottom: 1rem; display: none; }
+
+@media print {
+  .input-section, .action-bar, .snapshot-notice { display: none !important; }
+  .workspace { overflow: visible; }
+  body { background: #fff; }
+}
+</style>
+</head>
+<body>
+
+<h1>Gate Decoder Ring Builder <span>v1</span></h1>
+<p class="subtitle">Visually assign operations to gates, then export as a Decoder Ring CSV.</p>
+
+<div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. You can continue editing, upload a new Master Gates CSV, or export.</div>
+
+<div class="input-section" id="input-section">
+  <div class="file-group">
+    <label>1. Master Gates CSV (optional)</label>
+    <div class="hint">Gate Number | Gate Name | Technician 1 ... Technician 10</div>
+    <input type="file" id="tech-file" accept=".csv,.txt">
+    <div class="status" id="tech-status"></div>
+  </div>
+  <div class="file-group">
+    <label>2. Part Information</label>
+    <div class="part-inputs">
+      <div class="field"><label>Part Number</label><input type="text" id="part-no-input" placeholder="e.g. 12345-001"></div>
+      <div class="field"><label>Part Name</label><input type="text" id="part-name-input" placeholder="e.g. Bracket Assy"></div>
+    </div>
+  </div>
+  <div class="file-group">
+    <label>3. MES Operations CSV</label>
+    <div class="hint">Must contain: Oper No, Oper Title, Work Dept</div>
+    <input type="file" id="ops-file" accept=".csv,.txt">
+    <div class="status" id="ops-status"></div>
+  </div>
+</div>
+
+<div class="action-bar" id="action-bar">
+  <button class="btn btn-primary" id="load-btn" disabled onclick="loadOperations()">Load Operations</button>
+  <button class="btn btn-green" id="export-csv-btn" style="display:none" onclick="exportCSV()">Export Decoder Ring CSV</button>
+  <button class="btn btn-slate" id="save-btn" style="display:none" onclick="saveSnapshot()">Save for Editing</button>
+</div>
+
+<div class="earnable-summary" id="earnable-summary">
+  <div class="earnable-label">Total Earnable Hours</div>
+  <div class="earnable-value" id="earnable-value">0</div>
+</div>
+<div class="workspace empty-msg" id="workspace">Upload files and click "Load Operations" to begin.</div>
+
+<script>
+// ---- Globals ----
+var partInfo = { partNo: '', partName: '' };
+var gateMap = {};         // { gateNumber: gateName }
+var operations = [];      // [{ operNo, operTitle, workDept, operType, laborHours, earnableFlag, gateId, modifier }]
+var gates = [];           // [{ id, gateNumber, gateName }]
+var selectedOps = new Set();
+var nextGateId = 0;
+var draggedOps = [];      // operNos being dragged
+var techCsvRows = null;
+var opsCsvRows = null;
+var isSnapshot = false;
+
+// ---- Utility functions (from gate-tracker) ----
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s) { var v = s.trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+
+function parseCSV(text) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  let row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { row.push(csvField(current)); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(csvField(current)); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(csvField(current));
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function colIndex(headers, name) {
+  var n = name.toLowerCase().trim();
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase().trim() === n) return i;
+  }
+  return -1;
+}
+
+function showStatus(id, msg, isError) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'loaded');
+}
+
+function loadCSV(file, callback, statusId) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var rows = parseCSV(ev.target.result);
+      if (rows.length < 2) throw new Error('File has no data rows');
+      callback(rows);
+    } catch (err) {
+      showStatus(statusId, 'Error: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function normOper(s) {
+  var n = String(s).replace(/^0+/, '');
+  return n === '' ? '0' : n;
+}
+
+// ---- File input handlers ----
+document.getElementById('tech-file').addEventListener('change', function() {
+  loadCSV(this.files[0], function(rows) {
+    techCsvRows = rows;
+    parseMasterGatesCSV(rows);
+  }, 'tech-status');
+});
+
+document.getElementById('ops-file').addEventListener('change', function() {
+  loadCSV(this.files[0], function(rows) {
+    opsCsvRows = rows;
+    showStatus('ops-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    checkReady();
+  }, 'ops-status');
+});
+
+document.getElementById('part-no-input').addEventListener('input', checkReady);
+document.getElementById('part-name-input').addEventListener('input', checkReady);
+
+function checkReady() {
+  var hasPartNo = document.getElementById('part-no-input').value.trim().length > 0;
+  var hasOps = opsCsvRows && opsCsvRows.length >= 2;
+  document.getElementById('load-btn').disabled = !(hasPartNo && hasOps);
+}
+
+// ---- Parse Master Gates CSV ----
+function parseMasterGatesCSV(rows) {
+  var headers = rows[0];
+  var iNum = colIndex(headers, 'Gate Number');
+  var iName = colIndex(headers, 'Gate Name');
+  if (iNum < 0 || iName < 0) {
+    showStatus('tech-status', 'Error: Need "Gate Number" and "Gate Name" columns', true);
+    return;
+  }
+  var count = 0;
+  var warnings = [];
+  var seen = {};
+  for (var r = 1; r < rows.length; r++) {
+    var num = (rows[r][iNum] || '').trim();
+    var name = (rows[r][iName] || '').trim();
+    if (num === '') {
+      warnings.push('Row ' + (r + 1) + ': empty gate number (skipped)');
+      continue;
+    }
+    if (name === '') {
+      warnings.push('Row ' + (r + 1) + ': gate "' + num + '" has no gate name (skipped)');
+      continue;
+    }
+    if (seen[num]) {
+      warnings.push('Row ' + (r + 1) + ': duplicate gate number "' + num + '" (overwriting row ' + seen[num] + ')');
+    }
+    seen[num] = r + 1;
+    if (!gateMap[num]) count++;
+    gateMap[num] = name;
+  }
+  var msg = 'Loaded ' + count + ' gate definitions';
+  if (warnings.length > 0) msg += ' (' + warnings.length + ' warning' + (warnings.length > 1 ? 's' : '') + ': ' + warnings.join('; ') + ')';
+  showStatus('tech-status', msg, false);
+  // If workspace is already rendered, refresh dropdowns
+  if (operations.length > 0) render();
+}
+
+// ---- Load Operations ----
+function loadOperations() {
+  partInfo.partNo = document.getElementById('part-no-input').value.trim();
+  partInfo.partName = document.getElementById('part-name-input').value.trim();
+
+  var rows = opsCsvRows;
+  var headers = rows[0];
+  var iOperNo = colIndex(headers, 'Oper No');
+  var iOperTitle = colIndex(headers, 'Oper Title');
+  var iWorkDept = colIndex(headers, 'Work Dept');
+  var iOperType = colIndex(headers, 'Oper Type');
+  var iLaborHrs = colIndex(headers, 'Labor Hours Per Unit');
+  var iEarnable = colIndex(headers, 'Earnable Hours Flag');
+
+  if (iOperNo < 0 || iOperTitle < 0 || iWorkDept < 0) {
+    showStatus('ops-status', 'Error: Need "Oper No", "Oper Title", and "Work Dept" columns', true);
+    return;
+  }
+
+  operations = [];
+  gates = [];
+  nextGateId = 0;
+  selectedOps = new Set();
+
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var operNo = normOper(row[iOperNo] || '');
+    if (operNo === '' || operNo === '0') continue;
+    var gId = 'gate-' + nextGateId++;
+    operations.push({
+      operNo: operNo,
+      operTitle: (row[iOperTitle] || '').trim(),
+      workDept: (row[iWorkDept] || '').trim(),
+      operType: iOperType >= 0 ? (row[iOperType] || '').trim() : '',
+      laborHours: iLaborHrs >= 0 ? (row[iLaborHrs] || '').trim() : '',
+      earnableFlag: iEarnable >= 0 ? (row[iEarnable] || '').trim() : '',
+      gateId: gId,
+      modifier: '',
+      omitted: false
+    });
+    gates.push({ id: gId, gateNumber: '', gateName: '' });
+  }
+
+  // Sort operations by Oper No ascending (numeric)
+  operations.sort(function(a, b) { return parseInt(a.operNo) - parseInt(b.operNo); });
+
+  // Reassign gates in sorted order so they display left-to-right
+  gates = [];
+  nextGateId = 0;
+  for (var i = 0; i < operations.length; i++) {
+    var gId2 = 'gate-' + nextGateId++;
+    operations[i].gateId = gId2;
+    gates.push({ id: gId2, gateNumber: '', gateName: '' });
+  }
+
+  // Show workspace and export buttons
+  document.getElementById('export-csv-btn').style.display = '';
+  document.getElementById('save-btn').style.display = '';
+
+  render();
+}
+
+// ---- Color class ----
+function getColorClass(workDept) {
+  if (workDept === 'SMART') return 'clr-green';
+  if (workDept.endsWith('_QA')) return 'clr-blue';
+  return 'clr-pink';
+}
+
+// ---- Get operations for a gate, sorted by Oper No ----
+function getGateOps(gateId) {
+  return operations.filter(function(op) { return op.gateId === gateId; })
+    .sort(function(a, b) { return parseInt(a.operNo) - parseInt(b.operNo); });
+}
+
+// ---- Build gate dropdown options HTML ----
+function gateDropdownHTML(currentNum) {
+  var html = '<option value="">(select gate)</option>';
+  // Sort gate numbers numerically
+  var nums = Object.keys(gateMap).sort(function(a, b) { return parseInt(a) - parseInt(b); });
+  for (var i = 0; i < nums.length; i++) {
+    var sel = (nums[i] === currentNum) ? ' selected' : '';
+    html += '<option value="' + esc(nums[i]) + '"' + sel + '>Gate ' + esc(nums[i]) + ': ' + esc(gateMap[nums[i]]) + '</option>';
+  }
+  html += '<option value="__new__">+ New Gate...</option>';
+  return html;
+}
+
+// ---- Main render ----
+function render() {
+  // Remove empty gates
+  var usedGates = new Set();
+  for (var i = 0; i < operations.length; i++) usedGates.add(operations[i].gateId);
+  gates = gates.filter(function(g) { return usedGates.has(g.id); });
+
+  var ws = document.getElementById('workspace');
+  ws.className = 'workspace';
+
+  if (operations.length === 0) {
+    ws.className = 'workspace empty-msg';
+    ws.innerHTML = 'No operations loaded.';
+    return;
+  }
+
+  // Compute total earnable hours (labor hours where earnableFlag is truthy and not omitted)
+  var totalEarnable = 0;
+  for (var ei = 0; ei < operations.length; ei++) {
+    var eop = operations[ei];
+    if (!eop.omitted && isEarnable(eop.earnableFlag)) {
+      totalEarnable += parseFloat(eop.laborHours) || 0;
+    }
+  }
+  var earnEl = document.getElementById('earnable-summary');
+  if (earnEl) {
+    earnEl.style.display = operations.length > 0 ? 'block' : 'none';
+    document.getElementById('earnable-value').textContent = totalEarnable % 1 === 0 ? totalEarnable : totalEarnable.toFixed(2);
+  }
+
+  var html = '';
+  for (var gi = 0; gi < gates.length; gi++) {
+    var g = gates[gi];
+    var ops = getGateOps(g.id);
+    var isAssigned = g.gateNumber !== '';
+
+    // Compute gate labor hours (non-omitted ops only)
+    var gateHrs = 0;
+    for (var hi = 0; hi < ops.length; hi++) {
+      if (!ops[hi].omitted) gateHrs += parseFloat(ops[hi].laborHours) || 0;
+    }
+
+    // Drop zone before each gate
+    html += '<div class="drop-zone" data-insert-idx="' + gi + '"></div>';
+
+    // Gate outline
+    html += '<div class="gate-outline' + (isAssigned ? ' assigned' : '') + '" data-gateid="' + esc(g.id) + '">';
+    html += '<div class="gate-header">';
+    if (isAssigned) {
+      html += '<div class="gate-label">Gate ' + esc(g.gateNumber) + ': ' + esc(g.gateName) + '</div>';
+    }
+    html += '<select onchange="onGateSelect(\'' + esc(g.id) + '\', this.value)">' + gateDropdownHTML(g.gateNumber) + '</select>';
+    html += '</div>';
+    html += '<div class="gate-hours">' + (gateHrs % 1 === 0 ? gateHrs : gateHrs.toFixed(2)) + ' hrs</div>';
+    html += '<div class="gate-ops" data-gateid="' + esc(g.id) + '">';
+
+    for (var oi = 0; oi < ops.length; oi++) {
+      var op = ops[oi];
+      var clr = getColorClass(op.workDept);
+      var isSel = selectedOps.has(op.operNo);
+      var modClass = op.modifier === 'ignore' ? ' mod-ignore' : '';
+      var omitClass = op.omitted ? ' omitted' : '';
+      var tooltip = 'Oper ' + op.operNo + ': ' + op.operTitle;
+      if (op.workDept) tooltip += '\nWork Dept: ' + op.workDept;
+      if (op.laborHours) tooltip += '\nLabor Hrs/Unit: ' + op.laborHours;
+      if (op.earnableFlag) tooltip += '\nEarnable: ' + op.earnableFlag;
+      if (op.operType) tooltip += '\nOper Type: ' + op.operType;
+
+      html += '<div class="op-card ' + clr + (isSel ? ' selected' : '') + modClass + omitClass + '" draggable="true" data-operno="' + esc(op.operNo) + '" title="' + esc(tooltip) + '">';
+      // Hover action buttons
+      html += '<div class="card-actions">';
+      html += '<span class="card-action-btn ign-btn' + (op.modifier === 'ignore' ? ' ign-active' : '') + '" onclick="event.stopPropagation(); toggleIgnore(\'' + esc(op.operNo) + '\')" title="' + (op.modifier === 'ignore' ? 'Remove ignore' : 'Ignore in gate tracker') + '">IGN</span>';
+      html += '<span class="card-action-btn' + (op.omitted ? ' omit-active' : '') + '" onclick="event.stopPropagation(); toggleOmit(\'' + esc(op.operNo) + '\')" title="' + (op.omitted ? 'Include in export' : 'Omit from export') + '">&#x2715;</span>';
+      html += '</div>';
+      html += '<div class="op-no">' + esc(op.operNo) + '</div>';
+      html += '<div class="op-title">' + esc(op.operTitle) + '</div>';
+      html += '</div>';
+    }
+
+    html += '</div></div>';
+  }
+  // Final drop zone
+  html += '<div class="drop-zone" data-insert-idx="' + gates.length + '"></div>';
+
+  ws.innerHTML = html;
+  attachDragListeners();
+}
+
+// ---- Drag and Drop ----
+function attachDragListeners() {
+  // Op cards: dragstart, click
+  var cards = document.querySelectorAll('.op-card');
+  for (var i = 0; i < cards.length; i++) {
+    cards[i].addEventListener('dragstart', onDragStart);
+    cards[i].addEventListener('click', onCardClick);
+  }
+
+  // Gate outlines: dragover, dragleave, drop
+  var outlines = document.querySelectorAll('.gate-ops');
+  for (var j = 0; j < outlines.length; j++) {
+    outlines[j].addEventListener('dragover', onGateOver);
+    outlines[j].addEventListener('dragleave', onGateLeave);
+    outlines[j].addEventListener('drop', onGateDrop);
+  }
+
+  // Drop zones: dragover, dragleave, drop
+  var zones = document.querySelectorAll('.drop-zone');
+  for (var k = 0; k < zones.length; k++) {
+    zones[k].addEventListener('dragover', onZoneOver);
+    zones[k].addEventListener('dragleave', onZoneLeave);
+    zones[k].addEventListener('drop', onZoneDrop);
+  }
+}
+
+function onDragStart(e) {
+  var opNo = e.currentTarget.dataset.operno;
+  if (selectedOps.has(opNo) && selectedOps.size > 1) {
+    draggedOps = Array.from(selectedOps);
+  } else {
+    draggedOps = [opNo];
+  }
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', draggedOps.join(','));
+
+  // Create ghost showing count
+  if (draggedOps.length > 1) {
+    var ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.textContent = draggedOps.length + ' operations';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 60, 18);
+    setTimeout(function() { document.body.removeChild(ghost); }, 0);
+  }
+}
+
+function onCardClick(e) {
+  // Don't interfere with modifier dropdown
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
+  var opNo = e.currentTarget.dataset.operno;
+  if (e.ctrlKey || e.metaKey) {
+    if (selectedOps.has(opNo)) selectedOps.delete(opNo);
+    else selectedOps.add(opNo);
+  } else {
+    if (selectedOps.has(opNo) && selectedOps.size === 1) {
+      selectedOps.clear();
+    } else {
+      selectedOps.clear();
+      selectedOps.add(opNo);
+    }
+  }
+  // Update visuals without full re-render
+  var allCards = document.querySelectorAll('.op-card');
+  for (var i = 0; i < allCards.length; i++) {
+    var card = allCards[i];
+    if (selectedOps.has(card.dataset.operno)) card.classList.add('selected');
+    else card.classList.remove('selected');
+  }
+}
+
+function onGateOver(e) { e.preventDefault(); e.currentTarget.closest('.gate-outline').classList.add('drag-over'); }
+function onGateLeave(e) { e.currentTarget.closest('.gate-outline').classList.remove('drag-over'); }
+
+function onGateDrop(e) {
+  e.preventDefault();
+  e.currentTarget.closest('.gate-outline').classList.remove('drag-over');
+  var targetGateId = e.currentTarget.dataset.gateid;
+  moveOpsToGate(draggedOps, targetGateId);
+  selectedOps.clear();
+  draggedOps = [];
+  render();
+}
+
+function onZoneOver(e) { e.preventDefault(); e.currentTarget.classList.add('dz-active'); }
+function onZoneLeave(e) { e.currentTarget.classList.remove('dz-active'); }
+
+function onZoneDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('dz-active');
+  var insertIdx = parseInt(e.currentTarget.dataset.insertIdx);
+
+  // Create new gate at this position
+  var newId = 'gate-' + nextGateId++;
+  var newGate = { id: newId, gateNumber: '', gateName: '' };
+  gates.splice(insertIdx, 0, newGate);
+
+  moveOpsToGate(draggedOps, newId);
+  selectedOps.clear();
+  draggedOps = [];
+  render();
+}
+
+function moveOpsToGate(opNos, targetGateId) {
+  for (var i = 0; i < operations.length; i++) {
+    if (opNos.indexOf(operations[i].operNo) >= 0) {
+      operations[i].gateId = targetGateId;
+    }
+  }
+}
+
+// ---- Gate dropdown selection ----
+function onGateSelect(gateId, value) {
+  if (value === '__new__') {
+    var num = prompt('Enter new Gate Number:');
+    if (num === null || num.trim() === '') { render(); return; }
+    num = num.trim();
+    var name = prompt('Enter Gate Name for Gate ' + num + ':');
+    if (name === null || name.trim() === '') { render(); return; }
+    name = name.trim();
+    gateMap[num] = name;
+    assignGate(gateId, num, name);
+  } else if (value === '') {
+    // Unassign
+    for (var i = 0; i < gates.length; i++) {
+      if (gates[i].id === gateId) { gates[i].gateNumber = ''; gates[i].gateName = ''; break; }
+    }
+    render();
+  } else {
+    assignGate(gateId, value, gateMap[value] || '');
+  }
+}
+
+function assignGate(gateId, gateNumber, gateName) {
+  // Just assign — no merging. The same gate number can appear on multiple
+  // outlines to represent re-entry (e.g., gate 3 → 5 → 6 → 3 again).
+  // Only dragging combines operations into the same outline.
+  for (var k = 0; k < gates.length; k++) {
+    if (gates[k].id === gateId) {
+      gates[k].gateNumber = gateNumber;
+      gates[k].gateName = gateName;
+      break;
+    }
+  }
+  render();
+}
+
+// ---- Helper: is earnable flag truthy ----
+function isEarnable(flag) {
+  var v = String(flag).trim().toUpperCase();
+  return v === 'Y' || v === 'YES' || v === '1' || v === 'TRUE';
+}
+
+// ---- Toggle ignore modifier ----
+function toggleIgnore(operNo) {
+  for (var i = 0; i < operations.length; i++) {
+    if (operations[i].operNo === operNo) {
+      operations[i].modifier = operations[i].modifier === 'ignore' ? '' : 'ignore';
+      break;
+    }
+  }
+  render();
+}
+
+// ---- Toggle omit (exclude from export but keep visible) ----
+function toggleOmit(operNo) {
+  for (var i = 0; i < operations.length; i++) {
+    if (operations[i].operNo === operNo) {
+      operations[i].omitted = !operations[i].omitted;
+      break;
+    }
+  }
+  render();
+}
+
+// ---- Export Decoder Ring CSV ----
+function exportCSV() {
+  // Check for unassigned gates
+  var unassigned = 0;
+  for (var i = 0; i < gates.length; i++) {
+    if (gates[i].gateNumber === '' && getGateOps(gates[i].id).length > 0) unassigned++;
+  }
+  if (unassigned > 0) {
+    if (!confirm(unassigned + ' gate(s) have no gate number assigned. Operations in unassigned gates will be skipped. Continue?')) return;
+  }
+
+  var lines = ['Part No.,Part Name,Gate Number,Gate Name,Oper No.,Work Dept,Modifier'];
+
+  // Preserve workspace left-to-right order (not sorted by gate number).
+  // The same gate number can appear multiple times to represent re-entry.
+  // Skip unassigned gate outlines.
+  var orderedGates = gates.filter(function(g) { return g.gateNumber !== ''; });
+
+  for (var gi = 0; gi < orderedGates.length; gi++) {
+    var g = orderedGates[gi];
+    var ops = getGateOps(g.id);
+    for (var oi = 0; oi < ops.length; oi++) {
+      var op = ops[oi];
+      if (op.omitted) continue; // Skip omitted operations
+      lines.push(csvQuote(partInfo.partNo) + ',' + csvQuote(partInfo.partName) + ',' +
+        csvQuote(g.gateNumber) + ',' + csvQuote(g.gateName) + ',' +
+        csvQuote(op.operNo) + ',' + csvQuote(op.workDept) + ',' + csvQuote(op.modifier));
+    }
+  }
+
+  var csv = lines.join('\n');
+  downloadFile(csv, 'decoder-ring-' + sanitizeFilename(partInfo.partNo) + '-' + dateStr() + '.csv', 'text/csv');
+}
+
+function csvQuote(s) {
+  s = String(s);
+  if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function sanitizeFilename(s) {
+  return String(s).replace(/[^a-zA-Z0-9_\-]/g, '_');
+}
+
+function dateStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function downloadFile(content, filename, type) {
+  var blob = new Blob([content], { type: type });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---- Save Snapshot ----
+function saveSnapshot() {
+  var css = document.querySelector('style').textContent;
+  var now = new Date();
+  var ts = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+
+  // Serialize state
+  var state = {
+    partInfo: partInfo,
+    gateMap: gateMap,
+    operations: operations,
+    gates: gates,
+    nextGateId: nextGateId
+  };
+  var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
+
+  var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n';
+  html += '<meta charset="UTF-8">\n';
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
+  html += '<title>Decoder Ring Builder - ' + esc(partInfo.partNo) + ' - Snapshot</title>\n';
+  html += '<style>\n' + css + '\n</style>\n';
+  html += '</head>\n<body>\n';
+
+  // Proprietary banner
+  html += '<div style="background:#fef3c7;border:2px solid #f59e0b;padding:8px 14px;text-align:center;font-weight:bold;font-size:0.9rem;color:#92400e;margin-bottom:1rem;border-radius:4px;">Proprietary &mdash; Internal Use Only</div>\n';
+
+  html += '<h1>Gate Decoder Ring Builder <span style="font-size:0.6em;color:#666;">v1 (Snapshot)</span></h1>\n';
+  html += '<p class="subtitle" style="font-size:0.85rem;color:#555;margin-bottom:0.5rem;">Part: <strong>' + esc(partInfo.partNo) + '</strong>';
+  if (partInfo.partName) html += ' &mdash; ' + esc(partInfo.partName);
+  html += '</p>\n';
+  html += '<p style="font-size:0.8rem;color:#888;margin-bottom:1rem;">Snapshot saved: ' + esc(ts) + '</p>\n';
+
+  html += '<div class="snapshot-notice" id="snapshot-notice" style="display:block;background:#dbeafe;border:1px solid #93c5fd;padding:6px 12px;border-radius:4px;font-size:0.85rem;color:#1e40af;margin-bottom:1rem;">Loaded from a saved snapshot. You can continue editing below.</div>\n';
+
+  // Tech CSV upload for adding more gates
+  html += '<div style="margin-bottom:1rem;"><details><summary style="cursor:pointer;font-size:0.85rem;font-weight:bold;">Upload Master Gates CSV (to add gate definitions)</summary>';
+  html += '<div style="padding:8px 0;"><input type="file" id="tech-file" accept=".csv,.txt"><div class="status" id="tech-status"></div></div></details></div>\n';
+
+  // Action bar
+  html += '<div class="action-bar" id="action-bar">';
+  html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportCSV()">Export Decoder Ring CSV</button>';
+  html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button>';
+  html += '</div>\n';
+
+  // Earnable summary + Workspace
+  html += '<div class="earnable-summary" id="earnable-summary"><div class="earnable-label">Total Earnable Hours</div><div class="earnable-value" id="earnable-value">0</div></div>\n';
+  html += '<div class="workspace" id="workspace"></div>\n';
+
+  // JavaScript
+  html += '<script>\n';
+  html += 'var isSnapshot = true;\n';
+  html += 'var snapshotState = ' + stateJson + ';\n';
+  html += 'var partInfo = snapshotState.partInfo;\n';
+  html += 'var gateMap = snapshotState.gateMap;\n';
+  html += 'var operations = snapshotState.operations;\n';
+  html += 'var gates = snapshotState.gates;\n';
+  html += 'var nextGateId = snapshotState.nextGateId;\n';
+  html += 'var selectedOps = new Set();\n';
+  html += 'var draggedOps = [];\n';
+  html += 'var techCsvRows = null;\n';
+  html += 'var opsCsvRows = null;\n\n';
+
+  // Include all needed functions
+  var fns = [parseCSV, csvField, colIndex, showStatus, loadCSV, esc, normOper,
+             parseMasterGatesCSV, getColorClass, getGateOps, gateDropdownHTML, isEarnable, render,
+             attachDragListeners, onDragStart, onCardClick,
+             onGateOver, onGateLeave, onGateDrop,
+             onZoneOver, onZoneLeave, onZoneDrop,
+             moveOpsToGate, onGateSelect, assignGate,
+             toggleIgnore, toggleOmit, exportCSV, csvQuote, sanitizeFilename, dateStr,
+             downloadFile, saveSnapshot];
+  for (var fi = 0; fi < fns.length; fi++) {
+    html += fns[fi].toString() + '\n\n';
+  }
+
+  // Tech file handler
+  html += 'document.getElementById("tech-file").addEventListener("change", function() {\n';
+  html += '  loadCSV(this.files[0], function(rows) { techCsvRows = rows; parseMasterGatesCSV(rows); }, "tech-status");\n';
+  html += '});\n\n';
+
+  // Auto-render on load
+  html += 'render();\n';
+
+  html += '<\/script>\n';
+  html += '</body>\n</html>';
+
+  downloadFile(html, 'decoder-ring-builder-' + sanitizeFilename(partInfo.partNo) + '-' + dateStr() + '.html', 'text/html');
+}
+</script>
+</body>
+</html>
