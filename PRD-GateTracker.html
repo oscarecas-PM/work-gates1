@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.9</td></tr>
-    <tr><td class="label">Date:</td><td>March 22, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>7.0</td></tr>
+    <tr><td class="label">Date:</td><td>March 23, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Master Gates CSV, validation engine</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-25.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Merged part lists, priority orders, search, gate highlights</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-27.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -463,7 +463,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-85</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Ignore-aware avg days:</strong> The &ldquo;avg days&rdquo; displayed on Gate View cards and used for FIFO sorting is sourced from the <strong>Avg. DaysCurrentOper</strong> column. The max value <strong>excludes</strong> operations marked with the &ldquo;ignore&rdquo; modifier. Only non-ignored Active/In Queue operations contribute to the max calculation. The label reads &ldquo;X avg days&rdquo; on cards and &ldquo;Avg Days at Current Op&rdquo; in tooltips.</td>
+    <td><strong>Ignore-aware avg days:</strong> The avg days value used for FIFO sorting is sourced from the <strong>Avg. DaysCurrentOper</strong> column. The max value <strong>excludes</strong> operations marked with the &ldquo;ignore&rdquo; modifier. Only non-ignored Active/In Queue operations contribute to the max calculation. <strong>Note:</strong> As of v7.0, the &ldquo;X avg days&rdquo; label has been removed from Gate View cards (F-171). The value remains in the tooltip and is still used for sorting.</td>
   </tr>
   <tr>
     <td class="req-id">F-86</td>
@@ -688,7 +688,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-154</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>&ldquo;Days at gate&rdquo; on Gate View cards:</strong> When the history log is loaded and an order has history at its current gate, the card displays <code>&ldquo;X days at gate&rdquo;</code> below the existing &ldquo;avg days&rdquo; line. When the order has no history (first observation), the card displays <code>&ldquo;New&rdquo;</code> in italic. When no history log is loaded, no days-at-gate indicator appears on any card.</td>
+    <td><strong>&ldquo;Days at gate&rdquo; on Gate View cards:</strong> When the history log is loaded and an order has history at its current gate, the card displays <code>&ldquo;X days at gate&rdquo;</code>. When the order has no history (first observation), the card displays <code>&ldquo;New&rdquo;</code> in italic. When no history log is loaded, no days-at-gate indicator appears on any card.</td>
   </tr>
   <tr>
     <td class="req-id">F-155</td>
@@ -707,35 +707,20 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
 </table>
 
-<h3>4.8 Unmapped Operations</h3>
-<p><span class="tag tag-explicit">EXPLICIT</span> The Unmapped Operations section shows work orders whose Part Numbers do not appear in the Gate Decoder Ring. These are parts that have not yet been reviewed for gate-to-operation mapping.</p>
+<h3>4.8 Unmapped Operations (Merged into Detail View)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> <strong>As of v7.0, mapped and unmapped parts are combined into a single unified list in the Detail View.</strong> Part numbers not in the Decoder Ring appear in the same program &rarr; part number hierarchy alongside mapped parts. Since no decoder ring mapping exists for them, their gate bar area has no gate columns. The separate &ldquo;Unmapped Operations&rdquo; toggle, view, and independent filters have been removed.</p>
 
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
-    <td class="req-id">F-90</td>
+    <td class="req-id">F-160</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>A "Show Unmapped Operations" / "Hide Unmapped Operations" toggle button is displayed below the Detail View. The section defaults to <strong>visible</strong> after processing (if there is unmapped data).</td>
+    <td><strong>Merged part list:</strong> All part numbers from the Daily Upload appear in a single list in the Detail View, regardless of whether they are present in the Decoder Ring. Unmapped parts simply have no gate columns in their order cards. The separate Unmapped Operations section (F-90&ndash;F-94) is superseded.</td>
   </tr>
   <tr>
-    <td class="req-id">F-91</td>
+    <td class="req-id">F-161</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Unmapped orders use the same card layout as the Detail View: order info on the left (Order No., S/N, hold status) and a gate bar on the right. Since no decoder ring mapping exists, all Active/In Queue operations are displayed under a single blank gate column, <strong>left-justified</strong>.</td>
-  </tr>
-  <tr>
-    <td class="req-id">F-92</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Only Active and In Queue operations are shown for unmapped orders. Orders with no active operations are excluded entirely.</td>
-  </tr>
-  <tr>
-    <td class="req-id">F-93</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>The Unmapped Operations section includes its own independent <strong>Program filter</strong> and <strong>Part Number filter</strong> chips, which operate identically to the Detail View filters but are scoped to the unmapped data only.</td>
-  </tr>
-  <tr>
-    <td class="req-id">F-94</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>Operation chips in the unmapped section use the same color-coding and tooltip format as the Detail View (status-based colors, oper title, status, work dept, days).</td>
+    <td><strong>Sort order:</strong> Parts are sorted by Program (alphabetical), then by Part Number (alphabetical) within each program.</td>
   </tr>
 </table>
 
@@ -772,7 +757,59 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-118</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>PENDING operations (Detail View):</strong> Operations with Oper Status = &ldquo;PENDING&rdquo; are displayed in the Detail View gate progress bar in their correct gate column (as defined by the decoder ring). They appear as greyed-out chips with reduced opacity to visually distinguish them from Active/In Queue chips. PENDING operations do <strong>not</strong> affect Gate View placement, FIFO sorting, or max-days calculations &mdash; they are display-only in the Detail View. PENDING operations are also shown in the Unmapped Operations section if applicable.</td>
+    <td><strong>PENDING operations (Detail View):</strong> Operations with Oper Status = &ldquo;PENDING&rdquo; are displayed in the Detail View gate progress bar in their correct gate column (as defined by the decoder ring). They appear as greyed-out chips with reduced opacity to visually distinguish them from Active/In Queue chips. PENDING operations do <strong>not</strong> affect Gate View placement, FIFO sorting, or max-days calculations &mdash; they are display-only in the Detail View.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-162</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Part number search:</strong> A search input appears in the Part Numbers filter bar. Typing filters the part list by matching part number or part name/description (case-insensitive). The search respects the program filter &mdash; only parts from selected (blue) programs appear in results. A dropdown of matches appears (up to 30); clicking a match isolates that part number. Matching part chips are visually highlighted. Clearing the search or clicking a chip directly clears the search state.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-163</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Active gate column highlighting:</strong> In the Detail View, gate columns where the order has ACTIVE or IN QUEUE operations (as mapped by the decoder ring) receive a light green background (<code>#dcfce7</code>) to visually indicate the order&rsquo;s current position in the gate sequence.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-164</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Gate name in audit location:</strong> The audit location indicator in the Detail View now includes the gate name alongside the gate number (e.g., &ldquo;Gate 7 - Manual Assembly&rdquo; instead of &ldquo;Gate 7&rdquo;). Gate names are resolved from the Master Gates file first, then from the Decoder Ring as fallback.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-165</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Days at gate in Detail View:</strong> Each order in the Detail View shows its &ldquo;days at gate&rdquo; value (or &ldquo;New&rdquo;) using the audit-based gate location. Uses the same <code>calculateDaysAtGate()</code> function as the Gate View. Only appears when the Audit History Log is loaded.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-166</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Operation chip sub-columns:</strong> Operations within each gate column are organized into vertical sub-columns of max 5 chips each. Up to 4 sub-columns are created before exceeding the 5-high rule. If more than 20 operations exist in a single gate, chips are distributed evenly across 4 columns (some columns will exceed 5). Gate columns auto-size to fit their content.</td>
+  </tr>
+</table>
+
+<h3>4.9.1 Priority Work Orders</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> Users can designate up to 4 work orders as priority items. Priority orders receive a prominent red asterisk marker in both the Gate View and Detail View.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-167</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Priority input panel:</strong> An always-visible &ldquo;Priority Orders&rdquo; panel appears near the top controls. It contains a text input field that accepts up to 4 work order numbers separated by spaces, commas, or newlines.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-168</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Priority details display:</strong> Below the input field, a summary line is shown for each matched priority order containing: Part Number, Part Name, Serial Number, gate location (from audit), and hold status. Orders not found in the daily upload are labeled accordingly.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-169</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Red asterisk markers:</strong> Priority orders are marked with a red &#10038; symbol. In the Gate View, the marker appears before the order number on the card. In the Detail View, it appears before the order number in the order-info area. Markers update dynamically as orders are typed.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-170</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Snapshot persistence:</strong> The red asterisk markers and priority details summary persist in saved snapshots. The priority input field itself does not persist &mdash; only the visual indicators and summary text.</td>
   </tr>
 </table>
 
@@ -1492,6 +1529,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>6.7</td><td>2026-03-20</td><td>Claude (AI)</td><td>Data-driven gate locations, sub-gates, and multiple hold racks. Added F-131 (Gate Technicians file as authoritative gate location source, with Decoder Ring fallback). Added F-132 (decimal sub-gates, e.g., 7.1, with parseFloat sorting). Added F-133 (HOLD-prefixed gate numbers for data-driven hold racks; no more hardcoded HOLD button; multiple independent hold racks supported). Added F-134 (blank Tech Name rows allowed in Gate Technicians CSV for gates without assigned technicians). Updated F-106 (gate buttons now data-driven from GATES array). Updated F-127 (multiple hold racks each independently collapsible). Updated F-128 (gate sources include both Decoder Ring and Gate Technicians file). Updated Section 3.3 (Gate Technicians CSV description, Tech Name no longer required). Updated Section 3.4 (Audit CSV Gate Number supports HOLD-prefixed and decimal values). App file: gate-tracker-24.html.</td></tr>
   <tr><td>6.8</td><td>2026-03-22</td><td>Claude (AI)</td><td>Master Gates CSV and validation engine. Replaced Gate Technicians CSV with Master Gates CSV &mdash; one row per gate, wide format with up to 10 technician columns (F-135&ndash;F-137). Column order determines technician priority. Added comprehensive validation engine (F-138&ndash;F-145): Master Gates internal validation (duplicate gates, empty numbers/names, tech conflicts), Decoder Ring cross-validation (unrecognized gates, case mismatches), Audit CSV cross-validation (unrecognized gates/techs, wrong gate assignments). Red errors block processing; amber warnings allow continuation. Added collapsible validation panel UI (V-61&ndash;V-64). Gate display order now follows Master Gates file row order (F-146). Updated Decoder Ring Builder to use Master Gates input (F-147&ndash;F-148). Updated Section 3.3 (complete rewrite for new format). Updated F-131, F-133, F-134 references from &ldquo;Gate Technicians&rdquo; to &ldquo;Master Gates.&rdquo; App file: gate-tracker-25.html.</td></tr>
   <tr><td>6.9</td><td>2026-03-23</td><td>Claude (AI)</td><td>Audit History Log and &ldquo;days at gate&rdquo; feature. Added 5th optional file input &mdash; Audit History Log CSV (Section 3.5). New companion tool: Audit History Builder (<code>audit-history-builder-1.html</code>) for building and maintaining cumulative audit history logs from daily audit CSVs. Added <code>parseHistoryLog()</code> and <code>calculateDaysAtGate()</code> functions. Gate View cards now display &ldquo;X days at gate&rdquo; (consecutive calendar days at current gate) or &ldquo;New&rdquo; (first observation) when history log is loaded (F-150&ndash;F-157). Streak resets only when order is positively observed at a different gate; gaps do not reset. Fully backward-compatible &mdash; no log loaded means feature is invisible. Added V-65&ndash;V-66 for days-at-gate styling. Amber-only validation for history log issues. App file: gate-tracker-26.html.</td></tr>
+  <tr><td>7.0</td><td>2026-03-23</td><td>Claude (AI)</td><td>Eight-feature update with significant Detail View improvements. <strong>(1) Merged part lists</strong> (F-160&ndash;F-161): Mapped and unmapped parts combined into a single unified list; removed separate Unmapped Operations section, toggle, and filters (supersedes F-90&ndash;F-94). <strong>(2) Sort order</strong> (F-161): Parts sorted by Program then Part Number. <strong>(3) Part number search</strong> (F-162): Search input in filter bar with dropdown of matches; filters by part number or name; respects program filter; click to isolate a specific match. <strong>(4) Active gate highlighting</strong> (F-163): Light green background on gate columns where order has ACTIVE/IN QUEUE ops. Gate name added to audit location label (F-164). <strong>(5) Days at gate in Detail View</strong> (F-165): Per-order days-at-gate display using audit-based gate location. <strong>(6) Removed avg days from Gate View</strong> (F-171): &ldquo;X avg days&rdquo; label removed from cards (value retained in tooltip and FIFO sorting). <strong>(7) Priority work orders</strong> (F-167&ndash;F-170): Always-visible priority panel with text input for up to 4 order numbers; summary details line per order; red &#10038; markers on Gate View and Detail View cards; markers and summary persist in snapshots. <strong>(8) Operation chip sub-columns</strong> (F-166): Max 5 chips per sub-column, max 4 sub-columns before breaking rule; gate columns auto-size. App file: gate-tracker-27.html.</td></tr>
 </table>
 
 </body>
