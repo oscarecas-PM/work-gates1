@@ -1,0 +1,5 @@
+Gate Number,Order No.,Part No.,Serial No.,Technician
+5,W10001,PN-100,SN-A01,John
+7,W10002,PN-200,SN-B01,Jane
+HOLD,W10003,PN-100,SN-A02,
+5,W10004,PN-300,SN-C01,Bob

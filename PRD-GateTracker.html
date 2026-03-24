@@ -79,7 +79,7 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>6.8</td></tr>
+    <tr><td class="label">Document Version:</td><td>6.9</td></tr>
     <tr><td class="label">Date:</td><td>March 22, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
     <tr><td class="label">Status:</td><td>REVISED &mdash; Master Gates CSV, validation engine</td></tr>
@@ -240,6 +240,23 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 </table>
 
 <p><span class="tag tag-explicit">EXPLICIT</span> When no Mobile Audit CSV is loaded, the Gate View displays a placeholder message instead of gate cards. The audit CSV is the sole source of Gate View placement; the old algorithmic approach (F-60) is superseded when audit data is present.</p>
+
+<h3>3.5 Audit History Log (CSV) &mdash; Optional</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file containing a cumulative record of past audit observations. Built and maintained using the Audit History Builder companion tool (<code>audit-history-builder-1.html</code>). When loaded into the Gate Tracker, this file enables &ldquo;days at gate&rdquo; display on Gate View cards, showing how long each work order has been sitting on its current gate rack.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
+  <tr><td>Date</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Date the audit was performed, in <code>YYYY-MM-DD</code> format. Assigned by the user when importing audit CSVs into the builder tool.</td></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Gate identifier from the audit observation. Same values as Mobile Audit CSV (numbered gates, HOLD-prefixed, decimals).</td></tr>
+  <tr><td>Order No</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order number observed at this gate on this date.</td></tr>
+  <tr><td>Part No</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Part number (informational, carried from audit CSV).</td></tr>
+  <tr><td>Serial No</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (informational).</td></tr>
+  <tr><td>Technician</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Technician name from the audit observation.</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> The log file is always comma-delimited. One row per order-per-date observation. The file grows monotonically &mdash; rows are never deleted, only appended via the builder tool. Typical size: ~100 orders/day &times; 90 days = ~9,000 rows.</p>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> When no Audit History Log is loaded, the &ldquo;days at gate&rdquo; feature is completely invisible &mdash; no labels, no indicators, no behavioral changes. The feature is fully backward-compatible.</p>
 
 
 <!-- ============================================================ -->
@@ -648,6 +665,46 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Hide empty sub-gates:</strong> In the Gate View and snapshot, decimal (non-integer) gate numbers that have zero orders assigned are hidden. Integer gates and HOLD gates always display regardless of order count. This prevents visual clutter from sub-gate shelves that are currently unused. Sub-gates with at least one order display normally.</td>
   </tr>
+  <tr>
+    <td class="req-id">F-150</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Audit History Log file input:</strong> A 5th optional file input labeled &ldquo;Audit History Log&rdquo; accepts a CSV with columns: Date, Gate Number, Order No, Part No, Serial No, Technician (Section 3.5). Loaded into <code>historyLogData</code>. Never required for processing; never affects <code>checkReady()</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-151</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>History log parsing:</strong> Function <code>parseHistoryLog()</code> reads the log CSV, deduplicates on composite key (date + orderNo + gateNumber), and returns entries grouped by order number, sorted by date ascending. Rows with empty date, order, or gate are silently skipped.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-152</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Days-at-gate calculation:</strong> Function <code>calculateDaysAtGate()</code> determines consecutive calendar days an order has been at its current gate. Algorithm: walk backwards through the order&rsquo;s history from most recent entry; count entries at the current gate number; stop when an entry at a <em>different</em> gate is encountered (streak broken). Return: <code>(today &minus; firstDateInStreak)</code> in calendar days + 1 (inclusive). If order has no history, return <code>null</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-153</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Streak reset logic:</strong> The consecutive-days counter resets only when the order is positively observed at a <em>different</em> gate in the history. Gaps in audit dates (weekends, missed audits) do <strong>not</strong> reset the streak &mdash; the order is assumed to remain at the gate until audited elsewhere. If an order disappears from audits entirely, it has no Gate View card, so days-at-gate is moot.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-154</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Days at gate&rdquo; on Gate View cards:</strong> When the history log is loaded and an order has history at its current gate, the card displays <code>&ldquo;X days at gate&rdquo;</code> below the existing &ldquo;avg days&rdquo; line. When the order has no history (first observation), the card displays <code>&ldquo;New&rdquo;</code> in italic. When no history log is loaded, no days-at-gate indicator appears on any card.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-155</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Days-at-gate tooltip:</strong> When history is available, the Gate View card tooltip includes &ldquo;Days at Gate: X&rdquo; (or &ldquo;Days at Gate: New (first observation)&rdquo;). Appears between the active operations listing and any split-location warnings.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-156</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>History log validation:</strong> Amber warnings only (never blocks processing). Warns on invalid date format (non-YYYY-MM-DD), empty required fields (rows skipped). Warnings appear in the existing validation panel. The history log is parsed inside the audit-mode block; if history log has warnings, the validation panel is re-rendered.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-157</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on rack&rdquo; exclusion:</strong> Orders in the &ldquo;Not found on a rack&rdquo; section do not display days-at-gate information, since they are not currently placed on any gate in today&rsquo;s audit.</td>
+  </tr>
 </table>
 
 <h3>4.8 Unmapped Operations</h3>
@@ -956,6 +1013,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-64</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>Validation panel header:</strong> Clickable header with collapse/expand toggle. Shows &ldquo;Validation: N errors, M warnings&rdquo; in bold. Font-size 0.9rem. Background #f8fafc, padding 8px 12px, border-bottom 1px solid #e2e8f0 (when expanded). Collapse icon uses same pattern as V-54/V-60.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-65</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Days-at-gate label:</strong> Class <code>.gv-gate-age</code>. Font-size 0.72rem, color rgba(0,0,0,0.5). Appears below the &ldquo;avg days&rdquo; line on Gate View cards. Displays <code>&ldquo;X days at gate&rdquo;</code> where X is a positive integer.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-66</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;New&rdquo; label:</strong> Class <code>.gv-gate-age-new</code>. Same base styling as V-65, with <code>font-style: italic</code> and color #6b7280 to visually distinguish from numeric values. Displayed for orders present in today&rsquo;s audit but absent from the history log.</td>
   </tr>
 </table>
 
@@ -1424,6 +1491,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>6.6</td><td>2026-03-19</td><td>Claude (AI)</td><td>Gate View enhancements and Detail View fixes. Updated F-125 to include technician name in audit location indicator (e.g., &ldquo;Gate 3 (with John Smith)&rdquo;). Added F-126 (ORDER STOP detection scans all rows, not just first). Added F-127 (Hold Rack collapsible, default closed). Added F-128 (show all decoder ring gates 1&ndash;99 in Gate View, even empty). Added F-129 (Gate View legend: program colors, yellow for missing, blue/red outlines). Added F-130 (snapshot includes nav links and unmapped operations view). Added V-59 (legend styling) and V-60 (Hold Rack collapse controls). App file: gate-tracker-23.html.</td></tr>
   <tr><td>6.7</td><td>2026-03-20</td><td>Claude (AI)</td><td>Data-driven gate locations, sub-gates, and multiple hold racks. Added F-131 (Gate Technicians file as authoritative gate location source, with Decoder Ring fallback). Added F-132 (decimal sub-gates, e.g., 7.1, with parseFloat sorting). Added F-133 (HOLD-prefixed gate numbers for data-driven hold racks; no more hardcoded HOLD button; multiple independent hold racks supported). Added F-134 (blank Tech Name rows allowed in Gate Technicians CSV for gates without assigned technicians). Updated F-106 (gate buttons now data-driven from GATES array). Updated F-127 (multiple hold racks each independently collapsible). Updated F-128 (gate sources include both Decoder Ring and Gate Technicians file). Updated Section 3.3 (Gate Technicians CSV description, Tech Name no longer required). Updated Section 3.4 (Audit CSV Gate Number supports HOLD-prefixed and decimal values). App file: gate-tracker-24.html.</td></tr>
   <tr><td>6.8</td><td>2026-03-22</td><td>Claude (AI)</td><td>Master Gates CSV and validation engine. Replaced Gate Technicians CSV with Master Gates CSV &mdash; one row per gate, wide format with up to 10 technician columns (F-135&ndash;F-137). Column order determines technician priority. Added comprehensive validation engine (F-138&ndash;F-145): Master Gates internal validation (duplicate gates, empty numbers/names, tech conflicts), Decoder Ring cross-validation (unrecognized gates, case mismatches), Audit CSV cross-validation (unrecognized gates/techs, wrong gate assignments). Red errors block processing; amber warnings allow continuation. Added collapsible validation panel UI (V-61&ndash;V-64). Gate display order now follows Master Gates file row order (F-146). Updated Decoder Ring Builder to use Master Gates input (F-147&ndash;F-148). Updated Section 3.3 (complete rewrite for new format). Updated F-131, F-133, F-134 references from &ldquo;Gate Technicians&rdquo; to &ldquo;Master Gates.&rdquo; App file: gate-tracker-25.html.</td></tr>
+  <tr><td>6.9</td><td>2026-03-23</td><td>Claude (AI)</td><td>Audit History Log and &ldquo;days at gate&rdquo; feature. Added 5th optional file input &mdash; Audit History Log CSV (Section 3.5). New companion tool: Audit History Builder (<code>audit-history-builder-1.html</code>) for building and maintaining cumulative audit history logs from daily audit CSVs. Added <code>parseHistoryLog()</code> and <code>calculateDaysAtGate()</code> functions. Gate View cards now display &ldquo;X days at gate&rdquo; (consecutive calendar days at current gate) or &ldquo;New&rdquo; (first observation) when history log is loaded (F-150&ndash;F-157). Streak resets only when order is positively observed at a different gate; gaps do not reset. Fully backward-compatible &mdash; no log loaded means feature is invisible. Added V-65&ndash;V-66 for days-at-gate styling. Amber-only validation for history log issues. App file: gate-tracker-26.html.</td></tr>
 </table>
 
 </body>

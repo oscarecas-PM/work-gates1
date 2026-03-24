@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>Audit History Builder</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 1.5rem; background: #f5f5f5; color: #222; }
+  h1 { margin-bottom: 0.3rem; }
+  h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
+  .description { color: #555; margin-bottom: 1.5rem; font-size: 0.9rem; }
+
+  .input-section { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; flex: 1 1 300px; min-width: 280px; }
+  .file-group h3 { margin-bottom: 0.4rem; font-size: 0.95rem; }
+  .file-group p { font-size: 0.82rem; color: #666; margin-bottom: 0.5rem; }
+  .status { font-size: 0.85rem; margin-top: 0.5rem; }
+  .status.loaded { color: #16a34a; }
+  .status.error { color: #dc2626; }
+
+  .action-bar { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+  .btn { padding: 8px 20px; border: none; border-radius: 4px; font-weight: bold; font-size: 0.9rem; cursor: pointer; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-green { background: #16a34a; color: #fff; }
+  .btn-green:hover:not(:disabled) { background: #15803d; }
+
+  /* Audit file list */
+  .audit-file-list { margin-top: 0.5rem; }
+  .audit-file-row { display: flex; align-items: center; gap: 0.6rem; padding: 6px 0; border-bottom: 1px solid #eee; flex-wrap: wrap; }
+  .audit-file-row:last-child { border-bottom: none; }
+  .audit-file-name { font-size: 0.85rem; min-width: 160px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  .audit-file-rows { font-size: 0.78rem; color: #888; min-width: 60px; }
+  .audit-file-date { font-size: 0.85rem; }
+  .audit-file-date input { padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
+  .audit-file-remove { font-size: 0.78rem; color: #dc2626; cursor: pointer; background: none; border: none; padding: 2px 6px; }
+  .audit-file-remove:hover { text-decoration: underline; }
+
+  /* Validation messages */
+  .validation-panel { margin-bottom: 1rem; border-radius: 6px; overflow: hidden; }
+  .val-error { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 6px 12px; font-size: 0.85rem; }
+  .val-warning { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 6px 12px; font-size: 0.85rem; }
+
+  /* Stats */
+  .stats { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; display: none; }
+  .stats h3 { margin-bottom: 0.5rem; font-size: 0.95rem; }
+  .stat-row { font-size: 0.85rem; color: #555; margin-bottom: 0.2rem; }
+  .stat-row strong { color: #222; }
+
+  /* Preview table */
+  .preview { display: none; }
+  .preview h3 { margin-bottom: 0.5rem; font-size: 0.95rem; cursor: pointer; user-select: none; }
+  .preview h3 .toggle { font-size: 0.75em; color: #888; }
+  .preview-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .preview-table th { background: #f1f5f9; border: 1px solid #ccc; padding: 5px 8px; text-align: left; font-weight: bold; position: sticky; top: 0; }
+  .preview-table td { border: 1px solid #ddd; padding: 4px 8px; }
+  .preview-table tr:nth-child(even) { background: #fafafa; }
+  .preview-wrap { max-height: 500px; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; }
+  .show-all-link { font-size: 0.82rem; color: #2563eb; cursor: pointer; margin-top: 0.3rem; display: inline-block; }
+  .show-all-link:hover { text-decoration: underline; }
+
+  @media print { .input-section, .action-bar { display: none !important; } body { background: #fff; } }
+</style>
+</head>
+<body>
+
+<h1>Audit History Builder <span>v1.0</span></h1>
+<p class="description">Build and maintain a cumulative audit history log. Upload past audit CSVs with their dates, merge into one growing log, then use it in Gate Tracker to see "days at gate."</p>
+
+<div class="input-section">
+  <div class="file-group">
+    <h3>1. Existing Log <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
+    <p>Load a previously exported audit-history-log.csv to append to it.</p>
+    <input type="file" id="log-input" accept=".csv">
+    <div id="log-status" class="status"></div>
+  </div>
+  <div class="file-group" style="flex: 2 1 400px;">
+    <h3>2. Add Audit CSV(s)</h3>
+    <p>Select one or more mobile audit CSV files. Assign the audit date for each.</p>
+    <input type="file" id="audit-input" accept=".csv" multiple>
+    <div id="audit-status" class="status"></div>
+    <div class="audit-file-list" id="audit-file-list"></div>
+  </div>
+</div>
+
+<div class="action-bar">
+  <button class="btn btn-primary" id="merge-btn" disabled onclick="mergeAndPreview()">Merge &amp; Preview</button>
+  <button class="btn btn-green" id="download-btn" style="display:none" onclick="downloadLog()">&#128190; Download Log CSV</button>
+</div>
+
+<div id="validation-panel" class="validation-panel"></div>
+
+<div class="stats" id="stats-panel"></div>
+
+<div class="preview" id="preview-panel">
+  <h3 onclick="togglePreview()"><span class="toggle" id="preview-toggle">&#9660;</span> Preview (most recent entries)</h3>
+  <div id="preview-content">
+    <div class="preview-wrap" id="preview-wrap"></div>
+    <span class="show-all-link" id="show-all-link" style="display:none" onclick="showAllPreview()">Show all rows</span>
+  </div>
+</div>
+
+<script>
+/* ── globals ── */
+var existingLogEntries = [];
+var auditFiles = []; /* [{file, rows, date}] */
+var mergedEntries = [];
+var previewLimit = 500;
+var showingAll = false;
+
+/* ── utility functions ── */
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s) { var v = s.trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+
+function parseCSV(text) {
+  var result = [];
+  var current = '';
+  var inQuotes = false;
+  var row = [];
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === ',') { row.push(csvField(current)); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(csvField(current)); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(csvField(current));
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function colIndex(headers, name) {
+  var n = name.toLowerCase().trim().replace(/\.$/, '');
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase().trim().replace(/\.$/, '') === n) return i;
+  }
+  return -1;
+}
+
+function showStatus(id, msg, isError) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : 'loaded');
+}
+
+function loadCSV(file, callback, statusId) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var rows = parseCSV(ev.target.result);
+      if (rows.length < 2) throw new Error('File has no data rows');
+      callback(rows);
+    } catch (err) {
+      showStatus(statusId, 'Error: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function csvQuote(s) {
+  s = String(s);
+  if (s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function todayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function isValidDate(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(new Date(s + 'T00:00:00').getTime());
+}
+
+function downloadFile(content, filename, type) {
+  var blob = new Blob([content], { type: type });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ── existing log input ── */
+document.getElementById('log-input').addEventListener('change', function(e) {
+  loadCSV(e.target.files[0], function(rows) {
+    var result = parseLogCSV(rows);
+    if (result.error) {
+      showStatus('log-status', 'Error: ' + result.error, true);
+      existingLogEntries = [];
+      return;
+    }
+    existingLogEntries = result.entries;
+    var dates = existingLogEntries.map(function(e) { return e.date; });
+    var minDate = dates.reduce(function(a, b) { return a < b ? a : b; });
+    var maxDate = dates.reduce(function(a, b) { return a > b ? a : b; });
+    showStatus('log-status', 'Loaded ' + existingLogEntries.length + ' entries (' + minDate + ' to ' + maxDate + ')', false);
+    updateMergeButton();
+  }, 'log-status');
+});
+
+function parseLogCSV(rows) {
+  var headers = rows[0];
+  var iDate = colIndex(headers, 'Date');
+  var iGate = colIndex(headers, 'Gate Number');
+  var iOrder = colIndex(headers, 'Order No');
+  var iPart = colIndex(headers, 'Part No');
+  var iSerial = colIndex(headers, 'Serial No');
+  var iTech = colIndex(headers, 'Technician');
+
+  if (iDate < 0 || iGate < 0 || iOrder < 0) {
+    return { error: 'Missing required columns (Date, Gate Number, Order No)', entries: [] };
+  }
+
+  var entries = [];
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var date = (row[iDate] || '').trim();
+    var orderNo = (row[iOrder] || '').trim();
+    var gateNumber = (row[iGate] || '').trim();
+    if (!date || !orderNo || !gateNumber) continue;
+    entries.push({
+      date: date,
+      gateNumber: gateNumber,
+      orderNo: orderNo,
+      partNo: iPart >= 0 ? (row[iPart] || '').trim() : '',
+      serialNo: iSerial >= 0 ? (row[iSerial] || '').trim() : '',
+      technician: iTech >= 0 ? (row[iTech] || '').trim() : ''
+    });
+  }
+  return { error: null, entries: entries };
+}
+
+/* ── audit CSV(s) input ── */
+document.getElementById('audit-input').addEventListener('change', function(e) {
+  var files = e.target.files;
+  if (!files || files.length === 0) return;
+
+  auditFiles = [];
+  var pending = files.length;
+  var today = todayStr();
+
+  for (var i = 0; i < files.length; i++) {
+    (function(file, idx) {
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          var rows = parseCSV(ev.target.result);
+          if (rows.length < 2) throw new Error('No data rows');
+          /* Try to extract date from filename like gate-audit-2026-03-20 */
+          var dateFromName = extractDateFromFilename(file.name);
+          auditFiles.push({ file: file, rows: rows, date: dateFromName || today, rowCount: rows.length - 1 });
+        } catch (err) {
+          auditFiles.push({ file: file, rows: null, date: today, rowCount: 0, error: err.message });
+        }
+        pending--;
+        if (pending === 0) {
+          /* Sort by date ascending for display */
+          auditFiles.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+          renderAuditFileList();
+          showStatus('audit-status', auditFiles.length + ' file(s) loaded', false);
+          updateMergeButton();
+        }
+      };
+      reader.readAsText(file);
+    })(files[i], i);
+  }
+});
+
+function extractDateFromFilename(name) {
+  /* Match patterns like gate-audit-2026-03-20 or 2026-03-20 anywhere in filename */
+  var m = name.match(/(\d{4}-\d{2}-\d{2})/);
+  if (m && isValidDate(m[1])) return m[1];
+  return null;
+}
+
+function renderAuditFileList() {
+  var el = document.getElementById('audit-file-list');
+  if (auditFiles.length === 0) { el.innerHTML = ''; return; }
+
+  var html = '';
+  for (var i = 0; i < auditFiles.length; i++) {
+    var af = auditFiles[i];
+    html += '<div class="audit-file-row" data-idx="' + i + '">';
+    html += '<span class="audit-file-name" title="' + esc(af.file.name) + '">' + esc(af.file.name) + '</span>';
+    html += '<span class="audit-file-rows">' + (af.error ? '<span style="color:#dc2626;">Error</span>' : af.rowCount + ' rows') + '</span>';
+    html += '<span class="audit-file-date"><input type="date" value="' + esc(af.date) + '" onchange="updateAuditDate(' + i + ',this.value)"></span>';
+    html += '<button class="audit-file-remove" onclick="removeAuditFile(' + i + ')">Remove</button>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function updateAuditDate(idx, val) {
+  if (idx >= 0 && idx < auditFiles.length) {
+    auditFiles[idx].date = val;
+  }
+}
+
+function removeAuditFile(idx) {
+  auditFiles.splice(idx, 1);
+  renderAuditFileList();
+  updateMergeButton();
+}
+
+function updateMergeButton() {
+  var hasAudits = auditFiles.length > 0 && auditFiles.some(function(af) { return af.rows && !af.error; });
+  var hasLog = existingLogEntries.length > 0;
+  document.getElementById('merge-btn').disabled = !(hasAudits || hasLog);
+}
+
+/* ── parse audit CSV with date ── */
+function parseAuditCSVWithDate(rows, dateStr) {
+  var headers = rows[0];
+  var iGate = colIndex(headers, 'Gate Number');
+  var iOrder = colIndex(headers, 'Order No');
+  if (iOrder < 0) iOrder = colIndex(headers, 'Order No.');
+  var iPart = colIndex(headers, 'Part No');
+  if (iPart < 0) iPart = colIndex(headers, 'Part No.');
+  var iSerial = colIndex(headers, 'Serial No');
+  if (iSerial < 0) iSerial = colIndex(headers, 'Serial No.');
+  var iTech = colIndex(headers, 'Technician');
+
+  if (iGate < 0 || iOrder < 0) {
+    return { error: 'Missing required columns (Gate Number, Order No.)', entries: [] };
+  }
+
+  var entries = [];
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var orderNo = (row[iOrder] || '').trim();
+    var gateNumber = (row[iGate] || '').trim();
+    if (!orderNo || !gateNumber) continue;
+    entries.push({
+      date: dateStr,
+      gateNumber: gateNumber,
+      orderNo: orderNo,
+      partNo: iPart >= 0 ? (row[iPart] || '').trim() : '',
+      serialNo: iSerial >= 0 ? (row[iSerial] || '').trim() : '',
+      technician: iTech >= 0 ? (row[iTech] || '').trim() : ''
+    });
+  }
+  return { error: null, entries: entries };
+}
+
+/* ── merge logic ── */
+function mergeAndPreview() {
+  var errors = [];
+  var warnings = [];
+  var allNewEntries = [];
+
+  /* Parse each audit file */
+  for (var i = 0; i < auditFiles.length; i++) {
+    var af = auditFiles[i];
+    if (!af.rows || af.error) {
+      errors.push('File "' + af.file.name + '": ' + (af.error || 'No data'));
+      continue;
+    }
+    if (!af.date || !isValidDate(af.date)) {
+      errors.push('File "' + af.file.name + '": Missing or invalid date');
+      continue;
+    }
+    /* Warn on future dates */
+    if (af.date > todayStr()) {
+      warnings.push('File "' + af.file.name + '": Date ' + af.date + ' is in the future');
+    }
+    var result = parseAuditCSVWithDate(af.rows, af.date);
+    if (result.error) {
+      errors.push('File "' + af.file.name + '": ' + result.error);
+      continue;
+    }
+    allNewEntries = allNewEntries.concat(result.entries);
+  }
+
+  if (errors.length > 0 && allNewEntries.length === 0 && existingLogEntries.length === 0) {
+    renderValidation(errors, warnings);
+    return;
+  }
+
+  /* Merge existing + new, deduplicate */
+  var combined = existingLogEntries.concat(allNewEntries);
+  var seen = {};
+  var deduped = [];
+  var dupeCount = 0;
+
+  for (var j = 0; j < combined.length; j++) {
+    var e = combined[j];
+    var key = e.date + '|' + e.orderNo + '|' + e.gateNumber;
+    if (seen[key]) {
+      dupeCount++;
+      continue;
+    }
+    seen[key] = true;
+    deduped.push(e);
+  }
+
+  /* Sort: date asc, then order, then gate */
+  deduped.sort(function(a, b) {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.orderNo !== b.orderNo) return a.orderNo < b.orderNo ? -1 : 1;
+    return a.gateNumber < b.gateNumber ? -1 : a.gateNumber > b.gateNumber ? 1 : 0;
+  });
+
+  mergedEntries = deduped;
+  var newCount = mergedEntries.length - existingLogEntries.length + dupeCount;
+
+  /* Check for date gaps */
+  var uniqueDates = [];
+  var dateSet = {};
+  for (var d = 0; d < mergedEntries.length; d++) {
+    if (!dateSet[mergedEntries[d].date]) {
+      dateSet[mergedEntries[d].date] = true;
+      uniqueDates.push(mergedEntries[d].date);
+    }
+  }
+  uniqueDates.sort();
+  if (uniqueDates.length >= 2) {
+    for (var g = 1; g < uniqueDates.length; g++) {
+      var d1 = new Date(uniqueDates[g - 1] + 'T00:00:00');
+      var d2 = new Date(uniqueDates[g] + 'T00:00:00');
+      var gap = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+      if (gap > 7) {
+        warnings.push('Gap of ' + gap + ' days between ' + uniqueDates[g - 1] + ' and ' + uniqueDates[g] + ' — is this expected?');
+      }
+    }
+  }
+
+  if (dupeCount > 0) {
+    warnings.push(dupeCount + ' duplicate row(s) skipped');
+  }
+
+  renderValidation(errors, warnings);
+  renderStats(mergedEntries, newCount, dupeCount, uniqueDates);
+  renderPreview(mergedEntries);
+
+  document.getElementById('download-btn').style.display = '';
+}
+
+/* ── validation rendering ── */
+function renderValidation(errors, warnings) {
+  var html = '';
+  for (var i = 0; i < errors.length; i++) {
+    html += '<div class="val-error">&#10060; ' + esc(errors[i]) + '</div>';
+  }
+  for (var j = 0; j < warnings.length; j++) {
+    html += '<div class="val-warning">&#9888;&#65039; ' + esc(warnings[j]) + '</div>';
+  }
+  document.getElementById('validation-panel').innerHTML = html;
+}
+
+/* ── stats rendering ── */
+function renderStats(entries, newCount, dupeCount, uniqueDates) {
+  var orderSet = {};
+  for (var i = 0; i < entries.length; i++) { orderSet[entries[i].orderNo] = true; }
+  var uniqueOrders = Object.keys(orderSet).length;
+
+  var minDate = uniqueDates.length > 0 ? uniqueDates[0] : '—';
+  var maxDate = uniqueDates.length > 0 ? uniqueDates[uniqueDates.length - 1] : '—';
+
+  var panel = document.getElementById('stats-panel');
+  panel.style.display = 'block';
+  panel.innerHTML =
+    '<h3>Merge Summary</h3>' +
+    '<div class="stat-row"><strong>' + entries.length + '</strong> total rows in merged log</div>' +
+    '<div class="stat-row"><strong>' + uniqueDates.length + '</strong> unique audit dates (' + esc(minDate) + ' to ' + esc(maxDate) + ')</div>' +
+    '<div class="stat-row"><strong>' + uniqueOrders + '</strong> unique work orders</div>' +
+    '<div class="stat-row"><strong>' + newCount + '</strong> new row(s) added</div>' +
+    (dupeCount > 0 ? '<div class="stat-row"><strong>' + dupeCount + '</strong> duplicate row(s) skipped</div>' : '');
+}
+
+/* ── preview table ── */
+function renderPreview(entries) {
+  var panel = document.getElementById('preview-panel');
+  panel.style.display = 'block';
+  showingAll = false;
+
+  /* Show most recent first */
+  var sorted = entries.slice().sort(function(a, b) {
+    if (a.date !== b.date) return a.date > b.date ? -1 : 1;
+    if (a.orderNo !== b.orderNo) return a.orderNo < b.orderNo ? -1 : 1;
+    return a.gateNumber < b.gateNumber ? -1 : a.gateNumber > b.gateNumber ? 1 : 0;
+  });
+
+  buildPreviewTable(sorted, previewLimit);
+
+  var link = document.getElementById('show-all-link');
+  link.style.display = sorted.length > previewLimit ? '' : 'none';
+  if (sorted.length > previewLimit) {
+    link.textContent = 'Show all ' + sorted.length + ' rows';
+  }
+}
+
+function buildPreviewTable(sorted, limit) {
+  var showing = limit > 0 ? sorted.slice(0, limit) : sorted;
+
+  var html = '<table class="preview-table"><thead><tr>';
+  html += '<th>Date</th><th>Gate Number</th><th>Order No</th><th>Part No</th><th>Serial No</th><th>Technician</th>';
+  html += '</tr></thead><tbody>';
+
+  for (var i = 0; i < showing.length; i++) {
+    var e = showing[i];
+    html += '<tr>';
+    html += '<td>' + esc(e.date) + '</td>';
+    html += '<td>' + esc(e.gateNumber) + '</td>';
+    html += '<td>' + esc(e.orderNo) + '</td>';
+    html += '<td>' + esc(e.partNo) + '</td>';
+    html += '<td>' + esc(e.serialNo) + '</td>';
+    html += '<td>' + esc(e.technician) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+
+  document.getElementById('preview-wrap').innerHTML = html;
+}
+
+function showAllPreview() {
+  showingAll = true;
+  var sorted = mergedEntries.slice().sort(function(a, b) {
+    if (a.date !== b.date) return a.date > b.date ? -1 : 1;
+    if (a.orderNo !== b.orderNo) return a.orderNo < b.orderNo ? -1 : 1;
+    return a.gateNumber < b.gateNumber ? -1 : a.gateNumber > b.gateNumber ? 1 : 0;
+  });
+  buildPreviewTable(sorted, 0);
+  document.getElementById('show-all-link').style.display = 'none';
+}
+
+function togglePreview() {
+  var content = document.getElementById('preview-content');
+  var toggle = document.getElementById('preview-toggle');
+  if (content.style.display === 'none') {
+    content.style.display = '';
+    toggle.innerHTML = '&#9660;';
+  } else {
+    content.style.display = 'none';
+    toggle.innerHTML = '&#9654;';
+  }
+}
+
+/* ── download log CSV ── */
+function downloadLog() {
+  if (mergedEntries.length === 0) return;
+
+  /* Sort: date asc, order, gate */
+  var sorted = mergedEntries.slice().sort(function(a, b) {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.orderNo !== b.orderNo) return a.orderNo < b.orderNo ? -1 : 1;
+    return a.gateNumber < b.gateNumber ? -1 : a.gateNumber > b.gateNumber ? 1 : 0;
+  });
+
+  var lines = ['Date,Gate Number,Order No,Part No,Serial No,Technician'];
+  for (var i = 0; i < sorted.length; i++) {
+    var e = sorted[i];
+    lines.push(
+      csvQuote(e.date) + ',' +
+      csvQuote(e.gateNumber) + ',' +
+      csvQuote(e.orderNo) + ',' +
+      csvQuote(e.partNo) + ',' +
+      csvQuote(e.serialNo) + ',' +
+      csvQuote(e.technician)
+    );
+  }
+
+  downloadFile(lines.join('\n'), 'audit-history-log.csv', 'text/csv');
+}
+
+</script>
+</body>
+</html>
