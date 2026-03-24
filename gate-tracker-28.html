@@ -401,22 +401,33 @@ document.getElementById('peabody-input').addEventListener('change', function(e) 
             }
           }
           // Use sheet_to_json for robust cell value extraction (handles formulas, cached values, etc.)
-          var jsonRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: 3 });
-          if (!jsonRows || jsonRows.length === 0) throw new Error('P File appears empty or has no data starting at row 4');
-          // First row of jsonRows is the header row (row 4 in the sheet)
-          var headers = jsonRows[0].map(function(h) { return String(h || '').trim(); });
+          var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          if (!allRows || allRows.length === 0) throw new Error('P File appears empty');
+          // Auto-detect header row by scanning first 10 rows for "WO" column
+          var headerRowIdx = -1;
           var hWO = -1, hBaseline = -1, hActual = -1, hPctComplete = -1;
+          for (var scanR = 0; scanR < Math.min(allRows.length, 10); scanR++) {
+            var scanHeaders = allRows[scanR].map(function(h) { return String(h || '').trim(); });
+            for (var sh = 0; sh < scanHeaders.length; sh++) {
+              if (scanHeaders[sh].toLowerCase() === 'wo') {
+                headerRowIdx = scanR;
+                hWO = sh;
+                break;
+              }
+            }
+            if (headerRowIdx >= 0) break;
+          }
+          if (headerRowIdx < 0) throw new Error('P File missing "WO" column. Scanned first 10 rows and found: ' + allRows.slice(0, 5).map(function(r,i){ return 'Row ' + (i+1) + ': [' + r.slice(0,5).join(', ') + ']'; }).join('; '));
+          var headers = allRows[headerRowIdx].map(function(h) { return String(h || '').trim(); });
           for (var h = 0; h < headers.length; h++) {
             var hl = headers[h].toLowerCase();
-            if (hl === 'wo') hWO = h;
-            else if (hl === 'baseline') hBaseline = h;
+            if (hl === 'baseline') hBaseline = h;
             else if (hl === 'total actual hours') hActual = h;
             else if (hl === 'percent complete') hPctComplete = h;
           }
-          if (hWO < 0) throw new Error('P File missing "WO" column in row 4 header. Found columns: ' + headers.filter(function(h){return h;}).join(', '));
-          // Data rows start at index 1 of jsonRows (row 5 in the sheet)
-          for (var r = 1; r < jsonRows.length; r++) {
-            var row = jsonRows[r];
+          // Data rows start after the header row
+          for (var r = headerRowIdx + 1; r < allRows.length; r++) {
+            var row = allRows[r];
             var wo = String(row[hWO] || '').trim();
             if (!wo) continue;
             peabodyData[wo] = {
