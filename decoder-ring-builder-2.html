@@ -648,7 +648,7 @@ function exportCSV() {
     if (!confirm(unassigned + ' gate(s) have no gate number assigned. Operations in unassigned gates will be skipped. Continue?')) return;
   }
 
-  var lines = ['Part No.,Part Name,Gate Number,Gate Name,Oper No.,Work Dept,Modifier'];
+  var lines = ['Part No.,Part Name,Gate Number,Gate Name,Oper No.,Oper Title,Work Dept,Modifier,Labor Hours,Earnable Hours Flag'];
 
   // Preserve workspace left-to-right order (not sorted by gate number).
   // The same gate number can appear multiple times to represent re-entry.
@@ -663,7 +663,8 @@ function exportCSV() {
       if (op.omitted) continue; // Skip omitted operations
       lines.push(csvQuote(partInfo.partNo) + ',' + csvQuote(partInfo.partName) + ',' +
         csvQuote(g.gateNumber) + ',' + csvQuote(g.gateName) + ',' +
-        csvQuote(op.operNo) + ',' + csvQuote(op.workDept) + ',' + csvQuote(op.modifier));
+        csvQuote(op.operNo) + ',' + csvQuote(op.operTitle) + ',' + csvQuote(op.workDept) + ',' + csvQuote(op.modifier) + ',' +
+        csvQuote(op.laborHours) + ',' + csvQuote(op.earnableFlag));
     }
   }
 
