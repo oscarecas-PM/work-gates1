@@ -17,6 +17,7 @@
   .file-group p { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
   .status { font-size: 0.85rem; margin-top: 0.5rem; }
   .status.loaded { color: green; }
+  .status.warning { color: #b45309; }
   .status.error { color: red; }
 
   #run-btn { margin: 1rem 0; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #2563eb; color: #fff; border: none; border-radius: 4px; }
@@ -243,7 +244,7 @@
     <div id="history-status" class="status"></div>
   </div>
   <div class="file-group">
-    <h3>6. Peabody Export(s) <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional, weekly)</span></h3>
+    <h3>6. P File Export(s) <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional, weekly)</span></h3>
     <p>XLSX file(s) with WO, Baseline, Total Actual Hours, Percent Complete. Multiple files OK.</p>
     <input type="file" id="peabody-input" accept=".xlsx,.xls" multiple>
     <div id="peabody-status" class="status"></div>
@@ -324,7 +325,22 @@ let evmPartHasHours = {};   // { partNo: true } — tracks which parts have labo
 document.getElementById('decoder-input').addEventListener('change', function(e) {
   loadCSV(e.target.files[0], function(rows) {
     decoderData = rows;
-    showStatus('decoder-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    // Check for EVM-related columns
+    var drHeaders = rows[0] || [];
+    var hasLaborHours = false, hasEarnableFlag = false;
+    for (var hi = 0; hi < drHeaders.length; hi++) {
+      var hName = (drHeaders[hi] || '').trim();
+      if (hName === 'Labor Hours') hasLaborHours = true;
+      if (hName === 'Earnable Hours Flag') hasEarnableFlag = true;
+    }
+    var evmWarnings = [];
+    if (!hasLaborHours) evmWarnings.push('"Labor Hours"');
+    if (!hasEarnableFlag) evmWarnings.push('"Earnable Hours Flag"');
+    if (evmWarnings.length > 0) {
+      showStatus('decoder-status', 'Loaded ' + (rows.length - 1) + ' rows ⚠ Missing EVM columns: ' + evmWarnings.join(', ') + ' — ETC calculations will not work. Re-export from Decoder Ring Builder to add them.', false, true);
+    } else {
+      showStatus('decoder-status', 'Loaded ' + (rows.length - 1) + ' rows', false);
+    }
     checkReady();
   }, 'decoder-status');
 });
@@ -372,26 +388,23 @@ document.getElementById('peabody-input').addEventListener('change', function(e) 
       reader.onload = function(ev) {
         try {
           var data = new Uint8Array(ev.target.result);
-          var wb = XLSX.read(data, { type: 'array' });
+          var wb = XLSX.read(data, { type: 'array', cellFormula: false });
           var ws = wb.Sheets[wb.SheetNames[0]];
           // Parse date from cell C3 — format: "As of M/D/YYYY"
           var c3 = ws['C3'];
           if (c3) {
-            var c3val = (typeof c3.v === 'string') ? c3.v : String(c3.v || '');
+            var c3val = (c3.w ? String(c3.w) : (typeof c3.v === 'string') ? c3.v : String(c3.v || ''));
             var dateMatch = c3val.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
             if (dateMatch) {
               var fileDate = new Date(parseInt(dateMatch[3]), parseInt(dateMatch[1]) - 1, parseInt(dateMatch[2]));
               if (!peabodyDate || fileDate < peabodyDate) peabodyDate = fileDate;
             }
           }
-          // Parse rows starting at row 4 (header row)
-          var range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-          // Read header row (row index 3 = row 4 in 1-based)
-          var headers = [];
-          for (var c = range.s.c; c <= range.e.c; c++) {
-            var cell = ws[XLSX.utils.encode_cell({ r: 3, c: c })];
-            headers.push(cell ? String(cell.v || '').trim() : '');
-          }
+          // Use sheet_to_json for robust cell value extraction (handles formulas, cached values, etc.)
+          var jsonRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: 3 });
+          if (!jsonRows || jsonRows.length === 0) throw new Error('P File appears empty or has no data starting at row 4');
+          // First row of jsonRows is the header row (row 4 in the sheet)
+          var headers = jsonRows[0].map(function(h) { return String(h || '').trim(); });
           var hWO = -1, hBaseline = -1, hActual = -1, hPctComplete = -1;
           for (var h = 0; h < headers.length; h++) {
             var hl = headers[h].toLowerCase();
@@ -400,26 +413,27 @@ document.getElementById('peabody-input').addEventListener('change', function(e) 
             else if (hl === 'total actual hours') hActual = h;
             else if (hl === 'percent complete') hPctComplete = h;
           }
-          if (hWO < 0) throw new Error('Peabody file missing "WO" column');
-          // Read data rows starting at row 5 (index 4)
-          for (var r = 4; r <= range.e.r; r++) {
-            var getVal = function(col) {
-              if (col < 0) return '';
-              var cell = ws[XLSX.utils.encode_cell({ r: r, c: col })];
-              return cell ? cell.v : '';
-            };
-            var wo = String(getVal(hWO)).trim();
+          if (hWO < 0) throw new Error('P File missing "WO" column in row 4 header. Found columns: ' + headers.filter(function(h){return h;}).join(', '));
+          // Data rows start at index 1 of jsonRows (row 5 in the sheet)
+          for (var r = 1; r < jsonRows.length; r++) {
+            var row = jsonRows[r];
+            var wo = String(row[hWO] || '').trim();
             if (!wo) continue;
             peabodyData[wo] = {
-              totalActualHours: parseFloat(getVal(hActual)) || 0,
-              baseline: parseFloat(getVal(hBaseline)) || 0,
-              percentComplete: parseFloat(getVal(hPctComplete)) || 0
+              totalActualHours: parseFloat(row[hActual]) || 0,
+              baseline: parseFloat(row[hBaseline]) || 0,
+              percentComplete: parseFloat(row[hPctComplete]) || 0
             };
             totalWOs++;
           }
           loaded++;
           if (loaded === files.length) {
-            showStatus('peabody-status', 'Loaded ' + totalWOs + ' work orders from ' + loaded + ' file(s)' + (peabodyDate ? ' — As of ' + (peabodyDate.getMonth()+1) + '/' + peabodyDate.getDate() + '/' + peabodyDate.getFullYear() : ''), false);
+            var missingCols = [];
+            if (hBaseline < 0) missingCols.push('"Baseline"');
+            if (hActual < 0) missingCols.push('"Total Actual Hours"');
+            if (hPctComplete < 0) missingCols.push('"Percent Complete"');
+            var colWarning = missingCols.length > 0 ? ' ⚠ Missing columns: ' + missingCols.join(', ') : '';
+            showStatus('peabody-status', 'Loaded ' + totalWOs + ' work orders from ' + loaded + ' file(s)' + (peabodyDate ? ' — As of ' + (peabodyDate.getMonth()+1) + '/' + peabodyDate.getDate() + '/' + peabodyDate.getFullYear() : '') + colWarning, false, missingCols.length > 0);
           }
         } catch (err) {
           showStatus('peabody-status', 'Error: ' + err.message, true);
@@ -442,10 +456,10 @@ function checkReady() {
   document.getElementById('run-btn').disabled = !(decoderData && dailyData);
 }
 
-function showStatus(id, msg, isError) {
+function showStatus(id, msg, isError, isWarning) {
   const el = document.getElementById(id);
   el.textContent = msg;
-  el.className = 'status ' + (isError ? 'error' : 'loaded');
+  el.className = 'status ' + (isError ? 'error' : isWarning ? 'warning' : 'loaded');
 }
 
 function loadCSV(file, callback, statusId) {
@@ -2487,7 +2501,7 @@ function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabody
 
 // ---- Export VAC Tracker Log ----
 function exportVacLog() {
-  if (Object.keys(evmResults).length === 0) { alert('No EVM data to export. Load Peabody file(s) and Process first.'); return; }
+  if (Object.keys(evmResults).length === 0) { alert('No EVM data to export. Ensure the Decoder Ring has "Labor Hours" and "Earnable Hours Flag" columns. Load P File(s) and Process first.'); return; }
 
   // Build new rows from current EVM results
   var newRows = [];
@@ -2522,7 +2536,7 @@ function exportVacLog() {
 
 // ---- Manager EVM Report Snapshot ----
 function saveEvmReport() {
-  if (Object.keys(evmResults).length === 0) { alert('No EVM data. Load Peabody file(s) and Process first.'); return; }
+  if (Object.keys(evmResults).length === 0) { alert('No EVM data. Ensure the Decoder Ring has "Labor Hours" and "Earnable Hours Flag" columns. Load P File(s) and Process first.'); return; }
 
   // Also export the VAC tracker log CSV
   exportVacLog();
@@ -2551,7 +2565,7 @@ function saveEvmReport() {
   html += '</head>\n<body>\n';
   html += '<div style="background:#fef3c7;border:2px solid #f59e0b;padding:8px 14px;text-align:center;font-weight:bold;font-size:0.9rem;color:#92400e;margin-bottom:1rem;border-radius:4px;">Proprietary &mdash; Internal Use Only</div>\n';
   html += '<h1>Manager EVM Report <span style="font-size:0.6em;color:#666;">(Snapshot)</span></h1>\n';
-  html += '<p style="font-size:0.85rem;color:#555;margin-bottom:0.25rem;">Peabody Data As Of: ' + peabodyDateStr + '</p>\n';
+  html += '<p style="font-size:0.85rem;color:#555;margin-bottom:0.25rem;">P File Data As Of: ' + peabodyDateStr + '</p>\n';
   html += '<p style="font-size:0.85rem;color:#555;margin-bottom:1rem;">Report Generated: ' + timeStr + '</p>\n';
   html += '<button id="print-btn" onclick="printPage()" style="display:inline-block;">Print / Export PDF</button>\n';
   html += '<div id="print-timestamp" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;"></div>\n';
