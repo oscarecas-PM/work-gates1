@@ -1809,7 +1809,7 @@ function process() {
         // Feature 5: Days at gate per order in detail view (use audit gate, not decoder ring gate)
         if (historyByOrderGlobal) {
           var auditGateNums = orderAuditGateNums[orderNo];
-          var gateNumForDays = auditGateNums && auditGateNums.size > 0 ? Array.from(auditGateNums)[0] : (activeGateNumbers.size > 0 ? Array.from(activeGateNumbers)[0] : null);
+          var gateNumForDays = auditGateNums && auditGateNums.size > 0 ? Array.from(auditGateNums)[0] : (auditedGateNumbers.size > 0 ? Array.from(auditedGateNumbers)[0] : null);
           if (gateNumForDays) {
             var dagVal = calculateDaysAtGate(historyByOrderGlobal, orderNo, gateNumForDays, todayForAgingGlobal);
             if (dagVal !== undefined) {
