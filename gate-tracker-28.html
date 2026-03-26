@@ -178,8 +178,8 @@
   .evm-metric { white-space: nowrap; }
   .evm-label { color: #555; font-weight: bold; }
   .evm-val { margin-left: 3px; }
-  .evm-val.evm-red { color: #dc2626; font-weight: bold; }
-  .evm-val.evm-green { color: #16a34a; font-weight: bold; }
+  .evm-red { color: #dc2626; font-weight: bold; }
+  .evm-green { color: #16a34a; font-weight: bold; }
   .evm-arrow-up { color: #16a34a; font-weight: bold; }
   .evm-arrow-down { color: #dc2626; font-weight: bold; }
 
@@ -400,6 +400,23 @@ document.getElementById('peabody-input').addEventListener('change', function(e) 
               if (!peabodyDate || fileDate < peabodyDate) peabodyDate = fileDate;
             }
           }
+          // Detect true data extent — human-formatted files often have a !ref that's too small
+          var sheetRef = ws['!ref'] || 'A1';
+          console.log('[P File Debug] Sheet name:', wb.SheetNames[0], '| Original !ref:', sheetRef);
+          // Scan all cell keys to find the actual last row and column
+          var trueMaxR = 0, trueMaxC = 0;
+          var cellKeys = Object.keys(ws).filter(function(k) { return k[0] !== '!'; });
+          cellKeys.forEach(function(k) {
+            var decoded = XLSX.utils.decode_cell(k);
+            if (decoded.r > trueMaxR) trueMaxR = decoded.r;
+            if (decoded.c > trueMaxC) trueMaxC = decoded.c;
+          });
+          // Override !ref with the true extent
+          var trueRef = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: trueMaxR, c: trueMaxC } });
+          if (trueRef !== sheetRef) {
+            console.log('[P File Debug] Expanding !ref from', sheetRef, 'to', trueRef, '(' + (trueMaxR + 1) + ' rows x ' + (trueMaxC + 1) + ' cols)');
+            ws['!ref'] = trueRef;
+          }
           // Use sheet_to_json for robust cell value extraction (handles formulas, cached values, etc.)
           var allRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
           if (!allRows || allRows.length === 0) throw new Error('P File appears empty');
@@ -426,17 +443,34 @@ document.getElementById('peabody-input').addEventListener('change', function(e) 
             else if (hl === 'percent complete') hPctComplete = h;
           }
           // Data rows start after the header row
+          // Diagnostic: log what we found for debugging
+          var totalDataRows = allRows.length - headerRowIdx - 1;
+          var skippedBlank = 0;
+          var sampleVals = [];
+          var consecutiveBlanks = 0;
           for (var r = headerRowIdx + 1; r < allRows.length; r++) {
             var row = allRows[r];
-            var wo = String(row[hWO] || '').trim();
-            if (!wo) continue;
+            if (!row || row.length === 0) { consecutiveBlanks++; if (consecutiveBlanks >= 2) break; continue; }
+            var rawWO = row[hWO];
+            var wo = String(rawWO === 0 ? '0' : (rawWO || '')).trim();
+            if (sampleVals.length < 5) sampleVals.push({ raw: rawWO, type: typeof rawWO, str: wo, rowIdx: r });
+            if (!wo || wo.toLowerCase() === 'total' || wo.toLowerCase() === 'totals' || wo.toLowerCase() === 'grand total') {
+              skippedBlank++;
+              consecutiveBlanks++;
+              if (consecutiveBlanks >= 2) break; // stop at blank gap between tables
+              continue;
+            }
+            consecutiveBlanks = 0;
             peabodyData[wo] = {
               totalActualHours: parseFloat(row[hActual]) || 0,
               baseline: parseFloat(row[hBaseline]) || 0,
-              percentComplete: parseFloat(row[hPctComplete]) || 0
+              percentComplete: (function(v) { var n = parseFloat(v) || 0; return n <= 1 && n > 0 ? n * 100 : n; })(row[hPctComplete])
             };
             totalWOs++;
           }
+          console.log('[P File Debug] Header row idx:', headerRowIdx, '| Headers found:', headers.join(', '));
+          console.log('[P File Debug] Total data rows:', totalDataRows, '| WOs parsed:', totalWOs, '| Skipped blank/total:', skippedBlank);
+          console.log('[P File Debug] Sample WO values:', JSON.stringify(sampleVals));
           loaded++;
           if (loaded === files.length) {
             var missingCols = [];
@@ -444,7 +478,8 @@ document.getElementById('peabody-input').addEventListener('change', function(e) 
             if (hActual < 0) missingCols.push('"Total Actual Hours"');
             if (hPctComplete < 0) missingCols.push('"Percent Complete"');
             var colWarning = missingCols.length > 0 ? ' ⚠ Missing columns: ' + missingCols.join(', ') : '';
-            showStatus('peabody-status', 'Loaded ' + totalWOs + ' work orders from ' + loaded + ' file(s)' + (peabodyDate ? ' — As of ' + (peabodyDate.getMonth()+1) + '/' + peabodyDate.getDate() + '/' + peabodyDate.getFullYear() : '') + colWarning, false, missingCols.length > 0);
+            var diagInfo = ' [' + totalDataRows + ' rows scanned, ' + skippedBlank + ' skipped]';
+            showStatus('peabody-status', 'Loaded ' + totalWOs + ' work orders from ' + loaded + ' file(s)' + (peabodyDate ? ' — As of ' + (peabodyDate.getMonth()+1) + '/' + peabodyDate.getDate() + '/' + peabodyDate.getFullYear() : '') + diagInfo + colWarning, false, missingCols.length > 0);
           }
         } catch (err) {
           showStatus('peabody-status', 'Error: ' + err.message, true);
@@ -1778,6 +1813,7 @@ function process() {
 
         const card = document.createElement('div');
         card.className = 'order-card';
+        card.id = 'wo-' + orderNo;
         card.dataset.orderno = orderNo;
 
         const firstRow = rows[0];
@@ -1786,21 +1822,28 @@ function process() {
         let evmHtml = '';
         var evmData = evmResults[orderNo];
         if (evmData) {
-          var cpiStr = evmData.cpi !== null ? evmData.cpi.toFixed(2) : 'N/A';
-          var cpiClass = evmData.cpi !== null ? (evmData.cpi < 1.0 ? 'evm-red' : 'evm-green') : '';
-          var vacClass = evmData.vac < 0 ? 'evm-red' : (evmData.vac > 0 ? 'evm-green' : '');
-          evmHtml += '<div class="evm-row">';
-          evmHtml += '<span class="evm-metric" title="Cost Performance Index = Earned Value / Total Actual Hours (P-File). CPI &lt; 1.0 means over budget."><span class="evm-label">CPI:</span> <span class="evm-val ' + cpiClass + '">' + cpiStr + '</span></span>';
-          evmHtml += '<span class="evm-metric" title="Program EAC = Baseline hours originally budgeted for this work order (P-File &quot;Baseline&quot; column)."><span class="evm-label">Prog EAC:</span> <span class="evm-val">' + evmData.programEAC.toFixed(1) + 'h</span></span>';
-          evmHtml += '<span class="evm-metric" title="Estimate to Complete = Sum of planned labor hours for remaining Active, In Queue, and Pending operations (from Decoder Ring)."><span class="evm-label">ETC:</span> <span class="evm-val">' + evmData.etc.toFixed(1) + 'h</span></span>';
-          evmHtml += '<span class="evm-metric" title="Production EAC = Total Actual Hours (P-File) + ETC. Manufacturing\'s estimated total hours at completion."><span class="evm-label">Prod EAC:</span> <span class="evm-val">' + evmData.productionEAC.toFixed(1) + 'h</span></span>';
-          evmHtml += '<span class="evm-metric" title="Variance at Completion = Program EAC &#x2212; Production EAC. Positive = under budget, negative = over budget."><span class="evm-label">VAC:</span> <span class="evm-val ' + vacClass + '">' + (evmData.vac >= 0 ? '+' : '') + evmData.vac.toFixed(1) + 'h</span></span>';
-          if (evmData.deltaVac !== null) {
-            var dvClass = evmData.deltaVac > 0 ? 'evm-arrow-up' : (evmData.deltaVac < 0 ? 'evm-arrow-down' : '');
-            var dvArrow = evmData.deltaVac > 0 ? '\u25b2' : (evmData.deltaVac < 0 ? '\u25bc' : '');
-            evmHtml += '<span class="evm-metric" title="Change in VAC since the previous P-File date. Positive = improving, negative = losing ground."><span class="evm-label">\u0394VAC(' + evmData.deltaWeeks + 'wk):</span> <span class="' + dvClass + '">' + dvArrow + ' ' + (evmData.deltaVac >= 0 ? '+' : '') + evmData.deltaVac.toFixed(1) + 'h</span></span>';
+          if (!evmPartHasHours[partNo]) {
+            // Part not in decoder ring — show message instead of misleading EVM data
+            evmHtml += '<div class="evm-row" style="color:#92400e;background:#fef3c7;border-bottom-color:#f59e0b;font-style:italic;">Add this P/N to the Gate Decoder file to see EVM data</div>';
+          } else {
+            var cpiStr = evmData.cpi !== null ? evmData.cpi.toFixed(2) : 'N/A';
+            var cpiClass = evmData.cpi !== null ? (evmData.cpi < 1.0 ? 'evm-red' : 'evm-green') : '';
+            var vacClass = evmData.vac < 0 ? 'evm-red' : (evmData.vac > 0 ? 'evm-green' : '');
+            evmHtml += '<div class="evm-row">';
+            evmHtml += '<span class="evm-metric" title="Cost Performance Index = Earned Value / Total Actual Hours (P-File). CPI &lt; 1.0 means over budget."><span class="evm-label">CPI:</span> <span class="evm-val ' + cpiClass + '">' + cpiStr + '</span></span>';
+            evmHtml += '<span class="evm-metric" title="Percent Complete from the P-File."><span class="evm-label">% Comp:</span> <span class="evm-val">' + evmData.percentComplete.toFixed(1) + '%</span></span>';
+            evmHtml += '<span class="evm-metric" title="Total Actual Hours charged to this work order (P-File &quot;Total Actual Hours&quot; column)."><span class="evm-label">Actual Hrs:</span> <span class="evm-val">' + evmData.totalActualHours.toFixed(1) + 'h</span></span>';
+            evmHtml += '<span class="evm-metric" title="Program EAC = Baseline hours originally budgeted for this work order (P-File &quot;Baseline&quot; column)."><span class="evm-label">Prog EAC:</span> <span class="evm-val">' + evmData.programEAC.toFixed(1) + 'h</span></span>';
+            evmHtml += '<span class="evm-metric" title="Estimate to Complete = Sum of planned labor hours for remaining Active, In Queue, and Pending operations (from Decoder Ring)."><span class="evm-label">ETC:</span> <span class="evm-val">' + evmData.etc.toFixed(1) + 'h</span></span>';
+            evmHtml += '<span class="evm-metric" title="Production EAC = Total Actual Hours (P-File) + ETC. Manufacturing\'s estimated total hours at completion."><span class="evm-label">Prod EAC:</span> <span class="evm-val">' + evmData.productionEAC.toFixed(1) + 'h</span></span>';
+            evmHtml += '<span class="evm-metric" title="Variance at Completion = Program EAC &#x2212; Production EAC. Positive = under budget, negative = over budget."><span class="evm-label">VAC:</span> <span class="evm-val ' + vacClass + '">' + (evmData.vac >= 0 ? '+' : '') + evmData.vac.toFixed(1) + 'h</span></span>';
+            if (evmData.deltaVac !== null) {
+              var dvClass = evmData.deltaVac > 0 ? 'evm-arrow-up' : (evmData.deltaVac < 0 ? 'evm-arrow-down' : '');
+              var dvArrow = evmData.deltaVac > 0 ? '\u25b2' : (evmData.deltaVac < 0 ? '\u25bc' : '');
+              evmHtml += '<span class="evm-metric" title="Change in VAC since the previous P-File date. Positive = improving, negative = losing ground."><span class="evm-label">\u0394VAC(' + evmData.deltaWeeks + 'wk):</span> <span class="' + dvClass + '">' + dvArrow + ' ' + (evmData.deltaVac >= 0 ? '+' : '') + evmData.deltaVac.toFixed(1) + 'h</span></span>';
+            }
+            evmHtml += '</div>';
           }
-          evmHtml += '</div>';
         }
 
         let html = evmHtml + '<div class="order-row">';
@@ -2405,7 +2448,8 @@ function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabody
       points.push({ date: peabodyDate, vac: evm.vac });
     }
     if (points.length === 0) continue;
-    var label = evm.serialNo || wo;
+    var sn = (evm.serialNo || '').trim();
+    var label = (sn && sn.toUpperCase() !== 'N/A') ? sn : wo;
     series.push({ wo: wo, label: label, points: points, color: lineColors[i % lineColors.length] });
   }
 
@@ -2570,7 +2614,7 @@ function saveEvmReport() {
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n';
   html += '<meta charset="UTF-8">\n';
   html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
-  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\'; img-src \'self\' data:;">\n';
   html += '<title>Manager EVM Report - ' + dateStr + '</title>\n';
   html += '<style>\n' + css + '\n</style>\n';
   html += '</head>\n<body>\n';
@@ -2580,6 +2624,171 @@ function saveEvmReport() {
   html += '<p style="font-size:0.85rem;color:#555;margin-bottom:1rem;">Report Generated: ' + timeStr + '</p>\n';
   html += '<button id="print-btn" onclick="printPage()" style="display:inline-block;">Print / Export PDF</button>\n';
   html += '<div id="print-timestamp" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;"></div>\n';
+
+  // === VAC Trend Plots (grouped by program, above summary tables) ===
+  // Convert live canvases to images, keyed by partNo
+  var plotImagesByPart = {};
+  var livePlotContainers = document.getElementById('detail-view').querySelectorAll('.vac-plot-container');
+  for (var lpc = 0; lpc < livePlotContainers.length; lpc++) {
+    var lpcCanvas = livePlotContainers[lpc].querySelector('canvas');
+    var lpcPartSection = livePlotContainers[lpc].closest('.part-section');
+    if (!lpcCanvas || !lpcPartSection) continue;
+    var lpcPartNo = lpcPartSection.dataset.partno;
+    if (!lpcPartNo || !evmPartHasHours[lpcPartNo]) continue; // skip unmapped parts
+    try {
+      var plotDataUrl = lpcCanvas.toDataURL('image/png');
+      // Get the title and subtitle text
+      var plotTitle = livePlotContainers[lpc].querySelector('.vac-plot-title');
+      var plotSubtitle = livePlotContainers[lpc].querySelector('.vac-plot-subtitle');
+      plotImagesByPart[lpcPartNo] = {
+        imgSrc: plotDataUrl,
+        title: plotTitle ? plotTitle.textContent : '',
+        subtitle: plotSubtitle ? plotSubtitle.textContent : ''
+      };
+    } catch(e) { console.warn('[EVM Report] Canvas conversion failed for', lpcPartNo, e); }
+  }
+
+  // Build plot sections grouped by program
+  // First, map partNo → program
+  var partToProgForPlots = {};
+  for (var pwo in evmResults) {
+    var pe = evmResults[pwo];
+    if (evmPartHasHours[pe.partNo]) partToProgForPlots[pe.partNo] = pe.program;
+  }
+
+  // Group plots by program
+  var plotsByProg = {};
+  for (var ppn in plotImagesByPart) {
+    var pprog = partToProgForPlots[ppn] || 'Unknown';
+    if (!plotsByProg[pprog]) plotsByProg[pprog] = [];
+    plotsByProg[pprog].push({ partNo: ppn, plot: plotImagesByPart[ppn] });
+  }
+
+  var plotProgsSorted = Object.keys(plotsByProg).sort();
+  if (plotProgsSorted.length > 0) {
+    html += '<div style="margin:1.5rem 0;">\n';
+    html += '<h2 style="font-size:1.2rem;color:#1e293b;margin-bottom:12px;">VAC Trend Plots</h2>\n';
+    for (var ppi = 0; ppi < plotProgsSorted.length; ppi++) {
+      var pprogName = plotProgsSorted[ppi];
+      var pprogPlots = plotsByProg[pprogName];
+      pprogPlots.sort(function(a, b) { return a.partNo < b.partNo ? -1 : a.partNo > b.partNo ? 1 : 0; });
+
+      html += '<div style="border:1px solid #94a3b8;border-radius:4px;padding:12px;margin-bottom:12px;">\n';
+      html += '<h3 style="margin:0 0 8px 0;font-size:1rem;color:#334155;">' + esc(pprogName) + '</h3>\n';
+      for (var ppli = 0; ppli < pprogPlots.length; ppli++) {
+        var pp = pprogPlots[ppli];
+        html += '<div style="margin-bottom:16px;">\n';
+        if (pp.plot.title) html += '<div class="vac-plot-title">' + esc(pp.plot.title) + '</div>\n';
+        if (pp.plot.subtitle) html += '<div class="vac-plot-subtitle">' + esc(pp.plot.subtitle) + '</div>\n';
+        html += '<img src="' + pp.plot.imgSrc + '" style="max-width:100%;" alt="VAC trend plot for ' + esc(pp.partNo) + '">\n';
+        html += '</div>\n';
+      }
+      html += '</div>\n';
+    }
+    html += '</div>\n';
+  }
+
+  // === Bench Cost Performance Summary ===
+  // Group evmResults by program → partNo
+  var summaryByProg = {};
+  for (var swo in evmResults) {
+    var sevm = evmResults[swo];
+    if (!summaryByProg[sevm.program]) summaryByProg[sevm.program] = {};
+    if (!summaryByProg[sevm.program][sevm.partNo]) summaryByProg[sevm.program][sevm.partNo] = [];
+    summaryByProg[sevm.program][sevm.partNo].push({ wo: swo, evm: sevm });
+  }
+  var sortedProgs = Object.keys(summaryByProg).sort();
+
+  html += '<div style="border:2px solid #334155;border-radius:6px;padding:16px;margin:1.5rem 0;">\n';
+  html += '<h2 style="margin:0 0 12px 0;font-size:1.2rem;color:#1e293b;">Bench Cost Performance Summary</h2>\n';
+
+  for (var spi = 0; spi < sortedProgs.length; spi++) {
+    var sprog = sortedProgs[spi];
+    var partsInProg = summaryByProg[sprog];
+    var sortedParts = Object.keys(partsInProg).sort().filter(function(p) { return evmPartHasHours[p]; });
+    if (sortedParts.length === 0) continue; // skip programs with no mapped parts
+
+    html += '<div style="border:1px solid #94a3b8;border-radius:4px;padding:12px;margin-bottom:12px;">\n';
+    html += '<h3 style="margin:0 0 8px 0;font-size:1rem;color:#334155;">' + esc(sprog) + '</h3>\n';
+
+    for (var spni = 0; spni < sortedParts.length; spni++) {
+      var spn = sortedParts[spni];
+      // Skip parts not in decoder ring entirely
+      if (!evmPartHasHours[spn]) continue;
+
+      var woList = partsInProg[spn];
+      woList.sort(function(a, b) { return a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : 0; });
+      var partName = partNamesGlobal[spn] || '';
+
+      html += '<div style="border:1px solid #cbd5e1;border-radius:4px;padding:10px;margin-bottom:8px;margin-left:12px;">\n';
+      html += '<h4 style="margin:0 0 6px 0;font-size:0.9rem;color:#475569;">' + esc(spn) + (partName ? ' — ' + esc(partName) : '') + '</h4>\n';
+
+      html += '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">\n';
+      html += '<thead><tr style="background:#f1f5f9;border-bottom:2px solid #94a3b8;">';
+      html += '<th style="text-align:left;padding:4px 8px;">Work Order</th>';
+      html += '<th style="text-align:left;padding:4px 8px;">S/N</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">CPI</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">% Comp</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">Actual Hrs</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">Prog EAC</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">ETC</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">Prod EAC</th>';
+      html += '<th style="text-align:right;padding:4px 8px;">VAC</th>';
+
+      // Check if any WO in this part has delta VAC data
+      var hasAnyDelta = woList.some(function(w) { return w.evm.deltaVac !== null && w.evm.deltaVac !== undefined; });
+      var deltaLabel = 'ΔVAC';
+      if (hasAnyDelta) {
+        // Use the first available deltaWeeks for the column header
+        for (var dwi = 0; dwi < woList.length; dwi++) {
+          if (woList[dwi].evm.deltaWeeks) { deltaLabel = 'ΔVAC(' + woList[dwi].evm.deltaWeeks + 'wk)'; break; }
+        }
+        html += '<th style="text-align:right;padding:4px 8px;">' + deltaLabel + '</th>';
+      }
+      html += '</tr></thead>\n<tbody>\n';
+
+      for (var swi = 0; swi < woList.length; swi++) {
+        var sitem = woList[swi];
+        var se = sitem.evm;
+        var rowBg = swi % 2 === 0 ? '' : ' style="background:#f8fafc;"';
+        // CPI color
+        var cpiClass = se.cpi !== null ? (se.cpi >= 1.0 ? 'evm-green' : 'evm-red') : '';
+        var cpiVal = se.cpi !== null ? se.cpi.toFixed(2) : 'N/A';
+        // VAC color
+        var vacClass = se.vac > 0 ? 'evm-green' : (se.vac < 0 ? 'evm-red' : '');
+        var vacVal = (se.vac >= 0 ? '+' : '') + Math.round(se.vac) + 'h';
+        // Serial number
+        var snDisplay = se.serialNo ? esc(se.serialNo) : '—';
+
+        html += '<tr' + rowBg + '>';
+        html += '<td style="padding:4px 8px;"><a href="#wo-' + esc(sitem.wo) + '" style="color:#2563eb;text-decoration:none;">' + esc(sitem.wo) + '</a></td>';
+        html += '<td style="padding:4px 8px;">' + snDisplay + '</td>';
+        html += '<td style="text-align:right;padding:4px 8px;" class="' + cpiClass + '">' + cpiVal + '</td>';
+        html += '<td style="text-align:right;padding:4px 8px;">' + se.percentComplete.toFixed(1) + '%</td>';
+        html += '<td style="text-align:right;padding:4px 8px;">' + Math.round(se.totalActualHours) + 'h</td>';
+        html += '<td style="text-align:right;padding:4px 8px;">' + Math.round(se.programEAC) + 'h</td>';
+        html += '<td style="text-align:right;padding:4px 8px;">' + Math.round(se.etc) + 'h</td>';
+        html += '<td style="text-align:right;padding:4px 8px;">' + Math.round(se.productionEAC) + 'h</td>';
+        html += '<td style="text-align:right;padding:4px 8px;" class="' + vacClass + '">' + vacVal + '</td>';
+
+        if (hasAnyDelta) {
+          if (se.deltaVac !== null && se.deltaVac !== undefined) {
+            var dvClass = se.deltaVac > 0 ? 'evm-green' : (se.deltaVac < 0 ? 'evm-red' : '');
+            var dvArrow = se.deltaVac > 0 ? ' ▲' : (se.deltaVac < 0 ? ' ▼' : '');
+            var dvVal = (se.deltaVac >= 0 ? '+' : '') + Math.round(se.deltaVac) + 'h';
+            html += '<td style="text-align:right;padding:4px 8px;" class="' + dvClass + '">' + dvVal + dvArrow + '</td>';
+          } else {
+            html += '<td style="text-align:right;padding:4px 8px;color:#999;">—</td>';
+          }
+        }
+        html += '</tr>\n';
+      }
+      html += '</tbody></table>\n';
+      html += '</div>\n'; // end part box
+    }
+    html += '</div>\n'; // end program box
+  }
+  html += '</div>\n'; // end summary container
 
   // Detail View (visible by default, no toggle needed)
   html += '<div id="detail-view" style="display:block">\n';
@@ -2605,18 +2814,9 @@ function saveEvmReport() {
     }
   }
 
-  // Convert canvas elements to inline images for snapshot
-  var liveCanvases = document.getElementById('detail-view').querySelectorAll('.vac-plot-container canvas');
-  var snapCanvases = tempDiv.querySelectorAll('.vac-plot-container canvas');
-  for (var ci = 0; ci < snapCanvases.length && ci < liveCanvases.length; ci++) {
-    try {
-      var dataUrl = liveCanvases[ci].toDataURL('image/png');
-      var img = document.createElement('img');
-      img.src = dataUrl;
-      img.style.maxWidth = '100%';
-      snapCanvases[ci].parentNode.replaceChild(img, snapCanvases[ci]);
-    } catch(e) { /* ignore canvas conversion errors */ }
-  }
+  // Remove all VAC plot containers from detail view (they'll appear above summary tables instead)
+  var snapPlots = tempDiv.querySelectorAll('.vac-plot-container');
+  for (var spl = 0; spl < snapPlots.length; spl++) { snapPlots[spl].remove(); }
 
   html += tempDiv.innerHTML + '\n';
   html += '</div>\n';

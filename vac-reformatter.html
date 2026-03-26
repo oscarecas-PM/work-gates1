@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VAC Data Reformatter</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; }
+  p { font-size: 0.9rem; color: #555; }
+  textarea { width: 100%; font-family: monospace; font-size: 0.85rem; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+  button { background: #2563eb; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 0.9rem; margin: 0.5rem 0.5rem 0.5rem 0; }
+  button:hover { background: #1d4ed8; }
+  .output-area { margin-top: 1rem; }
+  .status { font-size: 0.85rem; margin: 0.5rem 0; }
+  .status.ok { color: #16a34a; }
+  .status.err { color: #dc2626; }
+</style>
+</head>
+<body>
+<h1>VAC Data Reformatter</h1>
+<p>Paste your wide-format VAC data below. Expected format:</p>
+<pre style="background:#f1f5f9;padding:8px;border-radius:4px;font-size:0.8rem;">WO, 3/6/2026, 3/13/2026, 3/20/2026
+WO-5001, -12, +5, -18
+WO-5002, -13, +6, -19</pre>
+<p>First column = Work Order. Remaining columns = dates with VAC values. Comma, tab, or pipe delimited.</p>
+
+<textarea id="input" rows="12" placeholder="Paste your wide-format data here..."></textarea>
+<br>
+<button onclick="convert()">Convert</button>
+<button onclick="download()">Download CSV</button>
+<div id="status" class="status"></div>
+
+<div class="output-area">
+<textarea id="output" rows="16" readonly placeholder="Converted output will appear here..."></textarea>
+</div>
+
+<script>
+var lastResult = '';
+
+function convert() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) { showStatus('Paste your data first.', true); return; }
+
+  var lines = raw.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  if (lines.length < 2) { showStatus('Need at least a header row and one data row.', true); return; }
+
+  // Auto-detect delimiter: tab, comma, or pipe
+  var delim = ',';
+  var firstLine = lines[0];
+  if (firstLine.indexOf('\t') > -1 && firstLine.split('\t').length > firstLine.split(',').length) delim = '\t';
+  else if (firstLine.indexOf('|') > -1 && firstLine.split('|').length > firstLine.split(',').length) delim = '|';
+
+  var headerCells = lines[0].split(delim).map(function(c) { return c.trim(); });
+  // First cell is the WO label, rest are dates
+  var dates = headerCells.slice(1);
+
+  // Normalize dates — handle 2-digit years and various formats
+  var normalizedDates = dates.map(function(d) {
+    var m = d.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (!m) return d; // pass through if can't parse
+    var yr = parseInt(m[3]);
+    if (yr < 100) yr += 2000;
+    return m[1] + '/' + m[2] + '/' + yr;
+  });
+
+  var outputLines = ['Date,WO,VAC'];
+  var rowCount = 0;
+
+  for (var i = 1; i < lines.length; i++) {
+    var cells = lines[i].split(delim).map(function(c) { return c.trim(); });
+    var wo = cells[0];
+    if (!wo) continue;
+
+    for (var j = 1; j < cells.length && j <= normalizedDates.length; j++) {
+      var val = cells[j];
+      if (val === '' || val === undefined) continue;
+      // Strip + sign, keep - sign
+      val = val.replace(/^\+/, '');
+      outputLines.push(normalizedDates[j - 1] + ',' + wo + ',' + val);
+      rowCount++;
+    }
+  }
+
+  lastResult = outputLines.join('\n');
+  document.getElementById('output').value = lastResult;
+  showStatus('Converted ' + (lines.length - 1) + ' work orders x ' + normalizedDates.length + ' dates = ' + rowCount + ' rows.', false);
+}
+
+function download() {
+  if (!lastResult) { showStatus('Convert first, then download.', true); return; }
+  var blob = new Blob([lastResult], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'vac-tracker-log.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function showStatus(msg, isErr) {
+  var el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + (isErr ? 'err' : 'ok');
+}
+</script>
+</body>
+</html>
