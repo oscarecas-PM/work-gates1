@@ -79,10 +79,10 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>9.0</td></tr>
-    <tr><td class="label">Date:</td><td>March 25, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>9.1</td></tr>
+    <tr><td class="label">Date:</td><td>April 3, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Earned Value Management integration, P File XLSX parsing, Manager EVM Report</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Hold status backward compatibility (ORDER_HOLD/OPER_HOLD), Detail View audit location formatting</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-28.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
@@ -461,12 +461,12 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-62</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Hold Rack:</strong> An order is placed on the Hold Rack (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found. <em>When an Audit CSV is loaded, orders with gate value "HOLD" (case-insensitive) are placed on the Hold Rack.</em> The display label is &ldquo;Hold Rack&rdquo; everywhere: Gate View header, Detail View audit location, multi-gate warnings, and mobile audit UI.</td>
+    <td><strong>Hold Rack:</strong> An order is placed on the Hold Rack (displayed first, dark red header) if any of the following are true: (1) Order Hold Status is "ORDER STOP" or "ORDER_HOLD" (case-insensitive), (2) the order has no Active or In Queue operations, (3) no qualifying (non-ignored) gate is found. <em>When an Audit CSV is loaded, orders with gate value "HOLD" (case-insensitive) are placed on the Hold Rack.</em> The display label is &ldquo;Hold Rack&rdquo; everywhere: Gate View header, Detail View audit location, multi-gate warnings, and mobile audit UI.</td>
   </tr>
   <tr>
     <td class="req-id">F-63</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>"Oper stop" handling:</strong> If Order Hold Status is "OPER STOP" (or any value other than "ORDER STOP"), the order stays on its qualifying gate (not moved to Hold). The hold status is displayed on the card.</td>
+    <td><strong>"Oper stop" handling:</strong> If Order Hold Status is "OPER STOP" or "OPER_HOLD" (or any value other than "ORDER STOP"/"ORDER_HOLD"), the order stays on its qualifying gate (not moved to Hold). The hold status is displayed on the card.</td>
   </tr>
   <tr>
     <td class="req-id">F-64</td>
@@ -536,7 +536,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-99</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>OPER STOP per-operation (Gate View):</strong> In Gate View card tooltips, individual operations whose order has &ldquo;OPER STOP&rdquo; hold status show &ldquo;OPER STOP&rdquo; text per operation line. On the card face itself, only &ldquo;ORDER STOP&rdquo; is displayed (OPER STOP is <strong>not</strong> shown on the card).</td>
+    <td><strong>OPER STOP per-operation (Gate View):</strong> In Gate View card tooltips, individual operations whose order has &ldquo;OPER STOP&rdquo; or &ldquo;OPER_HOLD&rdquo; hold status show the hold text per operation line. On the card face itself, only order-level holds (&ldquo;ORDER STOP&rdquo; or &ldquo;ORDER_HOLD&rdquo;) are displayed (OPER STOP/OPER_HOLD is <strong>not</strong> shown on the card).</td>
   </tr>
   <tr>
     <td class="req-id">F-100</td>
@@ -581,7 +581,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-126</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Detail View &mdash; ORDER STOP detection across all rows:</strong> The ORDER STOP hold flag in the Detail View must scan <strong>all</strong> operation rows for a given work order, not just the first row. If any row for the order has &ldquo;ORDER STOP&rdquo; in the Hold Status column, the red hold flag is displayed on the order card. This matches the Gate View behavior which already scanned all rows.</td>
+    <td><strong>Detail View &mdash; order hold detection across all rows:</strong> The order hold flag in the Detail View must scan <strong>all</strong> operation rows for a given work order, not just the first row. If any row for the order has &ldquo;ORDER STOP&rdquo; or &ldquo;ORDER_HOLD&rdquo; in the Hold Status column, the red hold flag is displayed on the order card. This matches the Gate View behavior which already scanned all rows.</td>
   </tr>
   <tr>
     <td class="req-id">F-127</td>
@@ -790,7 +790,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-101</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>OPER STOP chip styling (Detail View):</strong> Operations belonging to an order with &ldquo;OPER STOP&rdquo; hold status receive a red 2px solid border on their operation chip and &ldquo;OPER STOP&rdquo; appended to the tooltip text. The order-info area on the left side of the card only displays &ldquo;ORDER STOP&rdquo;&mdash;if the hold status is &ldquo;OPER STOP&rdquo;, it is <strong>not</strong> shown in the order-info area.</td>
+    <td><strong>OPER STOP / OPER_HOLD chip styling (Detail View):</strong> Operations belonging to an order with &ldquo;OPER STOP&rdquo; or &ldquo;OPER_HOLD&rdquo; hold status receive a red 2px solid border on their operation chip and the hold text appended to the tooltip. The order-info area on the left side of the card only displays order-level holds (&ldquo;ORDER STOP&rdquo; or &ldquo;ORDER_HOLD&rdquo;)&mdash;if the hold status is &ldquo;OPER STOP&rdquo; or &ldquo;OPER_HOLD&rdquo;, it is <strong>not</strong> shown in the order-info area.</td>
   </tr>
   <tr>
     <td class="req-id">F-118</td>
@@ -915,6 +915,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">F-186</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>P File XLSX parsing robustness:</strong> Header row auto-detection (scans first 10 rows). Worksheet range override (scans actual cell keys to find true data extent). Percentage decimal conversion (values &le; 1 multiplied by 100). Stops at first blank WO cell.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-187</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Detail View audit location line-breaking:</strong> In the Detail View order-info area, the technician name always appears on a separate line below the gate name (e.g., &ldquo;Gate 5 - WELD QA&rdquo; on line 1, &ldquo;(with Lisa Patel)&rdquo; on line 2). When an order is found on multiple gates (split location warning), each gate appears on its own line separated by line breaks. CSS <code>.audit-loc</code> uses <code>white-space: normal</code> to allow wrapping.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-188</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Hold status backward compatibility:</strong> The app recognizes both legacy hold values (&ldquo;ORDER STOP&rdquo;, &ldquo;OPER STOP&rdquo;) and new data-source values (&ldquo;ORDER_HOLD&rdquo;, &ldquo;OPER_HOLD&rdquo;) via helper functions <code>isOrderHold()</code> and <code>isOperHold()</code>. All comparisons are case-insensitive. The original value from the data is displayed as-is on cards and in tooltips (not normalized to a canonical form).</td>
   </tr>
 </table>
 
@@ -1636,6 +1646,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>6.9</td><td>2026-03-23</td><td>Claude (AI)</td><td>Audit History Log and &ldquo;days at gate&rdquo; feature. Added 5th optional file input &mdash; Audit History Log CSV (Section 3.5). New companion tool: Audit History Builder (<code>audit-history-builder-1.html</code>) for building and maintaining cumulative audit history logs from daily audit CSVs. Added <code>parseHistoryLog()</code> and <code>calculateDaysAtGate()</code> functions. Gate View cards now display &ldquo;X days at gate&rdquo; (consecutive calendar days at current gate) or &ldquo;New&rdquo; (first observation) when history log is loaded (F-150&ndash;F-157). Streak resets only when order is positively observed at a different gate; gaps do not reset. Fully backward-compatible &mdash; no log loaded means feature is invisible. Added V-65&ndash;V-66 for days-at-gate styling. Amber-only validation for history log issues. App file: gate-tracker-26.html.</td></tr>
   <tr><td>7.0</td><td>2026-03-23</td><td>Claude (AI)</td><td>Eight-feature update with significant Detail View improvements. <strong>(1) Merged part lists</strong> (F-160&ndash;F-161): Mapped and unmapped parts combined into a single unified list; removed separate Unmapped Operations section, toggle, and filters (supersedes F-90&ndash;F-94). <strong>(2) Sort order</strong> (F-161): Parts sorted by Program then Part Number. <strong>(3) Part number search</strong> (F-162): Search input in filter bar with dropdown of matches; filters by part number or name; respects program filter; click to isolate a specific match. <strong>(4) Active gate highlighting</strong> (F-163): Light green background on gate columns where order has ACTIVE/IN QUEUE ops. Gate name added to audit location label (F-164). <strong>(5) Days at gate in Detail View</strong> (F-165): Per-order days-at-gate display using audit-based gate location. <strong>(6) Removed avg days from Gate View</strong> (F-171): &ldquo;X avg days&rdquo; label removed from cards (value retained in tooltip and FIFO sorting). <strong>(7) Priority work orders</strong> (F-167&ndash;F-170): Always-visible priority panel with text input for up to 4 order numbers; summary details line per order; red &#10038; markers on Gate View and Detail View cards; markers and summary persist in snapshots. <strong>(8) Operation chip sub-columns</strong> (F-166): Max 5 chips per sub-column, max 4 sub-columns before breaking rule; gate columns auto-size. App file: gate-tracker-27.html.</td></tr>
   <tr><td>8.0</td><td>2026-03-24</td><td>Claude (AI)</td><td>Two Detail View and Gate View corrections. <strong>(1) Audit-driven gate highlighting</strong> (F-163 updated): Gate column green background now driven by audit CSV physical location instead of MES operation status. Previously, green indicated ACTIVE/IN QUEUE operations at that gate; now it indicates the auditor confirmed the unit is physically at that gate rack. Operation status is still independently communicated via chip colors (pink=active, yellow=in queue, blue=QA, green=SMART). This separates &ldquo;what is happening&rdquo; (chips) from &ldquo;where is it&rdquo; (green background). <strong>(2) Gate View header text fixes</strong>: Technician names now render on a separate line below the gate name in smaller/lighter font instead of concatenating into one overflowing line. Hold gates now display only the gate name (e.g., &ldquo;Hold Engineering&rdquo;) instead of the gate number prefix (e.g., &ldquo;HOLD-3 - Hold Engineering&rdquo;) in both Gate View headers and audit location badges. App file: gate-tracker-28.html.</td></tr>
+  <tr><td>9.1</td><td>2026-04-03</td><td>Claude (AI)</td><td>Hold status backward compatibility and Detail View formatting. <strong>(1) Hold status values</strong> (F-188, F-62/F-63/F-99/F-101/F-126 updated): New data source uses &ldquo;ORDER_HOLD&rdquo; and &ldquo;OPER_HOLD&rdquo; instead of legacy &ldquo;ORDER STOP&rdquo; and &ldquo;OPER STOP&rdquo;. Added <code>isOrderHold()</code> and <code>isOperHold()</code> helper functions that recognize both formats. All 5 hold-status check locations updated. Display shows original value from data. <strong>(2) Detail View audit location formatting</strong> (F-187): Technician name now always appears on a separate line below the gate name. Multiple gates in split-location warnings each appear on their own line. CSS <code>.audit-loc</code> changed from <code>white-space: nowrap</code> to <code>normal</code>. App file: gate-tracker-28.html.</td></tr>
   <tr><td>9.0</td><td>2026-03-25</td><td>Claude (AI)</td><td>Earned Value Management integration. <strong>(1) P File XLSX parsing</strong> (F-186, Section 3.6): 6th file input for Peabody Excel exports. Embedded SheetJS library for XLSX parsing. Auto-detect header row, worksheet range override for human-formatted files, percentage decimal conversion. <strong>(2) EVM calculations</strong> (F-175): Per-work-order CPI, Program EAC, ETC, Production EAC, VAC, EV using hours. <strong>(3) EVM display in Detail View</strong> (F-176&ndash;F-178): Horizontal metrics row above each work order&rsquo;s gate-bar with color coding and tooltips. % Complete and Actual Hours included. <strong>(4) VAC Tracker Log</strong> (F-179&ndash;F-180, Section 3.7): 7th file input for cumulative VAC history. Appends new data after processing, exports updated log. Drives &Delta;VAC with dynamic time-span labels. <strong>(5) Manager EVM Report</strong> (F-181): Second snapshot button generating standalone HTML with Bench Cost Performance Summary and Detail View. Omits Gate View. <strong>(6) Bench Cost Performance Summary</strong> (F-182): Tabular overview organized by Program &rarr; Part Number &rarr; WO with color-coded metrics and hyperlinked work orders. <strong>(7) VAC trend plots</strong> (F-183): Canvas-rendered per-part-number plots showing VAC over time per work order, grouped by program above summary tables. Legend uses serial number or full WO number. <strong>(8) Unmapped part exclusion</strong> (F-184): Parts not in Decoder Ring completely omitted from EVM report; amber message shown in Detail View. <strong>(9) Decoder Ring EVM columns</strong> (F-185, Section 3.8): Labor Hours and Earnable Hours Flag columns added to Decoder Ring Builder export; yellow warning on import when missing. <strong>(10) VAC format converter</strong>: Companion tool (<code>vac-reformatter.html</code>) for converting wide-format historical VAC data to tall CSV format. App file: gate-tracker-28.html, decoder-ring-builder-2.html.</td></tr>
 </table>
 

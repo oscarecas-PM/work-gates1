@@ -67,7 +67,7 @@
   .order-info .field { white-space: nowrap; }
   .order-info .label { font-weight: bold; color: #555; font-size: 0.75rem; }
   .order-info .value { color: #111; font-size: 0.85rem; }
-  .audit-loc { width: 100%; font-size: 0.72rem; white-space: nowrap; }
+  .audit-loc { width: 100%; font-size: 0.72rem; white-space: normal; }
   .audit-loc-gate { color: #166534; font-weight: 600; }
   .audit-loc-split { color: #c2410c; font-weight: bold; background: #fff7ed; border: 1px solid #fb923c; border-radius: 3px; padding: 1px 4px; display: inline-block; }
   .audit-loc-notfound { color: #92400e; font-weight: 600; background: #fef3c7; border: 1px solid #f59e0b; border-radius: 3px; padding: 1px 4px; display: inline-block; }
@@ -1636,7 +1636,7 @@ function process() {
     if (!auditPreMode) return '';
     const locs = orderAuditLocations[orderNo];
     const techs = orderAuditTechs[orderNo];
-    const techStr = techs && techs.size > 0 ? ' (with ' + Array.from(techs).map(function(t){return esc(t);}).join(', ') + ')' : '';
+    const techStr = techs && techs.size > 0 ? '<br>(with ' + Array.from(techs).map(function(t){return esc(t);}).join(', ') + ')' : '';
     if (!locs || locs.size === 0) {
       return '<div class="audit-loc"><span class="audit-loc-notfound">Not found at rack/tech bench</span></div>';
     }
@@ -1644,7 +1644,7 @@ function process() {
     if (arr.length === 1) {
       return '<div class="audit-loc"><span class="audit-loc-gate">' + esc(arr[0]) + techStr + '</span></div>';
     }
-    return '<div class="audit-loc"><span class="audit-loc-split">\u26a0 ' + esc(arr.join(', ')) + techStr + '</span></div>';
+    return '<div class="audit-loc"><span class="audit-loc-split">\u26a0 ' + arr.map(function(g){return esc(g);}).join('<br>') + techStr + '</span></div>';
   }
 
   // ---- EVM Calculation Engine ----
@@ -1848,11 +1848,10 @@ function process() {
 
         let html = evmHtml + '<div class="order-row">';
 
-        // Order info — fixed width; scan ALL rows for ORDER STOP (not just firstRow)
+        // Order info — fixed width; scan ALL rows for ORDER HOLD (not just firstRow)
         let orderHoldText = '';
         for (const r of rows) {
-          const h = (r.orderHoldStatus || '').trim().toUpperCase();
-          if (h === 'ORDER STOP') { orderHoldText = 'ORDER STOP'; break; }
+          if (isOrderHold(r.orderHoldStatus)) { orderHoldText = (r.orderHoldStatus || '').trim(); break; }
         }
         html += '<div class="order-info">';
         // Feature 7: Priority marker
@@ -1895,8 +1894,9 @@ function process() {
             const info = operInfo[nOp];
             const deptUpper = info ? (info.workDept || '').toUpperCase().trim() : '';
             const showDept = info && info.workDept && deptUpper !== 'SMART';
-            const operHoldUpper = info ? (info.operHoldStatus || '').toUpperCase() : '';
-            const operStopText = operHoldUpper === 'OPER STOP' ? ' \u2014 OPER STOP' : '';
+            const operHoldRaw = info ? (info.operHoldStatus || '').trim() : '';
+            const operIsHeld = isOperHold(operHoldRaw);
+            const operStopText = operIsHeld ? ' \u2014 ' + operHoldRaw : '';
             const tooltip = info ? esc(info.operTitle) + ' \u2014 ' + esc(info.operStatus) + (showDept ? ' \u2014 ' + esc(info.workDept) : '') + (info.totalDays ? ' \u2014 ' + esc(info.totalDays) + ' avg days' : '') + operStopText : '';
             if (isActive) {
               const status = (info.operStatus || '').toUpperCase().trim();
@@ -1917,7 +1917,7 @@ function process() {
               } else {
                 colorClass = 'inactive';
               }
-              const operStopClass = operHoldUpper === 'OPER STOP' ? ' oper-stop-border' : '';
+              const operStopClass = operIsHeld ? ' oper-stop-border' : '';
               chipHtmls.push('<span class="oper-chip ' + colorClass + operStopClass + '" title="' + tooltip + '">' + esc(op) + '</span>');
             } else {
               chipHtmls.push('<span class="oper-chip inactive">' + esc(op) + '</span>');
@@ -2004,11 +2004,10 @@ function process() {
             const opNum = parseFloat(normOper(r.operNo)) || 0;
             if (opNum >= 7000 && opNum <= 7999) hasDrOps = true;
           }
-          // Determine ORDER-level hold (ORDER STOP if any row has it)
+          // Determine ORDER-level hold (ORDER STOP / ORDER_HOLD if any row has it)
           let orderHold = '';
           for (const r of rows) {
-            const h = (r.orderHoldStatus || '').trim().toUpperCase();
-            if (h === 'ORDER STOP') { orderHold = 'ORDER STOP'; break; }
+            if (isOrderHold(r.orderHoldStatus)) { orderHold = (r.orderHoldStatus || '').trim(); break; }
           }
           dailyLookup[on] = {
             program: prog, partNo: pn, serialNo: firstRow.serialNo,
@@ -2302,8 +2301,8 @@ function process() {
         const gvPartName = partNames[order.partNo] || '';
         cardHtml += '<div class="gv-part-no">' + esc(order.partNo) + (gvPartName ? ' (' + esc(gvPartName) + ')' : '') + '</div>';
         cardHtml += '<div class="gv-sn">S/N: ' + esc(order.serialNo) + '</div>';
-        // Req 7: Only ORDER STOP on card, NOT OPER STOP
-        if (order.holdStatus && order.holdStatus.toUpperCase() === 'ORDER STOP') {
+        // Req 7: Only ORDER HOLD on card, NOT OPER HOLD
+        if (isOrderHold(order.holdStatus)) {
           cardHtml += '<div class="gv-hold">' + esc(order.holdStatus.substring(0, 12)) + '</div>';
         }
         // Req 6: DR Operations label (wins over QA)
@@ -2420,6 +2419,14 @@ function normOper(s) {
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function isOrderHold(val) {
+  var v = (val || '').trim().toUpperCase();
+  return v === 'ORDER STOP' || v === 'ORDER_HOLD';
+}
+function isOperHold(val) {
+  var v = (val || '').trim().toUpperCase();
+  return v === 'OPER STOP' || v === 'OPER_HOLD';
 }
 
 // ---- VAC Trend Plot Rendering ----
