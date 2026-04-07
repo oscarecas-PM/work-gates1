@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD - Earned Hour Analysis</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #222; line-height: 1.6; }
+h1 { color: #1e3a5f; border-bottom: 3px solid #1e3a5f; padding-bottom: 0.5rem; }
+h2 { color: #1e3a5f; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+h3 { color: #334155; margin-top: 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+th { background: #334155; color: #fff; padding: 8px 12px; text-align: left; }
+td { padding: 6px 12px; border-bottom: 1px solid #e5e7eb; }
+tr:nth-child(even) { background: #f8fafc; }
+code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+.req { font-weight: bold; color: #2563eb; margin-right: 6px; }
+.version { color: #666; font-size: 0.9em; }
+ul { margin: 0.5rem 0; }
+li { margin: 0.3rem 0; }
+.note { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+.bug { background: #fef2f2; border-left: 4px solid #dc2626; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>Product Requirements Document (PRD)</h1>
+<p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
+<p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
+<p class="version">Version 1.0 | April 7, 2026 | Author: Oscar Castillo</p>
+
+<h2>1. Overview</h2>
+<p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
+
+<h2>2. Objectives</h2>
+<ul>
+  <li>Enable users to upload two required CSV files (hours earned and bundle definitions) plus an optional EV Details CSV</li>
+  <li>Aggregate earned hours per work order by month, summing across operations</li>
+  <li>Support definition of bundles grouping multiple work orders, with associated metadata</li>
+  <li>Display tabular data grouped by bundle and sorted by part number and order number</li>
+  <li>Visualize data with charts: one series per root part number plus bundle total</li>
+  <li>Provide PDF/print export of tables and charts</li>
+  <li>Provide self-contained HTML snapshot export</li>
+  <li>Hide months prior to the bundle's first earned hours to improve readability</li>
+  <li>Identify unbundled work orders to help users maintain bundle definitions</li>
+</ul>
+
+<h2>3. Architecture Constraints</h2>
+<ul>
+  <li>Entirely client-side; all processing and chart rendering happens in the browser</li>
+  <li>Single self-contained HTML file with embedded libraries</li>
+  <li>No external server calls; libraries loaded from embedded source (not CDN)</li>
+  <li>No persistent storage (cookies, localStorage, etc.)</li>
+  <li>Must work in modern browsers (Chrome, Edge)</li>
+  <li>Handle large datasets efficiently (36,000+ rows) without crashing or freezing</li>
+  <li>Clean, professional UI styling suitable for aerospace/engineering environments (navy and gray color palette, clear fonts, right-aligned numeric columns)</li>
+</ul>
+
+<h2>4. Embedded Libraries</h2>
+<table>
+  <tr><th>Library</th><th>Version</th><th>Purpose</th><th>License</th></tr>
+  <tr><td>PapaParse</td><td>v5.5.2</td><td>CSV parsing</td><td>MIT</td></tr>
+  <tr><td>Chart.js</td><td>v4.4.7</td><td>Line charts</td><td>MIT</td></tr>
+</table>
+<p>Each library is annotated in the source with version, CDN reference URL, embed date, and license for future update tracking.</p>
+
+<h2>5. Data Inputs</h2>
+
+<h3>5.1 Hours Earned CSV (required)</h3>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+  <tr><td>Order No</td><td>String</td><td>Work order identifier</td></tr>
+  <tr><td>Year of Actual End Date</td><td>Integer</td><td>e.g., 2025</td></tr>
+  <tr><td>Month of Actual End Date</td><td>String/Integer</td><td>Month name ("January") or number (1). <code>parseMonth()</code> handles both.</td></tr>
+  <tr><td>Oper No</td><td>String</td><td>Not used directly; multiple operations per WO per month are summed</td></tr>
+  <tr><td>Actual End Date</td><td>Date</td><td>Not used directly</td></tr>
+  <tr><td>Hours Earned</td><td>Numeric</td><td>Final numeric column; non-numeric values treated as 0 with warning</td></tr>
+</table>
+
+<h3>5.2 Bundle Definition CSV (required)</h3>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+  <tr><td>BundleName</td><td>String</td><td>Bundle group name (required)</td></tr>
+  <tr><td>Program</td><td>String</td><td>Program name (used for filtering)</td></tr>
+  <tr><td>Order No</td><td>String</td><td>Work order identifier (required, must be unique across bundles)</td></tr>
+  <tr><td>PartNumber</td><td>String</td><td>Part number</td></tr>
+  <tr><td>PartDescription</td><td>String</td><td>Part description / plan title</td></tr>
+  <tr><td>SerialNumber</td><td>String</td><td>Optional; fallback display uses em-dash</td></tr>
+</table>
+
+<h3>5.3 EV Details CSV (optional, multiple files)</h3>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+  <tr><td>Network</td><td>String</td><td>Network grouping (different from BundleName)</td></tr>
+  <tr><td>Order No</td><td>String</td><td>Work order identifier (required, used as join key)</td></tr>
+  <tr><td>Part No</td><td>String</td><td>Part number</td></tr>
+  <tr><td>Plan Title</td><td>String</td><td>Part description / plan title</td></tr>
+  <tr><td>Program</td><td>String</td><td>Program name</td></tr>
+</table>
+<p>Multiple files can be uploaded at once. Duplicate work orders (by Order No) are deduplicated; first occurrence wins.</p>
+
+<h2>6. Functional Requirements</h2>
+
+<h3>6.1 Data Processing</h3>
+<p><span class="req">F-01</span> Sum hours earned per work order for each Year-Month, aggregating multiple operations in a month.</p>
+<p><span class="req">F-02</span> Map each work order to a bundle, including Program, Part Number, Part Description, and Serial Number metadata.</p>
+<p><span class="req">F-03</span> Validate that all work orders listed in the bundle definition exist in the hours data; if missing, display a warning.</p>
+<p><span class="req">F-04</span> Detect work orders appearing in multiple bundles and display an error (blocks rendering).</p>
+<p><span class="req">F-05</span> Identify unbundled work orders (in hours data but not in any bundle).</p>
+<p><span class="req">F-06</span> Support month names ("January", "February", etc.) and numeric months (1, 2, etc.) in the Month column via <code>parseMonth()</code>.</p>
+
+<h3>6.2 Filters</h3>
+<p><span class="req">F-10</span> "Data starts from" filter: Month/Year dropdowns. Default: January 2025. All data before the selected month is excluded from all tables and charts.</p>
+<p><span class="req">F-11</span> "Hide last month" toggle: Checkbox, checked by default. Removes the last month in the dataset from all views (incomplete month data).</p>
+<p><span class="req">F-12</span> Program filter chips: Clickable chips for each program found in bundle + EV Details data. Blue = included, grey strikethrough = excluded. Deselecting a program removes its work orders everywhere (bundled, unbundled, summary, CSV export).</p>
+<p><span class="req">F-13</span> Filters take effect when "Apply" is clicked (for start date/year) or immediately on toggle (hide last month, program chips).</p>
+
+<h3>6.3 Summary Section</h3>
+<p><span class="req">F-20</span> Summary section at top of output, titled "Total Earned Hours Per Month".</p>
+<p><span class="req">F-21</span> Summary table: one row per bundle showing monthly totals, an "Unbundled (N WOs)" row, and a "Grand Total" row.</p>
+<p><span class="req">F-22</span> Each cell displays the hours value followed by a percentage label showing that value as a fraction of the Grand Total for that month.</p>
+<p><span class="req">F-23</span> Summary chart: one colored line per bundle, a purple dashed "Unbundled" line (if unbundled hours exist), and a navy dashed "Grand Total" line.</p>
+<p><span class="req">F-24</span> Chart title: "Total Earned Hours Per Month".</p>
+
+<h3>6.4 Region Averaging</h3>
+<p><span class="req">F-30</span> Up to 3 averaging regions per chart (summary and each bundle chart independently).</p>
+<p><span class="req">F-31</span> Each region has Start and End month dropdowns.</p>
+<p><span class="req">F-32</span> On the chart canvas: shaded box with dashed border, dashed horizontal average line, and "Avg: X.X hrs/mo" label with white background.</p>
+<p><span class="req">F-33</span> Region colors: blue (#2563eb), amber (#b45309), green (#15803d).</p>
+<p><span class="req">F-34</span> Region controls hidden in snapshot and print; shaded boxes and labels remain on chart image.</p>
+<p><span class="req">F-35</span> Region average is computed from the "total" line of that chart (Grand Total for summary, Bundle Total for per-bundle).</p>
+
+<h3>6.5 Per-Bundle Sections</h3>
+<p><span class="req">F-40</span> One section per bundle, with heading showing bundle name.</p>
+<p><span class="req">F-41</span> Chart displayed above data table. Chart always visible; data table collapsed by default.</p>
+<p><span class="req">F-42</span> Click bundle heading to expand/collapse data table (triangle icon toggle).</p>
+<p><span class="req">F-43</span> Bundle chart groups work orders by root part number. Root = everything before last dash (e.g., <code>123456-12</code> and <code>123456-13</code> both become <code>123456-x</code>).</p>
+<p><span class="req">F-44</span> Chart legend shows part description (first found for that root group) instead of root part code.</p>
+<p><span class="req">F-45</span> Bundle chart includes a dashed "Bundle Total" line.</p>
+<p><span class="req">F-46</span> Data table shows individual work orders: Program, Part Number (with description), Serial No, Order No, monthly hours, Total.</p>
+<p><span class="req">F-47</span> Work orders sorted within each bundle by Part Number (alphanumeric) then Order No.</p>
+
+<h3>6.6 Unbundled Work Orders</h3>
+<p><span class="req">F-50</span> Collapsible section at bottom with amber header. Default: collapsed.</p>
+<p><span class="req">F-51</span> Only shows work orders that have earned hours within the allowed month range (respects start filter + hide-last-month).</p>
+<p><span class="req">F-52</span> If EV Details uploaded: groups by Program > Network > Part No + Plan Title hierarchy. Otherwise: flat alphabetical list.</p>
+<p><span class="req">F-53</span> WOs not found in EV Details shown under "(No EV Details Match)" subheading.</p>
+
+<h3>6.7 Export: Unbundled CSV</h3>
+<p><span class="req">F-60</span> "Export Unbundled CSV" button (visible when unbundled WOs exist).</p>
+<p><span class="req">F-61</span> CSV format matches Bundle Definition file: BundleName (empty), Program, Order No, PartNumber, PartDescription, SerialNumber (empty).</p>
+<p><span class="req">F-62</span> Program, PartNumber, PartDescription populated from EV Details when available.</p>
+<p><span class="req">F-63</span> Sorted same as unbundled display (Program > Network > Part No > Order No).</p>
+<p><span class="req">F-64</span> Filename: <code>unbundled-work-orders-YYYY-MM-DD.csv</code></p>
+
+<h3>6.8 Export: Save Snapshot</h3>
+<p><span class="req">F-70</span> Green "Save Snapshot" button, visible after Analyze.</p>
+<p><span class="req">F-71</span> Generates self-contained HTML file with all CSS, rendered tables, and charts as embedded PNG images.</p>
+<p><span class="req">F-72</span> Includes "Proprietary - Internal Use Only" banner.</p>
+<p><span class="req">F-73</span> Includes snapshot timestamp.</p>
+<p><span class="req">F-74</span> Includes Print/Export PDF button and toggleBundle/toggleUnbundled interactivity.</p>
+<p><span class="req">F-75</span> Region controls, program filter, and start date filter hidden in snapshot.</p>
+<p><span class="req">F-76</span> Filename: <code>earned-hour-analysis-YYYY-MM-DD.html</code></p>
+
+<h3>6.9 Export: Print / PDF</h3>
+<p><span class="req">F-80</span> "Print / Export PDF" button triggers <code>window.print()</code>.</p>
+<p><span class="req">F-81</span> Print timestamp shown during print.</p>
+<p><span class="req">F-82</span> <code>@media print</code> hides: file inputs, action bar, description, validation panel, region controls, filters bar.</p>
+<p><span class="req">F-83</span> Forces unbundled section open during print.</p>
+<p><span class="req">F-84</span> <code>break-inside: avoid</code> on bundle sections.</p>
+
+<h2>7. Visual & UI Requirements</h2>
+<p><span class="req">V-01</span> Navy/gray color palette: #1e3a5f (headings), #334155 (table headers), #2563eb (primary buttons), #f5f5f5 (background).</p>
+<p><span class="req">V-02</span> Right-aligned numeric columns with <code>font-variant-numeric: tabular-nums</code>.</p>
+<p><span class="req">V-03</span> Chart height: 600px per chart.</p>
+<p><span class="req">V-04</span> Chart canvas max-height: 1050px in CSS.</p>
+<p><span class="req">V-05</span> Summary table percentage labels: small grey text (<code>.pct</code> class, 0.72rem, #888).</p>
+<p><span class="req">V-06</span> Unbundled header: amber (#b45309), clickable, with triangle toggle icon.</p>
+<p><span class="req">V-07</span> Bundle headings: navy, clickable, with triangle toggle icon. Default collapsed (table only).</p>
+<p><span class="req">V-08</span> Program filter chips: blue (#2563eb) when on, grey (#e2e8f0) with strikethrough when off.</p>
+<p><span class="req">V-09</span> Region shaded boxes with dashed borders, average line, and labeled averages on white background.</p>
+<p><span class="req">V-10</span> 12-color chart palette for distinguishing lines.</p>
+<p><span class="req">V-11</span> Grand Total line: navy #1e3a5f, dashed [6,3], borderWidth 3.</p>
+<p><span class="req">V-12</span> Unbundled line: purple #9333ea, dashed [3,2], borderWidth 2.</p>
+
+<h2>8. Security Controls</h2>
+<p><span class="req">S-01</span> <code>esc()</code> function for XSS prevention (5-char HTML entity escaping).</p>
+<p><span class="req">S-02</span> CSP meta tag: <code>default-src 'self' 'unsafe-inline'; img-src 'self' data:;</code></p>
+<p><span class="req">S-03</span> JSON <code>&lt;</code> sanitization in snapshot script blocks (<code>\x3c</code> escape).</p>
+<p><span class="req">S-04</span> Proprietary banner on snapshots.</p>
+<p><span class="req">S-05</span> CSV field quoting in export (commas in values wrapped in double quotes).</p>
+
+<h2>9. Known Issues</h2>
+<div class="bug">
+  <strong>BUG (2026-04-07):</strong> "Hide last month" toggle not working. April 2026 data still appears when checkbox is checked. Suspected cause: the orphan WO month-range extension loop in <code>renderAll()</code> re-adds months after <code>computeGlobalMonthRange()</code> has trimmed them via <code>trimLastMonth()</code>. Needs investigation and fix.
+</div>
+
+<h2>10. Open Questions</h2>
+<ol>
+  <li>Should regions persist across Apply/filter changes, or reset? (Currently they reset on every renderAll.)</li>
+  <li>Should the unbundled CSV export include monthly hours columns in addition to the bundle-definition format?</li>
+  <li>Should there be a "select all / deselect all" button for program chips?</li>
+</ol>
+
+</body>
+</html>
