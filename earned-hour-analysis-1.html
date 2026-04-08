@@ -45,8 +45,10 @@ h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
 .total-row td { border-top: 2px solid #94a3b8; }
 .chart-container { background: #fff; border: 1px solid #ccc; border-top: none; padding: 1rem; }
 .chart-container canvas { max-height: 1050px; width: 100% !important; }
-.bundle-heading { cursor: pointer; user-select: none; }
-.bundle-heading .collapse-icon { margin-left: 8px; font-size: 0.8rem; }
+.bundle-heading { user-select: none; }
+.table-toggle { background: #e2e8f0; color: #334155; padding: 0.5rem 1rem; border: 1px solid #ccc; border-top: none; font-size: 0.9rem; font-weight: 600; cursor: pointer; user-select: none; }
+.table-toggle:hover { background: #cbd5e1; }
+.table-toggle .collapse-icon { margin-left: 8px; font-size: 0.8rem; }
 .bundle-collapsed { display: none; }
 .pct { font-size: 0.72rem; color: #888; margin-left: 3px; }
 .unbundled-header { background: #b45309; color: #fff; padding: 0.75rem 1rem; border-radius: 6px 6px 0 0; font-size: 1.1rem; font-weight: bold; cursor: pointer; user-select: none; }
@@ -68,6 +70,11 @@ h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
 .add-region-btn { padding: 5px 12px; font-size: 0.82rem; cursor: pointer; background: #e2e8f0; border: 1px solid #94a3b8; border-radius: 3px; color: #334155; }
 .add-region-btn:hover { background: #cbd5e1; }
 .remove-region-btn { cursor: pointer; background: none; border: none; color: #dc2626; font-size: 1rem; padding: 0 4px; }
+/* Takeaway */
+.takeaway-wrap { background: #fff; border: 1px solid #ccc; border-top: none; padding: 0.5rem 1rem; display: flex; align-items: center; gap: 8px; }
+.takeaway-wrap label { font-size: 0.85rem; font-weight: 600; color: #334155; white-space: nowrap; }
+.takeaway-wrap input { flex: 1; padding: 4px 8px; font-size: 0.85rem; border: 1px solid #94a3b8; border-radius: 3px; color: #334155; }
+.takeaway-caption { background: #fffbeb; border: 1px solid #f59e0b; border-top: none; padding: 0.6rem 1rem; font-size: 0.9rem; color: #92400e; font-style: italic; }
 /* Filters bar */
 .filters-bar { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #334155; }
 .filters-bar label { font-weight: 600; white-space: nowrap; }
@@ -78,11 +85,12 @@ h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
 .prog-chip.on { background: #2563eb; color: #fff; border-color: #2563eb; }
 .prog-chip.off { background: #e2e8f0; color: #888; border-color: #ccc; text-decoration: line-through; }
 @media print {
-  .file-inputs, .action-bar, .description, .val-panel, .region-controls, .filters-bar { display: none !important; }
+  .file-inputs, .action-bar, .description, .val-panel, .region-controls, .filters-bar, .table-toggle, .takeaway-wrap { display: none !important; }
   body { background: #fff; padding: 0.5rem; }
   .bundle-section { break-inside: avoid; }
   #print-timestamp { display: block !important; }
   .ub-collapsed { display: block !important; }
+  .bundle-collapsed { display: block !important; }
 }
 </style>
 
@@ -529,7 +537,7 @@ function renderSummary(bundles, globalMonths, filteredOrphans, hoursMap) {
   for (var m2 = 0; m2 < globalMonths.length; m2++) html += '<th class="num">' + esc(formatMonthLabel(globalMonths[m2])) + '</th>';
   html += '<th class="num">Total</th></tr></thead><tbody>';
   for (var b2 = 0; b2 < bundleTotals.length; b2++) {
-    var bt2 = bundleTotals[b2]; html += '<tr><td>' + esc(bt2.name) + '</td>';
+    var bt2 = bundleTotals[b2]; html += '<tr><td><a href="#bundle-section-' + b2 + '" style="color:#2563eb;text-decoration:none;border-bottom:1px dashed #93c5fd;">' + esc(bt2.name) + '</a></td>';
     var rowTotal = 0;
     for (var m3 = 0; m3 < globalMonths.length; m3++) {
       var val = bt2.monthlyTotals[globalMonths[m3]] || 0; rowTotal += val;
@@ -551,6 +559,7 @@ function renderSummary(bundles, globalMonths, filteredOrphans, hoursMap) {
   html += '<td class="num">' + grandTotal.toFixed(1) + '</td></tr>';
   html += '</tbody></table></div><div class="chart-container" id="summary-chart"></div>';
   html += '<div class="region-controls" id="region-controls-summary"><button class="add-region-btn" onclick="addRegion()">+ Add Region</button></div>';
+  html += '<div class="takeaway-wrap"><label>Takeaway:</label><input type="text" id="takeaway-summary" placeholder="Add a takeaway note for this chart\u2026" maxlength="500"></div>';
   html += '</div>';
   return { html: html, bundleTotals: bundleTotals, bundledMonthTotals: bundledMT, unbundledMonthTotals: umt, grandMonthTotals: grandMT };
 }
@@ -606,6 +615,129 @@ var regionPlugin = {
   }
 };
 
+function legendToggleHandler(totalLabel) {
+  return function(e, legendItem, legend) {
+    Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+    var chart = legend.chart;
+    var ds = chart.data.datasets;
+    var totalIdx = -1;
+    for (var i = 0; i < ds.length; i++) { if (ds[i].label === totalLabel) totalIdx = i; }
+    if (totalIdx < 0) return;
+    var len = ds[totalIdx].data.length;
+    var newT = []; for (var j = 0; j < len; j++) newT.push(0);
+    var excl = [];
+    for (var d = 0; d < ds.length; d++) {
+      if (d === totalIdx) continue;
+      if (chart.getDatasetMeta(d).hidden) { excl.push(ds[d].label); continue; }
+      for (var m = 0; m < len; m++) newT[m] += ds[d].data[m] || 0;
+    }
+    ds[totalIdx].data = newT;
+    var key = chart.canvas.dataset.regionKey;
+    if (chartRegionState[key]) chartRegionState[key].totalData = newT;
+    chart._excludedLabels = excl;
+    chart.update();
+    if (key) renderChartRegionControls(key);
+  };
+}
+
+var excludedNotePlugin = {
+  id: 'excludedNote',
+  afterDraw: function(chart) {
+    var excluded = chart._excludedLabels;
+    if (!excluded || excluded.length === 0) return;
+    var ctx = chart.ctx, area = chart.chartArea;
+    var text = 'Excluding: ' + excluded.join(', ');
+    ctx.save();
+    ctx.font = '11px Arial';
+    var tw = ctx.measureText(text).width;
+    // Truncate if too wide
+    if (tw > area.right - area.left - 20) {
+      text = 'Excluding: ' + excluded.length + ' item' + (excluded.length > 1 ? 's' : '') + ' hidden';
+    }
+    ctx.fillStyle = '#dc2626';
+    ctx.textAlign = 'right';
+    ctx.fillText(text, area.right, area.top - 5);
+    ctx.restore();
+  }
+};
+
+var boxZoomPlugin = {
+  id: 'boxZoom',
+  afterInit: function(chart) {
+    var canvas = chart.canvas;
+    var zs = { dragging: false, startX: 0, startY: 0, endX: 0, endY: 0, zoomed: false };
+    chart._boxZoom = zs;
+    canvas.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      var rect = canvas.getBoundingClientRect();
+      var x = e.clientX - rect.left, y = e.clientY - rect.top;
+      var area = chart.chartArea;
+      if (x < area.left || x > area.right || y < area.top || y > area.bottom) return;
+      zs.dragging = true;
+      zs.startX = x; zs.startY = y; zs.endX = x; zs.endY = y;
+    });
+    canvas.addEventListener('mousemove', function(e) {
+      if (!zs.dragging) return;
+      var rect = canvas.getBoundingClientRect();
+      var area = chart.chartArea;
+      zs.endX = Math.max(area.left, Math.min(e.clientX - rect.left, area.right));
+      zs.endY = Math.max(area.top, Math.min(e.clientY - rect.top, area.bottom));
+      chart.draw();
+    });
+    canvas.addEventListener('mouseup', function(e) {
+      if (!zs.dragging) return;
+      zs.dragging = false;
+      if (Math.abs(zs.endX - zs.startX) < 10 && Math.abs(zs.endY - zs.startY) < 10) return;
+      var xScale = chart.scales.x, yScale = chart.scales.y;
+      var x1 = Math.min(zs.startX, zs.endX), x2 = Math.max(zs.startX, zs.endX);
+      var y1 = Math.min(zs.startY, zs.endY), y2 = Math.max(zs.startY, zs.endY);
+      var xMinIdx = Math.max(0, Math.floor(xScale.getValueForPixel(x1)));
+      var xMaxIdx = Math.min(chart.data.labels.length - 1, Math.ceil(xScale.getValueForPixel(x2)));
+      var yMin = yScale.getValueForPixel(y2);
+      var yMax = yScale.getValueForPixel(y1);
+      chart.options.scales.x.min = chart.data.labels[xMinIdx];
+      chart.options.scales.x.max = chart.data.labels[xMaxIdx];
+      chart.options.scales.y.min = Math.max(0, yMin);
+      chart.options.scales.y.max = yMax;
+      zs.zoomed = true;
+      chart.update();
+    });
+    canvas.addEventListener('dblclick', function() {
+      if (!zs.zoomed) return;
+      delete chart.options.scales.x.min;
+      delete chart.options.scales.x.max;
+      delete chart.options.scales.y.min;
+      delete chart.options.scales.y.max;
+      chart.options.scales.y.beginAtZero = true;
+      zs.zoomed = false;
+      chart.update();
+    });
+  },
+  afterDraw: function(chart) {
+    var zs = chart._boxZoom;
+    if (!zs) return;
+    var ctx = chart.ctx;
+    if (zs.dragging) {
+      var x = Math.min(zs.startX, zs.endX), y = Math.min(zs.startY, zs.endY);
+      var w = Math.abs(zs.endX - zs.startX), h = Math.abs(zs.endY - zs.startY);
+      ctx.save();
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.1)';
+      ctx.strokeStyle = 'rgba(37, 99, 235, 0.5)';
+      ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+      ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
+      ctx.setLineDash([]); ctx.restore();
+    }
+    if (zs.zoomed && !zs.dragging) {
+      ctx.save();
+      ctx.font = 'bold 11px Arial';
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.8)';
+      ctx.textAlign = 'left';
+      ctx.fillText('\u21ba Double-click to reset zoom', chart.chartArea.left + 5, chart.chartArea.top + 14);
+      ctx.restore();
+    }
+  }
+};
+
 function buildRegionOpts(labels, selectedIdx) {
   var html = '';
   for (var i = 0; i < labels.length; i++) {
@@ -635,6 +767,9 @@ function renderChartRegionControls(chartKey) {
   }
   if (state.regions.length < 3) {
     html += '<button class="add-region-btn" onclick="addChartRegion(\'' + chartKey + '\')">+ Add Region</button>';
+  }
+  if (chartKey.indexOf('bundle-') === 0) {
+    html += '<a href="#" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;" style="margin-left:auto;font-size:0.82rem;color:#64748b;text-decoration:none;">&uarr; Back to Top</a>';
   }
   container.innerHTML = html;
 }
@@ -693,9 +828,9 @@ function renderSummaryChart(summaryResult, globalMonths) {
   var sc = new Chart(canvas, { type: 'line', data: { labels: labels, datasets: datasets },
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { title: { display: true, text: 'Total Earned Hours Per Month', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
-        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 } } },
+        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 }, onClick: legendToggleHandler('Grand Total') } },
       scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours Earned' } }, x: { title: { display: true, text: 'Month' } } } },
-    plugins: [regionPlugin] });
+    plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin] });
   chartRegionState['summary'].chart = sc;
   chartInstances.push(sc);
   renderChartRegionControls('summary');
@@ -756,9 +891,9 @@ function renderBundleChart(bundle, months, containerId, bundleIdx) {
   var chart = new Chart(canvas, { type: 'line', data: { labels: labels, datasets: datasets },
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { title: { display: true, text: bundle.name + ' \u2014 Hours Earned Trend', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
-        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 } } },
+        legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 }, onClick: legendToggleHandler('Bundle Total') } },
       scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours Earned' } }, x: { title: { display: true, text: 'Month' } } } },
-    plugins: [regionPlugin] });
+    plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin] });
   chartRegionState[chartKey].chart = chart;
   chartInstances.push(chart);
   renderChartRegionControls(chartKey);
@@ -901,7 +1036,7 @@ function renderAll(bundles) {
           var allKeys = globalMonths.slice();
           allKeys.push(key);
           allKeys.sort();
-          globalMonths = getMonthRange(allKeys[0], allKeys[allKeys.length-1]);
+          globalMonths = trimLastMonth(getMonthRange(allKeys[0], allKeys[allKeys.length-1]));
         }
       }
     }
@@ -911,10 +1046,12 @@ function renderAll(bundles) {
   if (summaryResult) html += summaryResult.html;
   for (var b = 0; b < filteredBundles.length; b++) {
     var bundle = filteredBundles[b], months = computeMonthRange(bundle), chartId = 'chart-' + b;
-    html += '<div class="bundle-section">';
-    html += '<div class="bundle-heading" onclick="toggleBundle(' + b + ')">' + esc(bundle.name) + ' <span class="collapse-icon" id="bicon-' + b + '">&#9654;</span></div>';
+    html += '<div class="bundle-section" id="bundle-section-' + b + '">';
+    html += '<div class="bundle-heading">' + esc(bundle.name) + '</div>';
     html += '<div class="chart-container" id="' + chartId + '"></div>';
     html += '<div class="region-controls" id="region-controls-bundle-' + b + '"><button class="add-region-btn" onclick="addBundleRegion(' + b + ')">+ Add Region</button></div>';
+    html += '<div class="takeaway-wrap"><label>Takeaway:</label><input type="text" id="takeaway-bundle-' + b + '" placeholder="Add a takeaway note for this chart\u2026" maxlength="500"></div>';
+    html += '<div class="table-toggle" onclick="toggleBundle(' + b + ')">Data Table <span class="collapse-icon" id="bicon-' + b + '">&#9654;</span></div>';
     html += '<div class="bundle-body bundle-collapsed" id="bbody-' + b + '">';
     if (months.length === 0) html += '<div class="table-wrap" style="padding:1rem;color:#666;">No earned hours data found for this bundle.</div>';
     else html += renderBundleTable(bundle, months);
@@ -1018,23 +1155,78 @@ function saveSnapshot() {
   var dateStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
   var timeStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
   var outputEl = document.getElementById('output');
-  var canvases = outputEl.querySelectorAll('canvas');
-  var imgNodes = [];
-  canvases.forEach(function(cv) {
-    var img = document.createElement('img'); img.src = cv.toDataURL('image/png');
-    img.style.width = '100%'; img.style.maxHeight = '350px';
-    cv.parentNode.insertBefore(img, cv); cv.style.display = 'none';
-    imgNodes.push({ img: img, canvas: cv });
+
+  // Serialize chart configs for interactive reconstruction
+  var chartConfigs = [];
+  chartInstances.forEach(function(chart) {
+    var key = chart.canvas.dataset.regionKey || '';
+    var ds = chart.data.datasets.map(function(d) {
+      var obj = { label: d.label, data: d.data.slice(), borderColor: d.borderColor, backgroundColor: d.backgroundColor,
+        borderWidth: d.borderWidth, pointRadius: d.pointRadius, tension: d.tension, fill: d.fill };
+      if (d.borderDash) obj.borderDash = d.borderDash;
+      return obj;
+    });
+    var titleText = '';
+    try { titleText = chart.options.plugins.title.text || ''; } catch(e) {}
+    var totalLabel = '';
+    if (key === 'summary') totalLabel = 'Grand Total';
+    else if (key.indexOf('bundle-') === 0) totalLabel = 'Bundle Total';
+    var savedRegions = [];
+    if (chartRegionState[key] && chartRegionState[key].regions) {
+      savedRegions = chartRegionState[key].regions.map(function(r) { return { startIdx: r.startIdx, endIdx: r.endIdx }; });
+    }
+    // Capture takeaway text if present
+    var takeawayEl = document.getElementById('takeaway-' + key);
+    var takeawayText = takeawayEl ? takeawayEl.value.trim() : '';
+    chartConfigs.push({
+      regionKey: key,
+      containerId: chart.canvas.parentNode.id,
+      labels: chart.data.labels.slice(),
+      datasets: ds,
+      titleText: titleText,
+      totalLabel: totalLabel,
+      regions: savedRegions,
+      takeaway: takeawayText
+    });
   });
-  // Hide controls before capturing
+  var chartDataJSON = JSON.stringify(chartConfigs).replace(/</g, '\\u003c');
+
+  // Get Chart.js library source from the page
+  var scripts = document.querySelectorAll('script');
+  var chartJsSrc = '';
+  for (var si = 0; si < scripts.length; si++) {
+    if (scripts[si].textContent.indexOf('Chart.js') > -1 && scripts[si].textContent.length > 10000) {
+      chartJsSrc = scripts[si].textContent; break;
+    }
+  }
+
+  // Remove canvases, replace with empty containers (they already have IDs)
+  var canvases = outputEl.querySelectorAll('canvas');
+  var savedCanvases = [];
+  canvases.forEach(function(cv) {
+    savedCanvases.push({ parent: cv.parentNode, nextSibling: cv.nextSibling, canvas: cv });
+    cv.parentNode.removeChild(cv);
+  });
+
+  // Hide controls before capturing (region controls will be re-shown by chart init script)
   var allRegionCtrls = outputEl.querySelectorAll('.region-controls');
+  var allTakeaways = outputEl.querySelectorAll('.takeaway-wrap');
   var startFilter = document.getElementById('filters-bar');
-  allRegionCtrls.forEach(function(rc) { rc.style.display = 'none'; });
+  allRegionCtrls.forEach(function(rc) { rc.dataset.prevDisplay = rc.style.display; rc.style.display = 'none'; });
+  allTakeaways.forEach(function(tw) { tw.dataset.prevDisplay = tw.style.display; tw.style.display = 'none'; });
   if (startFilter) startFilter.style.display = 'none';
   var outputHtml = outputEl.innerHTML;
-  allRegionCtrls.forEach(function(rc) { rc.style.display = ''; });
+  allRegionCtrls.forEach(function(rc) { rc.style.display = rc.dataset.prevDisplay || ''; delete rc.dataset.prevDisplay; });
+  allTakeaways.forEach(function(tw) { tw.style.display = tw.dataset.prevDisplay || ''; delete tw.dataset.prevDisplay; });
   if (startFilter) startFilter.style.display = '';
-  imgNodes.forEach(function(item) { item.canvas.style.display = ''; item.img.parentNode.removeChild(item.img); });
+
+  // Restore canvases
+  savedCanvases.forEach(function(item) {
+    if (item.nextSibling) item.parent.insertBefore(item.canvas, item.nextSibling);
+    else item.parent.appendChild(item.canvas);
+  });
+  // Force chart resize to restore original dimensions
+  chartInstances.forEach(function(c) { c.resize(); });
 
   var h = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
   h += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
@@ -1047,7 +1239,63 @@ function saveSnapshot() {
   h += '<div style="margin-bottom:1rem;"><button class="btn btn-slate" onclick="printPage()">Print / Export PDF\x3c/button>\x3c/div>\n';
   h += '<div id="print-timestamp" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;">\x3c/div>\n';
   h += outputHtml;
-  h += '\n\x3cscript>\n';
+  // Embed Chart.js library
+  h += '\n\x3cscript>\n' + chartJsSrc + '\n\x3c/script>\n';
+  // Embed chart data and reconstruction script
+  h += '\x3cscript>\n';
+  h += 'var _chartData = ' + chartDataJSON + ';\n';
+  h += 'var chartRegionState = {};\n';
+  // Region colors
+  h += 'var REGION_COLORS = [{color:"#2563eb",bg:"rgba(37,99,235,0.08)",border:"rgba(37,99,235,0.3)",cls:"r1",label:"Region 1"},{color:"#b45309",bg:"rgba(180,83,9,0.08)",border:"rgba(180,83,9,0.3)",cls:"r2",label:"Region 2"},{color:"#15803d",bg:"rgba(21,128,61,0.08)",border:"rgba(21,128,61,0.3)",cls:"r3",label:"Region 3"}];\n';
+  // Region plugin
+  h += 'var regionPlugin={id:"regionBoxes",afterDraw:function(chart){var key=chart.canvas.dataset.regionKey;var state=key?chartRegionState[key]:null;if(!state||!state.regions.length)return;var ctx=chart.ctx,xScale=chart.scales.x,yScale=chart.scales.y,area=chart.chartArea;var step=xScale.getPixelForValue(1)-xScale.getPixelForValue(0);for(var r=0;r<state.regions.length;r++){var reg=state.regions[r],rc=REGION_COLORS[r];if(reg.startIdx>reg.endIdx)continue;var x1=xScale.getPixelForValue(reg.startIdx)-step*0.45;var x2=xScale.getPixelForValue(reg.endIdx)+step*0.45;ctx.save();ctx.fillStyle=rc.bg;ctx.fillRect(x1,area.top,x2-x1,area.bottom-area.top);ctx.strokeStyle=rc.border;ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.strokeRect(x1,area.top,x2-x1,area.bottom-area.top);ctx.setLineDash([]);var sum=0,cnt=0;for(var i=reg.startIdx;i<=reg.endIdx;i++){sum+=state.totalData[i];cnt++}var avg=cnt>0?sum/cnt:0;var avgY=yScale.getPixelForValue(avg);ctx.strokeStyle=rc.color;ctx.lineWidth=2;ctx.setLineDash([6,3]);ctx.beginPath();ctx.moveTo(x1,avgY);ctx.lineTo(x2,avgY);ctx.stroke();ctx.setLineDash([]);var lt="Avg: "+avg.toFixed(1)+" hrs/mo";ctx.font="bold 11px Arial";var tw=ctx.measureText(lt).width;var lx=x1+(x2-x1)/2-tw/2;var ly=avgY-10;if(ly<area.top+15)ly=avgY+18;ctx.fillStyle="rgba(255,255,255,0.9)";ctx.fillRect(lx-4,ly-11,tw+8,15);ctx.strokeStyle=rc.border;ctx.lineWidth=1;ctx.strokeRect(lx-4,ly-11,tw+8,15);ctx.fillStyle=rc.color;ctx.fillText(lt,lx,ly);ctx.restore()}}};\n';
+  // Legend toggle handler
+  h += 'function legendToggleHandler(totalLabel){return function(e,legendItem,legend){Chart.defaults.plugins.legend.onClick.call(this,e,legendItem,legend);var chart=legend.chart;var ds=chart.data.datasets;var totalIdx=-1;for(var i=0;i<ds.length;i++){if(ds[i].label===totalLabel)totalIdx=i}if(totalIdx<0)return;var len=ds[totalIdx].data.length;var newT=[];for(var j=0;j<len;j++)newT.push(0);var excl=[];for(var d=0;d<ds.length;d++){if(d===totalIdx)continue;if(chart.getDatasetMeta(d).hidden){excl.push(ds[d].label);continue}for(var m=0;m<len;m++)newT[m]+=ds[d].data[m]||0}ds[totalIdx].data=newT;var key=chart.canvas.dataset.regionKey;if(chartRegionState[key])chartRegionState[key].totalData=newT;chart._excludedLabels=excl;chart.update();if(key)renderChartRegionControls(key)}}\n';
+  // Excluded note plugin
+  h += 'var excludedNotePlugin={id:"excludedNote",afterDraw:function(chart){var excluded=chart._excludedLabels;if(!excluded||excluded.length===0)return;var ctx=chart.ctx,area=chart.chartArea;var text="Excluding: "+excluded.join(", ");ctx.save();ctx.font="11px Arial";var tw=ctx.measureText(text).width;if(tw>area.right-area.left-20){text="Excluding: "+excluded.length+" item"+(excluded.length>1?"s":"")+" hidden"}ctx.fillStyle="#dc2626";ctx.textAlign="right";ctx.fillText(text,area.right,area.top-5);ctx.restore()}};\n';
+  // Box zoom plugin
+  h += 'var boxZoomPlugin={id:"boxZoom",afterInit:function(chart){var canvas=chart.canvas;var zs={dragging:false,startX:0,startY:0,endX:0,endY:0,zoomed:false};chart._boxZoom=zs;canvas.addEventListener("mousedown",function(e){if(e.button!==0)return;var rect=canvas.getBoundingClientRect();var x=e.clientX-rect.left,y=e.clientY-rect.top;var area=chart.chartArea;if(x<area.left||x>area.right||y<area.top||y>area.bottom)return;zs.dragging=true;zs.startX=x;zs.startY=y;zs.endX=x;zs.endY=y});canvas.addEventListener("mousemove",function(e){if(!zs.dragging)return;var rect=canvas.getBoundingClientRect();var area=chart.chartArea;zs.endX=Math.max(area.left,Math.min(e.clientX-rect.left,area.right));zs.endY=Math.max(area.top,Math.min(e.clientY-rect.top,area.bottom));chart.draw()});canvas.addEventListener("mouseup",function(e){if(!zs.dragging)return;zs.dragging=false;if(Math.abs(zs.endX-zs.startX)<10&&Math.abs(zs.endY-zs.startY)<10)return;var xScale=chart.scales.x,yScale=chart.scales.y;var x1=Math.min(zs.startX,zs.endX),x2=Math.max(zs.startX,zs.endX);var y1=Math.min(zs.startY,zs.endY),y2=Math.max(zs.startY,zs.endY);var xMinIdx=Math.max(0,Math.floor(xScale.getValueForPixel(x1)));var xMaxIdx=Math.min(chart.data.labels.length-1,Math.ceil(xScale.getValueForPixel(x2)));var yMin=yScale.getValueForPixel(y2);var yMax=yScale.getValueForPixel(y1);chart.options.scales.x.min=chart.data.labels[xMinIdx];chart.options.scales.x.max=chart.data.labels[xMaxIdx];chart.options.scales.y.min=Math.max(0,yMin);chart.options.scales.y.max=yMax;zs.zoomed=true;chart.update()});canvas.addEventListener("dblclick",function(){if(!zs.zoomed)return;delete chart.options.scales.x.min;delete chart.options.scales.x.max;delete chart.options.scales.y.min;delete chart.options.scales.y.max;chart.options.scales.y.beginAtZero=true;zs.zoomed=false;chart.update()})},afterDraw:function(chart){var zs=chart._boxZoom;if(!zs)return;var ctx=chart.ctx;if(zs.dragging){var x=Math.min(zs.startX,zs.endX),y=Math.min(zs.startY,zs.endY);var w=Math.abs(zs.endX-zs.startX),h=Math.abs(zs.endY-zs.startY);ctx.save();ctx.fillStyle="rgba(37,99,235,0.1)";ctx.strokeStyle="rgba(37,99,235,0.5)";ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);ctx.restore()}if(zs.zoomed&&!zs.dragging){ctx.save();ctx.font="bold 11px Arial";ctx.fillStyle="rgba(37,99,235,0.8)";ctx.textAlign="left";ctx.fillText("\\u21ba Double-click to reset zoom",chart.chartArea.left+5,chart.chartArea.top+14);ctx.restore()}}};\n';
+  // esc helper
+  h += 'function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}\n';
+  // Region control functions
+  h += 'function buildRegionOpts(labels,selectedIdx){var html="";for(var i=0;i<labels.length;i++){html+=\'<option value="\'+i+\'"\'+(i===selectedIdx?" selected":"")+\'>\'+esc(labels[i])+\'</option>\'}return html}\n';
+  h += 'function renderChartRegionControls(chartKey){var state=chartRegionState[chartKey];var container=document.getElementById("region-controls-"+chartKey);if(!container||!state)return;var html="";for(var r=0;r<state.regions.length;r++){var rc=REGION_COLORS[r],reg=state.regions[r];var sum=0,cnt=0;for(var i=reg.startIdx;i<=reg.endIdx;i++){sum+=state.totalData[i];cnt++}var avg=cnt>0?sum/cnt:0;html+=\'<div class="region-row \'+rc.cls+\'">\';html+=\'<label>\'+rc.label+\':</label>\';html+=\'<select onchange="updateChartRegion(\\\'\'+chartKey+\'\\\',\'+r+\',\\\'start\\\',this.value)">\'+buildRegionOpts(state.labels,reg.startIdx)+\'</select>\';html+=\'<span>to</span>\';html+=\'<select onchange="updateChartRegion(\\\'\'+chartKey+\'\\\',\'+r+\',\\\'end\\\',this.value)">\'+buildRegionOpts(state.labels,reg.endIdx)+\'</select>\';html+=\'<span class="avg-display">Avg: \'+avg.toFixed(1)+\' hrs/mo</span>\';html+=\'<button class="remove-region-btn" onclick="removeChartRegion(\\\'\'+chartKey+\'\\\',\'+r+\')" title="Remove">&times;</button>\';html+=\'</div>\'}if(state.regions.length<3){html+=\'<button class="add-region-btn" onclick="addChartRegion(\\\'\'+chartKey+\'\\\')">+ Add Region</button>\'}container.innerHTML=html}\n';
+  h += 'function addChartRegion(chartKey){var state=chartRegionState[chartKey];if(!state||state.regions.length>=3)return;state.regions.push({startIdx:0,endIdx:Math.min(state.labels.length-1,2)});renderChartRegionControls(chartKey);if(state.chart)state.chart.update()}\n';
+  h += 'function removeChartRegion(chartKey,idx){var state=chartRegionState[chartKey];if(!state)return;state.regions.splice(idx,1);renderChartRegionControls(chartKey);if(state.chart)state.chart.update()}\n';
+  h += 'function updateChartRegion(chartKey,idx,which,val){var state=chartRegionState[chartKey];if(!state||!state.regions[idx])return;var v=parseInt(val,10);if(which==="start")state.regions[idx].startIdx=v;else state.regions[idx].endIdx=v;renderChartRegionControls(chartKey);if(state.chart)state.chart.update()}\n';
+  // Reconstruct charts from serialized data
+  h += '(function(){\n';
+  h += '  _chartData.forEach(function(cfg){\n';
+  h += '    var container = document.getElementById(cfg.containerId);\n';
+  h += '    if (!container) return;\n';
+  h += '    container.innerHTML = "";\n';
+  h += '    var rcDiv = document.getElementById("region-controls-" + cfg.regionKey);\n';
+  h += '    if (rcDiv) rcDiv.style.display = "";\n';
+  h += '    var canvas = document.createElement("canvas"); canvas.style.height = "600px";\n';
+  h += '    canvas.dataset.regionKey = cfg.regionKey;\n';
+  h += '    container.appendChild(canvas);\n';
+  h += '    var totalData = [];\n';
+  h += '    for (var ti = 0; ti < cfg.datasets.length; ti++) {\n';
+  h += '      if (cfg.datasets[ti].label === cfg.totalLabel) { totalData = cfg.datasets[ti].data.slice(); break; }\n';
+  h += '    }\n';
+  h += '    chartRegionState[cfg.regionKey] = { regions: cfg.regions || [], chart: null, totalData: totalData, labels: cfg.labels };\n';
+  h += '    var chart = new Chart(canvas, { type: "line", data: { labels: cfg.labels, datasets: cfg.datasets },\n';
+  h += '      options: { responsive: true, maintainAspectRatio: false,\n';
+  h += '        plugins: { title: { display: true, text: cfg.titleText, font: { size: 14, weight: "bold" }, color: "#1e3a5f" },\n';
+  h += '          legend: { position: "bottom", labels: { usePointStyle: true, padding: 15 }, onClick: legendToggleHandler(cfg.totalLabel) } },\n';
+  h += '        scales: { y: { beginAtZero: true, title: { display: true, text: "Hours Earned" } }, x: { title: { display: true, text: "Month" } } } },\n';
+  h += '      plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin] });\n';
+  h += '    chartRegionState[cfg.regionKey].chart = chart;\n';
+  h += '    renderChartRegionControls(cfg.regionKey);\n';
+  h += '    if (cfg.takeaway) {\n';
+  h += '      var caption = document.createElement("div");\n';
+  h += '      caption.className = "takeaway-caption";\n';
+  h += '      caption.textContent = "Takeaway: " + cfg.takeaway;\n';
+  h += '      container.parentNode.insertBefore(caption, container.nextSibling);\n';
+  h += '    }\n';
+  h += '  });\n';
+  h += '})();\n';
+  // UI functions
   h += 'function printPage(){var t=document.getElementById("print-timestamp");t.textContent="Exported: "+new Date().toLocaleDateString()+" "+new Date().toLocaleTimeString();t.style.display="block";setTimeout(function(){window.print()},100)}\n';
   h += 'function toggleUnbundled(){var c=document.getElementById("ub-content"),i=document.getElementById("ub-icon");if(!c)return;if(c.classList.contains("ub-collapsed")){c.classList.remove("ub-collapsed");if(i)i.innerHTML="\\u25BC"}else{c.classList.add("ub-collapsed");if(i)i.innerHTML="\\u25B6"}}\n';
   h += 'function toggleBundle(idx){var b=document.getElementById("bbody-"+idx),i=document.getElementById("bicon-"+idx);if(!b)return;if(b.classList.contains("bundle-collapsed")){b.classList.remove("bundle-collapsed");if(i)i.innerHTML="\\u25BC"}else{b.classList.add("bundle-collapsed");if(i)i.innerHTML="\\u25B6"}}\n';

@@ -27,7 +27,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
 <p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
-<p class="version">Version 1.0 | April 7, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.1 | April 7, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
@@ -121,19 +121,24 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-22</span> Each cell displays the hours value followed by a percentage label showing that value as a fraction of the Grand Total for that month.</p>
 <p><span class="req">F-23</span> Summary chart: one colored line per bundle, a purple dashed "Unbundled" line (if unbundled hours exist), and a navy dashed "Grand Total" line.</p>
 <p><span class="req">F-24</span> Chart title: "Total Earned Hours Per Month".</p>
+<p><span class="req">F-25</span> Bundle names in the summary table "Category" column are hyperlinks that scroll to the corresponding bundle section.</p>
 
 <h3>6.4 Region Averaging</h3>
 <p><span class="req">F-30</span> Up to 3 averaging regions per chart (summary and each bundle chart independently).</p>
 <p><span class="req">F-31</span> Each region has Start and End month dropdowns.</p>
 <p><span class="req">F-32</span> On the chart canvas: shaded box with dashed border, dashed horizontal average line, and "Avg: X.X hrs/mo" label with white background.</p>
 <p><span class="req">F-33</span> Region colors: blue (#2563eb), amber (#b45309), green (#15803d).</p>
-<p><span class="req">F-34</span> Region controls hidden in snapshot and print; shaded boxes and labels remain on chart image.</p>
+<p><span class="req">F-34</span> Region controls hidden in snapshot and print; shaded boxes and labels remain on chart canvas.</p>
 <p><span class="req">F-35</span> Region average is computed from the "total" line of that chart (Grand Total for summary, Bundle Total for per-bundle).</p>
+<p><span class="req">F-36</span> When legend items are toggled off, the total line and region averages recalculate to exclude hidden datasets. A red "Excluding: ..." note appears at the top-right of the chart area.</p>
+<p><span class="req">F-37</span> Predefined regions are preserved in snapshots and restored with their start/end indices on snapshot load.</p>
 
 <h3>6.5 Per-Bundle Sections</h3>
-<p><span class="req">F-40</span> One section per bundle, with heading showing bundle name.</p>
+<p><span class="req">F-40</span> One section per bundle, with heading showing bundle name (static, not clickable). Each section has an <code>id="bundle-section-N"</code> anchor for navigation from the summary table.</p>
 <p><span class="req">F-41</span> Chart displayed above data table. Chart always visible; data table collapsed by default.</p>
-<p><span class="req">F-42</span> Click bundle heading to expand/collapse data table (triangle icon toggle).</p>
+<p><span class="req">F-42</span> A "Data Table" toggle bar (grey, below region controls) expands/collapses the data table with a triangle icon. Bundle heading is static.</p>
+<p><span class="req">F-48</span> "Back to Top" link in the region controls bar (right-aligned) smooth-scrolls to the top of the page.</p>
+<p><span class="req">F-49</span> "Back to Top" link persists when regions are added/removed (rendered by <code>renderChartRegionControls</code> for bundle charts).</p>
 <p><span class="req">F-43</span> Bundle chart groups work orders by root part number. Root = everything before last dash (e.g., <code>123456-12</code> and <code>123456-13</code> both become <code>123456-x</code>).</p>
 <p><span class="req">F-44</span> Chart legend shows part description (first found for that root group) instead of root part code.</p>
 <p><span class="req">F-45</span> Bundle chart includes a dashed "Bundle Total" line.</p>
@@ -146,27 +151,40 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-52</span> If EV Details uploaded: groups by Program > Network > Part No + Plan Title hierarchy. Otherwise: flat alphabetical list.</p>
 <p><span class="req">F-53</span> WOs not found in EV Details shown under "(No EV Details Match)" subheading.</p>
 
-<h3>6.7 Export: Unbundled CSV</h3>
+<h3>6.7 Chart Interactivity</h3>
+<p><span class="req">F-85</span> Box zoom: click and drag a rectangle on any chart to zoom into that area. Applies to both axes via <code>scales.x/y.min/max</code>.</p>
+<p><span class="req">F-86</span> Double-click on a zoomed chart to reset zoom (restores <code>beginAtZero</code> and clears axis bounds).</p>
+<p><span class="req">F-87</span> While zoomed, a hint label "&#x21ba; Double-click to reset zoom" is rendered at the top-left of the chart area.</p>
+<p><span class="req">F-88</span> During drag, a semi-transparent blue selection rectangle with dashed border is drawn on the chart canvas.</p>
+<p><span class="req">F-89</span> Zoom drag only activates when mousedown is inside <code>chart.chartArea</code> (legend clicks are not intercepted).</p>
+<p><span class="req">F-90</span> Takeaway input: a text field labeled "Takeaway:" appears below the region controls of every chart (summary and per-bundle). Max length 500 characters.</p>
+<p><span class="req">F-91</span> Takeaway inputs are hidden in print output and excluded from snapshot HTML. Non-empty takeaway text is exported as a styled caption ("Takeaway: ...") in the snapshot.</p>
+
+<h3>6.8 Export: Unbundled CSV</h3>
+<!-- Note: sections renumbered from 6.7/6.8/6.9 to 6.8/6.9/6.10 after inserting 6.7 Chart Interactivity -->
 <p><span class="req">F-60</span> "Export Unbundled CSV" button (visible when unbundled WOs exist).</p>
 <p><span class="req">F-61</span> CSV format matches Bundle Definition file: BundleName (empty), Program, Order No, PartNumber, PartDescription, SerialNumber (empty).</p>
 <p><span class="req">F-62</span> Program, PartNumber, PartDescription populated from EV Details when available.</p>
 <p><span class="req">F-63</span> Sorted same as unbundled display (Program > Network > Part No > Order No).</p>
 <p><span class="req">F-64</span> Filename: <code>unbundled-work-orders-YYYY-MM-DD.csv</code></p>
 
-<h3>6.8 Export: Save Snapshot</h3>
+<h3>6.9 Export: Save Snapshot</h3>
 <p><span class="req">F-70</span> Green "Save Snapshot" button, visible after Analyze.</p>
-<p><span class="req">F-71</span> Generates self-contained HTML file with all CSS, rendered tables, and charts as embedded PNG images.</p>
+<p><span class="req">F-71</span> Generates self-contained HTML file with all CSS, rendered tables, and fully interactive Chart.js charts. Chart.js library and chart configurations (labels, datasets, options) are embedded as JSON and reconstructed on load.</p>
 <p><span class="req">F-72</span> Includes "Proprietary - Internal Use Only" banner.</p>
 <p><span class="req">F-73</span> Includes snapshot timestamp.</p>
-<p><span class="req">F-74</span> Includes Print/Export PDF button and toggleBundle/toggleUnbundled interactivity.</p>
-<p><span class="req">F-75</span> Region controls, program filter, and start date filter hidden in snapshot.</p>
+<p><span class="req">F-74</span> Full chart interactivity preserved in snapshot: legend toggling (with total recalculation), box zoom, region add/remove/update, and data table expand/collapse.</p>
+<p><span class="req">F-75</span> Program filter, start date filter, and takeaway inputs hidden in snapshot. Region controls visible and functional.</p>
 <p><span class="req">F-76</span> Filename: <code>earned-hour-analysis-YYYY-MM-DD.html</code></p>
+<p><span class="req">F-77</span> Chart canvas height preserved at 600px in both the snapshot and the source file after export (no resizing side effects).</p>
+<p><span class="req">F-78</span> Predefined regions (start/end indices) serialized and restored in snapshot.</p>
+<p><span class="req">F-79</span> Non-empty takeaway text rendered as styled amber caption ("Takeaway: ...") below the chart in the snapshot.</p>
 
-<h3>6.9 Export: Print / PDF</h3>
+<h3>6.10 Export: Print / PDF</h3>
 <p><span class="req">F-80</span> "Print / Export PDF" button triggers <code>window.print()</code>.</p>
 <p><span class="req">F-81</span> Print timestamp shown during print.</p>
-<p><span class="req">F-82</span> <code>@media print</code> hides: file inputs, action bar, description, validation panel, region controls, filters bar.</p>
-<p><span class="req">F-83</span> Forces unbundled section open during print.</p>
+<p><span class="req">F-82</span> <code>@media print</code> hides: file inputs, action bar, description, validation panel, region controls, filters bar, table-toggle bar, takeaway inputs.</p>
+<p><span class="req">F-83</span> Forces unbundled section and bundle data tables open during print.</p>
 <p><span class="req">F-84</span> <code>break-inside: avoid</code> on bundle sections.</p>
 
 <h2>7. Visual & UI Requirements</h2>
@@ -176,12 +194,18 @@ li { margin: 0.3rem 0; }
 <p><span class="req">V-04</span> Chart canvas max-height: 1050px in CSS.</p>
 <p><span class="req">V-05</span> Summary table percentage labels: small grey text (<code>.pct</code> class, 0.72rem, #888).</p>
 <p><span class="req">V-06</span> Unbundled header: amber (#b45309), clickable, with triangle toggle icon.</p>
-<p><span class="req">V-07</span> Bundle headings: navy, clickable, with triangle toggle icon. Default collapsed (table only).</p>
+<p><span class="req">V-07</span> Bundle headings: navy, static (not clickable). "Data Table" toggle bar: grey (#e2e8f0), with triangle icon, cursor pointer.</p>
 <p><span class="req">V-08</span> Program filter chips: blue (#2563eb) when on, grey (#e2e8f0) with strikethrough when off.</p>
 <p><span class="req">V-09</span> Region shaded boxes with dashed borders, average line, and labeled averages on white background.</p>
 <p><span class="req">V-10</span> 12-color chart palette for distinguishing lines.</p>
 <p><span class="req">V-11</span> Grand Total line: navy #1e3a5f, dashed [6,3], borderWidth 3.</p>
 <p><span class="req">V-12</span> Unbundled line: purple #9333ea, dashed [3,2], borderWidth 2.</p>
+<p><span class="req">V-13</span> "Excluding" note: red (#dc2626), 11px Arial, right-aligned above chart area. Truncated to item count if wider than chart.</p>
+<p><span class="req">V-14</span> Zoom selection rectangle: blue (#2563eb) fill at 10% opacity, dashed border at 50% opacity.</p>
+<p><span class="req">V-15</span> Zoom reset hint: bold 11px Arial, blue (#2563eb) at 80% opacity, top-left of chart area.</p>
+<p><span class="req">V-16</span> Takeaway input: white background, 1px #94a3b8 border, 0.85rem font. Caption in snapshot: amber background (#fffbeb), #f59e0b border, italic, #92400e text.</p>
+<p><span class="req">V-17</span> Summary table bundle name hyperlinks: blue (#2563eb), no underline, dashed bottom border (#93c5fd).</p>
+<p><span class="req">V-18</span> "Back to Top" link: 0.82rem, grey (#64748b), no text decoration, right-aligned via <code>margin-left: auto</code>.</p>
 
 <h2>8. Security Controls</h2>
 <p><span class="req">S-01</span> <code>esc()</code> function for XSS prevention (5-char HTML entity escaping).</p>
@@ -191,9 +215,10 @@ li { margin: 0.3rem 0; }
 <p><span class="req">S-05</span> CSV field quoting in export (commas in values wrapped in double quotes).</p>
 
 <h2>9. Known Issues</h2>
-<div class="bug">
-  <strong>BUG (2026-04-07):</strong> "Hide last month" toggle not working. April 2026 data still appears when checkbox is checked. Suspected cause: the orphan WO month-range extension loop in <code>renderAll()</code> re-adds months after <code>computeGlobalMonthRange()</code> has trimmed them via <code>trimLastMonth()</code>. Needs investigation and fix.
+<div class="note">
+  <strong>RESOLVED (v1.1):</strong> "Hide last month" toggle was not working. Root cause: the orphan WO month-range extension loop in <code>renderAll()</code> called <code>getMonthRange()</code> without re-applying <code>trimLastMonth()</code>, re-adding the last month after it had been trimmed. Fixed by wrapping the expansion call with <code>trimLastMonth()</code>.
 </div>
+<p style="font-size:0.9rem;color:#666;">No open bugs at this time.</p>
 
 <h2>10. Open Questions</h2>
 <ol>
