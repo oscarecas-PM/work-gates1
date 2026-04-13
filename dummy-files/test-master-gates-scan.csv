@@ -1,0 +1,14 @@
+Gate Number,Gate Name,Technician 1,Technician 2,Scanned Location
+HOLD-1,Hold Rack A,,,HOLD AREA A
+HOLD-2,Hold Rack B,,,HOLD AREA B
+1,Receiving,Mike Johnson,,REC BAY 1
+2,CNC Machining,Sarah Chen,Tom Rivera,CNC ROOM
+3,Deburr / QA,John Smith,,DEBURR STATION
+4,Welding,Dave Wilson,,WELD SHOP
+5,Weld QA,Lisa Park,,WELD QA AREA
+6,Paint,Carlos Ruiz,,PAINT BOOTH
+7,Pressure Test,,,PRESSURE LAB
+7.1,Pressure Test - Data Review,,,PRESSURE REVIEW
+8,Final Assembly,James Lee,,FINAL ASSY
+9,Final QA,Karen White,,FINAL QA BAY
+10,Shipping,Bob Turner,,SHIPPING DOCK

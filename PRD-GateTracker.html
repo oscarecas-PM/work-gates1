@@ -79,8 +79,8 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>9.1</td></tr>
-    <tr><td class="label">Date:</td><td>April 3, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>9.2</td></tr>
+    <tr><td class="label">Date:</td><td>April 12, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
     <tr><td class="label">Status:</td><td>REVISED &mdash; Hold status backward compatibility (ORDER_HOLD/OPER_HOLD), Detail View audit location formatting</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-28.html</td></tr>
@@ -223,6 +223,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>Gate Name</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Descriptive name (e.g., &ldquo;Pressure Test - Data Review&rdquo;, &ldquo;Hold Rack A&rdquo;). Used as the display label in Gate View headers and Mobile Audit buttons. Must not be empty.</td></tr>
   <tr><td>Technician 1</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Primary (highest-priority) technician assigned to this gate. May be blank &mdash; the gate still appears in the Mobile Audit and Gate View but without technician buttons (F-134).</td></tr>
   <tr><td>Technician 2&ndash;10</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Additional technicians in descending priority order. Column position determines priority: column 1 = primary, column 2 = secondary, etc. Maximum 10 technician columns. Columns may be omitted entirely if fewer are needed.</td></tr>
+  <tr><td>Scanned Location</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Maps a barcode-scan location string (as it appears in the Scanned Data CSV) to this gate. 1:1 mapping &mdash; each gate has at most one scanned location value. Used for scan-data-driven Gate View placement (F-189). Matching is case-insensitive with zero-width/non-printable character stripping (F-195). When this column is absent or empty for a gate, scan data at that location appears in the &ldquo;Unmapped Locations&rdquo; section (F-193).</td></tr>
 </table>
 
 <p><span class="tag tag-explicit">EXPLICIT</span> <strong>Key rules:</strong> (1) One row per gate &mdash; duplicate gate numbers are a blocking validation error (F-139). (2) Row order in the file determines gate display order in the Gate View and Mobile Audit (F-146). (3) Technician priority is determined by column order, not a separate field. (4) Gates with no technicians still require a row to register the gate location. (5) A single technician may appear on multiple gates (support coverage), but the same technician as Technician 1 on multiple gates triggers a warning (F-140). (6) All values are auto-trimmed of leading/trailing whitespace (F-137).</p>
@@ -294,7 +295,19 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 
 <p><span class="tag tag-explicit">EXPLICIT</span> <strong>Key rules:</strong> (1) The log grows monotonically &mdash; new rows appended, old rows never modified. (2) Deduplication on composite key: Date + WO. (3) A companion tool (<code>vac-reformatter.html</code>) converts wide-format historical VAC data into the tall CSV format.</p>
 
-<h3>3.8 Decoder Ring EVM Columns</h3>
+<h3>3.8 Scanned Data CSV &mdash; Optional (Multiple Files)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> One or more optional CSV files containing barcode scan data from a dashboard. A team member conducts daily barcode scanning of hardware to location; the scan data is downloaded from a dashboard and uploaded here. When loaded, this file <strong>drives Gate View placement</strong> as an alternative to the Mobile Audit CSV. The two inputs are mutually exclusive &mdash; loading one clears the other (F-196). The file input accepts multiple files which are automatically combined (F-190).</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Source</th><th>Description</th></tr>
+  <tr><td>Work Order ID</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Work order number. Corresponds to &ldquo;Order No&rdquo; in the Daily Upload. Matched against Daily Upload for enrichment.</td></tr>
+  <tr><td>Date Time</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Timestamp of the scan, formatted as <code>M/D/YYYY HH:MM</code> (24-hour) or <code>M/D/YYYY H:MM:SS AM/PM</code> (12-hour). The database creates multiple line items per scan (one per component within a work order); duplicate Work Order ID + Date Time combinations are collapsed to a single entry (F-191). Only the most recent calendar date across all entries is used for placement (F-192).</td></tr>
+  <tr><td>Location</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>The scanned physical location. Mapped to a gate via the Master Gates &ldquo;Scanned Location&rdquo; column. When a location is not found in the mapping, it appears in the &ldquo;Unmapped Locations&rdquo; section (F-193). Matching is case-insensitive with non-printable character stripping (F-195).</td></tr>
+</table>
+
+<p><span class="tag tag-explicit">EXPLICIT</span> <strong>Key rules:</strong> (1) Multiple files may be uploaded simultaneously via a single file input with multi-select. (2) Files are combined by taking the header from the first file and appending data rows from all files. (3) The &ldquo;Date Time&rdquo; column is matched by exact header name (case-insensitive) &mdash; other columns containing &ldquo;Date Time&rdquo; as a substring (e.g., &ldquo;Oper Log Date Time&rdquo;) are not matched. (4) Work orders in the scan data but not in the Daily Upload: if the location maps to a gate, shown as a gold &ldquo;not found on daily upload&rdquo; card; if unmapped, omitted entirely (likely a scan from another lab).</p>
+
+<h3>3.9 Decoder Ring EVM Columns</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> The Decoder Ring CSV now includes two additional columns for EVM calculations: <strong>Labor Hours</strong> (planned hours per operation) and <strong>Earnable Hours Flag</strong> (&ldquo;Y&rdquo; or &ldquo;N&rdquo; &mdash; operations flagged &ldquo;N&rdquo; are excluded from ETC calculations). These columns are exported by the Decoder Ring Builder and travel with the file. When missing, a yellow warning is shown on import and EVM calculations are disabled.</p>
 
 <!-- ============================================================ -->
@@ -1043,6 +1056,68 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 </table>
 
 
+<h3>4.13 Scanned Data &mdash; Gate View Placement</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> When Scanned Data files are loaded (Section 3.8), they drive Gate View placement as an alternative to the Mobile Audit CSV. The two inputs are mutually exclusive per session.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-189</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Scan-data-driven placement:</strong> When Scanned Data files are loaded and processed, Gate View placement is driven entirely by the scan data. The Mobile Audit CSV placement logic (F-95) is not used. Scan locations are mapped to gates via the Master Gates &ldquo;Scanned Location&rdquo; column. Cards within each gate display identically to audit mode (program colors, DR/QA borders, hold status, tooltips).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-190</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Multi-file upload:</strong> The Scanned Data file input accepts multiple files via a single multi-select input. Files are combined automatically &mdash; header from the first file, data rows appended from all files. Status displays total rows and file count (e.g., &ldquo;Loaded 744 rows from 2 files&rdquo;).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-191</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Component-level deduplication:</strong> The scan database creates multiple line items per work order scan (one per component). Duplicate Work Order ID + Date Time combinations are collapsed to a single entry. Only unique Work Order ID + Location combinations on the latest date are used for placement.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-192</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Most-recent-date filtering:</strong> When scan data spans multiple calendar dates, only the single most recent calendar date (globally across all entries) is used for Gate View placement. Earlier dates represent prior locations, not current state. Within the most recent date, if a work order appears at multiple locations, it is treated as a split location (F-194).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-193</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Unmapped Locations&rdquo; section:</strong> Scan locations not found in the Master Gates &ldquo;Scanned Location&rdquo; column are collected into an &ldquo;Unmapped Locations&rdquo; section displayed after all mapped gates. Each unmapped location becomes its own sub-section with the raw location string as the header. The section is collapsible (default: open). Only work orders present in the Daily Upload are shown in unmapped locations &mdash; orders not in the Daily Upload AND not mapped are omitted entirely (likely scans from another lab sharing the same database).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-194</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Same-day split location detection:</strong> When a work order appears at multiple locations on the same calendar date, all locations are shown with an orange warning label (e.g., &ldquo;&hellip; Also at Gate 5&rdquo;), consistent with the existing split-location pattern (F-123). This applies across both mapped and unmapped locations.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-195</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Location string cleaning:</strong> All location strings (from both Scanned Data and Master Gates &ldquo;Scanned Location&rdquo; column) are cleaned by stripping zero-width characters, non-breaking spaces, non-printable characters, and collapsing whitespace before comparison. Matching is case-insensitive. This prevents invisible character mismatches between dashboard exports and manually entered Master Gates values.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-196</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Mutual exclusivity:</strong> The Mobile Audit CSV and Scanned Data inputs are mutually exclusive per session. Loading scan files clears any loaded audit CSV (and vice versa), including resetting the file input and status display. Only one drives Gate View placement at a time. The &ldquo;Generate Mobile Audit&rdquo; button remains available regardless of which mode is active (it uses Decoder Ring + Daily Upload data, not audit/scan data).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-197</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not found on a rack&rdquo; in scan mode:</strong> When scan data is loaded, active work orders from the Daily Upload that do not appear in the scan data are collected into the &ldquo;Not found on a rack&rdquo; section, identical to audit mode behavior (F-96). Collapsible, default closed, sorted by Program &gt; DR ops first &gt; Part No. &gt; Order No. (F-121).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-198</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Detail View scan location indicator:</strong> When scan data is loaded, each work order in the Detail View displays its scan location below the S/N field. States: (1) Mapped single location &mdash; green text showing gate label (e.g., &ldquo;Gate 3 (Deburr / QA)&rdquo;); (2) Split location &mdash; orange warning badge listing all locations; (3) Unmapped location &mdash; orange badge showing raw location string with &ldquo;(unmapped)&rdquo; suffix; (4) Not found in scan data &mdash; amber badge. Hidden when no scan or audit data is loaded. Applies to both Detail View and Unmapped Operations section.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-199</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Scan date display:</strong> When scan data is loaded, the Gate View title area displays the calendar date used for placement (e.g., &ldquo;Scan data from 4/8/2026&rdquo;), derived from the most recent date found in the data (F-192).</td>
+  </tr>
+</table>
+
 <!-- ============================================================ -->
 <!-- 5. VISUAL / UI REQUIREMENTS                                    -->
 <!-- ============================================================ -->
@@ -1175,6 +1250,21 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td class="req-id">V-66</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
     <td><strong>&ldquo;New&rdquo; label:</strong> Class <code>.gv-gate-age-new</code>. Same base styling as V-65, with <code>font-style: italic</code> and color #6b7280 to visually distinguish from numeric values. Displayed for orders present in today&rsquo;s audit but absent from the history log.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-67</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Unmapped Locations&rdquo; header:</strong> Class <code>.gv-gate-header.unmapped-gate</code>. Background #6d28d9 (purple), white text. Collapsible with triangle icon. Default state: open. Each unmapped location within has a sub-header with background #7c3aed, white text, font-size 0.85rem, showing the raw location string and order count.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-68</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Scan date label:</strong> Class <code>.gv-scan-date</code>. Font-size 0.9rem, color #555, margin-bottom 0.75rem. Displayed below the Gate View title when scan data is loaded (e.g., &ldquo;Scan data from 4/8/2026&rdquo;). Hidden in print view.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-69</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Scan location badge (Detail View):</strong> Reuses existing audit location badge classes &mdash; <code>.audit-loc-gate</code> (green, mapped), <code>.audit-loc-split</code> (orange, multi-location), <code>.audit-loc-notfound</code> (amber, not in scan data). Unmapped locations display the raw location string with an &ldquo;(unmapped)&rdquo; suffix.</td>
   </tr>
 </table>
 
