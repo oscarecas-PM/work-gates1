@@ -79,8 +79,8 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>9.2</td></tr>
-    <tr><td class="label">Date:</td><td>April 12, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>9.3</td></tr>
+    <tr><td class="label">Date:</td><td>April 13, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
     <tr><td class="label">Status:</td><td>REVISED &mdash; Hold status backward compatibility (ORDER_HOLD/OPER_HOLD), Detail View audit location formatting</td></tr>
     <tr><td class="label">App File:</td><td>gate-tracker-28.html</td></tr>
@@ -204,7 +204,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>Program</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Program name (top-level grouping)</td></tr>
   <tr><td>Serial Numbers</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Serial number (shown in order header)</td></tr>
   <tr><td>Hold Status</td><td>Yes</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Hold flag (shown in red when present, truncated to 12 characters)</td></tr>
-  <tr><td>Avg. DaysCurrentOper</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Average days at the current operation &mdash; displayed on Gate View cards and in tooltips as &ldquo;avg days&rdquo;. Used for FIFO sorting within gates.</td></tr>
+  <tr><td>Avg. DaysCurrentOper</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Average days at the current operation &mdash; used for FIFO sorting within gates. <strong>Not</strong> displayed on cards or in tooltips.</td></tr>
   <tr><td>Work Department</td><td>No</td><td><span class="tag tag-explicit">EXPLICIT</span></td><td>Department assignment &mdash; drives chip color logic and QA border indicator</td></tr>
 </table>
 
@@ -309,6 +309,20 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 
 <h3>3.9 Decoder Ring EVM Columns</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> The Decoder Ring CSV now includes two additional columns for EVM calculations: <strong>Labor Hours</strong> (planned hours per operation) and <strong>Earnable Hours Flag</strong> (&ldquo;Y&rdquo; or &ldquo;N&rdquo; &mdash; operations flagged &ldquo;N&rdquo; are excluded from ETC calculations). These columns are exported by the Decoder Ring Builder and travel with the file. When missing, a yellow warning is shown on import and EVM calculations are disabled.</p>
+
+<h3>3.10 WO Avg Hours CSV &mdash; Optional</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file exported from the Earned Hour Analysis tool containing per-work-order average hours earned per month over a configurable lookback period. When loaded alongside the Decoder Ring and Daily Upload, enables completion estimate display in the Detail View.</p>
+
+<table class="data-table">
+  <tr><th>Column</th><th>Required</th><th>Description</th></tr>
+  <tr><td>Order No</td><td>Yes</td><td>Work order number. Matches &ldquo;Order No&rdquo; in the Daily Upload.</td></tr>
+  <tr><td>Avg Hours Per Month</td><td>Yes</td><td>Average hours earned per month over the lookback period.</td></tr>
+  <tr><td>Std Deviation</td><td>No</td><td>Population standard deviation of monthly hours.</td></tr>
+  <tr><td>CV</td><td>No</td><td>Coefficient of Variation (stdDev / avg). Blank if avg = 0.</td></tr>
+  <tr><td>Month Count</td><td>No</td><td>Number of months in the lookback period.</td></tr>
+  <tr><td>Period Start</td><td>No</td><td>First month of lookback (YYYY-MM format).</td></tr>
+  <tr><td>Period End</td><td>No</td><td>Last month of lookback (YYYY-MM format).</td></tr>
+</table>
 
 <!-- ============================================================ -->
 <!-- 4. FUNCTIONAL REQUIREMENTS                                     -->
@@ -808,7 +822,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-118</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>PENDING operations (Detail View):</strong> Operations with Oper Status = &ldquo;PENDING&rdquo; are displayed in the Detail View gate progress bar in their correct gate column (as defined by the decoder ring). They appear as greyed-out chips with reduced opacity to visually distinguish them from Active/In Queue chips. PENDING operations do <strong>not</strong> affect Gate View placement, FIFO sorting, or max-days calculations &mdash; they are display-only in the Detail View.</td>
+    <td><strong>PENDING operations (Detail View):</strong> Operations with Oper Status = &ldquo;PENDING&rdquo; are displayed in the Detail View gate progress bar in their correct gate column (as defined by the decoder ring). They appear as pink chips (#db2777) at full opacity. PENDING operations do <strong>not</strong> affect Gate View placement, FIFO sorting, or max-days calculations &mdash; they are display-only in the Detail View.</td>
   </tr>
   <tr>
     <td class="req-id">F-162</td>
@@ -1118,6 +1132,88 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
 </table>
 
+<h3>4.14 Snapshot Comments &mdash; Floor Lead Feedback Loop</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> Snapshot files include per-gate comment textareas to enable floor leads to annotate gates with corrections, questions, or follow-ups directly in context. Comments can then be saved and emailed to leadership, with an optional manager reply layer.</p>
+
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-200</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Comment textareas in snapshots:</strong> Each snapshot file includes a single-line textarea below every gate section whose gate number exists in the Master Gates file. Hold racks and &ldquo;Not found on a rack&rdquo; sections do not receive comment boxes. The <code>has-comment</code> CSS class removes the bottom border-radius from the cards row so the comment textarea visually attaches.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-201</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Comment auto-grow:</strong> Textareas start at a single line height and auto-grow as the user types, up to a maximum of 4 lines. Beyond 4 lines, a vertical scrollbar appears (<code>overflow-y: auto</code>). Growth is driven by <code>autoGrowComment()</code> which measures <code>scrollHeight</code> against <code>lineHeight &times; 4</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-202</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Placeholder tip:</strong> Each comment textarea displays placeholder text: &ldquo;Add any comments or corrections you&rsquo;d like to share, and add your initials at the end.&rdquo;</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-203</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Save with Comments&rdquo; button:</strong> Snapshot files include a blue &ldquo;&#128172; Save with Comments&rdquo; button alongside the Print button. Clicking it exports a new file named <code>Gate-Tracker-Comments_YYYY-MM-DD.html</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-204</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Comments file &mdash; frozen comments:</strong> In the exported comments file, floor lead comments become read-only text (green background, <code>.gv-comment-readonly</code>), prefixed by a &ldquo;Floor Lead Comment:&rdquo; label. Empty comment boxes are removed entirely. All snapshot interactivity (filters, toggles, card clicks, search) is preserved.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-205</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Manager reply textareas:</strong> Below each frozen floor lead comment, a manager reply textarea is added with placeholder: &ldquo;Manager reply &mdash; add your initials at the end.&rdquo; Same auto-grow behavior as floor lead comments. Styled with a blue left border accent (<code>.gv-manager-reply</code>).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-206</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Save with Replies&rdquo; button:</strong> The comments file includes a &ldquo;&#128172; Save with Replies&rdquo; button that exports a final file named <code>Gate-Tracker-Replies_YYYY-MM-DD.html</code> where manager replies are also frozen as read-only text (blue background, <code>.gv-reply-readonly</code>) and no textareas remain.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-207</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Print hides comments:</strong> Comment textareas, manager reply textareas, and the &ldquo;Save with Comments&rdquo; / &ldquo;Save with Replies&rdquo; buttons are hidden in print media (<code>@media print</code>).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-208</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Live tool is unaffected:</strong> The Gate Tracker tool itself (gate-tracker-30.html) does not display comment boxes or the &ldquo;Save with Comments&rdquo; button. Comments exist only in snapshot output files.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-209</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Digital Signage Export:</strong> A &ldquo;Digital Signage Export&rdquo; button generates a 1920&times;1080 PNG image (<code>gate-signage-YYYY-MM-DD.png</code>) suitable for display on a 60&Prime; digital signage monitor. The image contains: title (&ldquo;Gate Tracker&rdquo;), creation date and last scan date, Gate View legend (program colors + static items), all non-empty gates from the master gate file with order cards, hold racks as collapsed tally bars showing name and order count, a &ldquo;Not Scanned&rdquo; tally bar for daily-upload orders not found in scan data, and a &ldquo;Proprietary &mdash; Internal Use Only&rdquo; footer. Empty gates are omitted. Layout uses adaptive multi-column bin-packing with 4 sizing tiers based on gate/order count. Rendered entirely on an offscreen HTML5 Canvas with no network calls.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-210</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>&ldquo;Not Scanned&rdquo; rename:</strong> The former &ldquo;Not Found on a Rack&rdquo; section in Gate View (both scan mode and audit mode) is renamed to &ldquo;Not Scanned&rdquo; for clarity.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-211</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>WO Avg Hours file input:</strong> A 9th file input (&ldquo;9. WO Avg Hours&rdquo;, optional) accepts a CSV exported from the Earned Hour Analysis tool. Parsed on upload, storing per-WO average hours/month, std deviation, CV, month count, and period range in <code>woAvgData</code>.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-212</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Standalone ETC calculation:</strong> ETC (sum of labor hours for Active/In Queue/Pending operations) is computed independently of P File data, stored in <code>woEtcOnly</code>. This enables completion estimates without requiring P File upload. The existing EVM calculation block (F-175) continues to produce the full EVM metrics when P File is present.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-213</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Completion estimate row in Detail View:</strong> A green-background row (<code>.completion-row</code>) above the EVM row for each work order that has data in the WO Avg Hours file AND whose part number exists in the Decoder Ring (has labor hours data). Only renders when both conditions are met; parts not in the Decoder Ring are omitted entirely. Metrics: <strong>Remaining</strong> (ETC from Decoder Ring + Daily Upload), <strong>Est. Complete</strong> (ETC / avg hrs per month, displayed as day-precision date with duration label &mdash; days when &lt; 60, months otherwise &mdash; suffixed with &ldquo;assuming no holds&rdquo;). <em>Currently hidden (display commented out, calculations intact) pending review of averaging methodology and confidence scoring.</em> Planned additional metrics (code present but not rendered): Avg Earned (hrs/mo with month count), Confidence (CV-based: High/Medium/Low/Very Low).</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-214</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Completion row independence:</strong> The completion estimate row is independent of P File data and the EVM row. It requires WO Avg Hours data AND a part number present in the Decoder Ring (with labor hours). Both rows can display simultaneously for the same work order.</td>
+  </tr>
+</table>
+
 <!-- ============================================================ -->
 <!-- 5. VISUAL / UI REQUIREMENTS                                    -->
 <!-- ============================================================ -->
@@ -1244,7 +1340,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">V-65</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Days-at-gate label:</strong> Class <code>.gv-gate-age</code>. Font-size 0.72rem, color rgba(0,0,0,0.5). Appears below the &ldquo;avg days&rdquo; line on Gate View cards. Displays <code>&ldquo;X days at gate&rdquo;</code> where X is a positive integer.</td>
+    <td><strong>Days-at-gate label:</strong> Class <code>.gv-gate-age</code>. Font-size 0.72rem, color rgba(0,0,0,0.5). Appears at the bottom of Gate View cards. Displays <code>&ldquo;X days at gate&rdquo;</code> where X is a positive integer.</td>
   </tr>
   <tr>
     <td class="req-id">V-66</td>
@@ -1378,15 +1474,15 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
     <td>3rd</td>
   </tr>
   <tr>
-    <td><span class="swatch" style="background:#db2777;"></span></td>
-    <td>Pink</td>
+    <td><span class="swatch" style="background:#7c3aed;"></span></td>
+    <td>Purple</td>
     <td>Oper Status = "ACTIVE" <strong>and</strong> Work Dept is anything other than "SMART" or ending in "_QA"</td>
     <td>4th</td>
   </tr>
   <tr>
-    <td><span class="swatch" style="background:#e5e7eb; opacity:0.6;"></span></td>
-    <td>Grey (pending)</td>
-    <td><span class="tag tag-explicit">EXPLICIT</span> Oper Status = "PENDING" (case-insensitive) &mdash; displayed as grey with <strong>reduced opacity (0.6)</strong> to visually distinguish from inactive and other-status chips. Retains tooltip. Does not affect Gate View placement or sorting.</td>
+    <td><span class="swatch" style="background:#db2777;"></span></td>
+    <td>Pink (pending)</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span> Oper Status = "PENDING" (case-insensitive) &mdash; displayed as pink at full opacity. Retains tooltip. Does not affect Gate View placement or sorting.</td>
     <td>5th</td>
   </tr>
   <tr>
@@ -1397,18 +1493,32 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
 </table>
 
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">V-70</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Chip color legend (Detail View):</strong> A horizontal legend row is displayed between the Part Number filter bar and the first part number section. Shows colored swatches with labels in this order: <span class="swatch" style="background:#ca8a04;"></span>&nbsp;In Queue, <span class="swatch" style="background:#16a34a;"></span>&nbsp;Active (SMART), <span class="swatch" style="background:#2563eb;"></span>&nbsp;Active (QA), <span class="swatch" style="background:#7c3aed;"></span>&nbsp;Active (Other Area), <span class="swatch" style="background:#e5e7eb;"></span>&nbsp;Closed, <span class="swatch" style="background:#db2777;"></span>&nbsp;Pending, <span style="display:inline-block;width:12px;height:12px;background:#fff;border:2px solid #dc2626;border-radius:2px;vertical-align:middle;"></span>&nbsp;OPER Stop. Font-size 0.75rem. Hidden in print mode. Included in snapshots.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-71</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Completion estimate row:</strong> Class <code>.completion-row</code>. Background #f0fdf4 (light green), border-bottom 1px solid #86efac. Same flex layout and font-size (0.8rem) as the EVM row. Positioned above the EVM row in the order card. All metrics have descriptive tooltips. <em>Currently hidden pending review.</em> Additional CSS classes defined: <code>.evm-amber</code> (#b45309), <code>.evm-grey</code> (#6b7280).</td>
+  </tr>
+</table>
+
 <h3>5.6 Tooltips</h3>
 <table class="req-table">
   <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
   <tr>
     <td class="req-id">V-30</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Oper chip tooltips (Detail View):</strong> Hovering over an active oper chip shows: Oper Title, Oper Status, Total Days at Operation (if available), and Work Dept (if not "SMART"). Format: "OperTitle &mdash; OperStatus &mdash; WorkDept &mdash; N days".</td>
+    <td><strong>Oper chip tooltips (Detail View):</strong> Hovering over an active oper chip shows: Oper Title, Oper Status, and Work Dept (if not "SMART"). Format: &ldquo;OperTitle &mdash; OperStatus &mdash; WorkDept&rdquo;. Days at operation are <strong>not</strong> displayed in tooltips.</td>
   </tr>
   <tr>
     <td class="req-id">V-31</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Gate View card tooltips:</strong> Hovering shows: Program, Hold status (if any), Total Days with highest-days oper number, and a list of all Active/In Queue operations with oper number, title, status, work dept, and days at operation. If the order has &ldquo;OPER STOP&rdquo; hold status, each operation line also shows &ldquo;OPER STOP&rdquo;.</td>
+    <td><strong>Gate View card tooltips:</strong> Hovering shows: Program, Hold status (if any), and a list of all Active/In Queue operations with oper number, title, status, and work dept. Days at operation are <strong>not</strong> displayed. If the order has &ldquo;OPER STOP&rdquo; hold status, each operation line also shows &ldquo;OPER STOP&rdquo;.</td>
   </tr>
   <tr>
     <td class="req-id">V-32</td>
@@ -1737,6 +1847,8 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr><td>7.0</td><td>2026-03-23</td><td>Claude (AI)</td><td>Eight-feature update with significant Detail View improvements. <strong>(1) Merged part lists</strong> (F-160&ndash;F-161): Mapped and unmapped parts combined into a single unified list; removed separate Unmapped Operations section, toggle, and filters (supersedes F-90&ndash;F-94). <strong>(2) Sort order</strong> (F-161): Parts sorted by Program then Part Number. <strong>(3) Part number search</strong> (F-162): Search input in filter bar with dropdown of matches; filters by part number or name; respects program filter; click to isolate a specific match. <strong>(4) Active gate highlighting</strong> (F-163): Light green background on gate columns where order has ACTIVE/IN QUEUE ops. Gate name added to audit location label (F-164). <strong>(5) Days at gate in Detail View</strong> (F-165): Per-order days-at-gate display using audit-based gate location. <strong>(6) Removed avg days from Gate View</strong> (F-171): &ldquo;X avg days&rdquo; label removed from cards (value retained in tooltip and FIFO sorting). <strong>(7) Priority work orders</strong> (F-167&ndash;F-170): Always-visible priority panel with text input for up to 4 order numbers; summary details line per order; red &#10038; markers on Gate View and Detail View cards; markers and summary persist in snapshots. <strong>(8) Operation chip sub-columns</strong> (F-166): Max 5 chips per sub-column, max 4 sub-columns before breaking rule; gate columns auto-size. App file: gate-tracker-27.html.</td></tr>
   <tr><td>8.0</td><td>2026-03-24</td><td>Claude (AI)</td><td>Two Detail View and Gate View corrections. <strong>(1) Audit-driven gate highlighting</strong> (F-163 updated): Gate column green background now driven by audit CSV physical location instead of MES operation status. Previously, green indicated ACTIVE/IN QUEUE operations at that gate; now it indicates the auditor confirmed the unit is physically at that gate rack. Operation status is still independently communicated via chip colors (pink=active, yellow=in queue, blue=QA, green=SMART). This separates &ldquo;what is happening&rdquo; (chips) from &ldquo;where is it&rdquo; (green background). <strong>(2) Gate View header text fixes</strong>: Technician names now render on a separate line below the gate name in smaller/lighter font instead of concatenating into one overflowing line. Hold gates now display only the gate name (e.g., &ldquo;Hold Engineering&rdquo;) instead of the gate number prefix (e.g., &ldquo;HOLD-3 - Hold Engineering&rdquo;) in both Gate View headers and audit location badges. App file: gate-tracker-28.html.</td></tr>
   <tr><td>9.1</td><td>2026-04-03</td><td>Claude (AI)</td><td>Hold status backward compatibility and Detail View formatting. <strong>(1) Hold status values</strong> (F-188, F-62/F-63/F-99/F-101/F-126 updated): New data source uses &ldquo;ORDER_HOLD&rdquo; and &ldquo;OPER_HOLD&rdquo; instead of legacy &ldquo;ORDER STOP&rdquo; and &ldquo;OPER STOP&rdquo;. Added <code>isOrderHold()</code> and <code>isOperHold()</code> helper functions that recognize both formats. All 5 hold-status check locations updated. Display shows original value from data. <strong>(2) Detail View audit location formatting</strong> (F-187): Technician name now always appears on a separate line below the gate name. Multiple gates in split-location warnings each appear on their own line. CSS <code>.audit-loc</code> changed from <code>white-space: nowrap</code> to <code>normal</code>. App file: gate-tracker-28.html.</td></tr>
+  <tr><td>9.3</td><td>2026-04-13</td><td>Claude (AI)</td><td>Snapshot comments and Scanned Data restoration. <strong>(1) Snapshot per-gate comments</strong> (F-200&ndash;F-208, Section 4.14): Snapshot files now include comment textareas below each master gate for floor lead feedback. Single-line auto-grows to 4 lines with scrollbar. &ldquo;Save with Comments&rdquo; button exports <code>Gate-Tracker-Comments_YYYY-MM-DD.html</code> with frozen comments and manager reply textareas. &ldquo;Save with Replies&rdquo; exports final file with all text frozen. Comments exist only in snapshot output, not the live tool. <strong>(2) Scanned Data input restored</strong>: Re-added 8th file input for barcode scan data (was file input #6 in gate-tracker-27, removed in gate-tracker-28 during EVM integration). All scan processing logic restored: <code>cleanLocation()</code>, <code>parseScanDateTime()</code>, scan mode Gate View rendering, unmapped locations section, mutual exclusivity with audit CSV, Detail View scan location indicator, <code>scannedLocToGate</code> mapping in <code>parseMasterGates()</code>, and <code>toggleUnmappedLocs()</code>. Functional requirements F-189&ndash;F-199 already documented in PRD v9.2; no new requirements needed for restoration. App file: gate-tracker-29.html.</td></tr>
+  <tr><td>9.4</td><td>2026-04-13</td><td>Claude (AI)</td><td>Digital Signage Export and &ldquo;Not Scanned&rdquo; rename. <strong>(1) Digital Signage Export</strong> (F-209): New button generates a 1920&times;1080 PNG image for 60&Prime; digital signage monitors. Renders Gate View content onto an offscreen HTML5 Canvas: title, dates (creation + last scan), legend, non-empty gates with order cards, hold rack tallies, &ldquo;Not Scanned&rdquo; tally, and proprietary footer. Adaptive 2&ndash;4 column layout with greedy bin-packing and 4 sizing tiers. <strong>(2) &ldquo;Not Scanned&rdquo; rename</strong> (F-210): &ldquo;Not Found on a Rack&rdquo; section renamed to &ldquo;Not Scanned&rdquo; in both scan mode and audit mode Gate View. App file: gate-tracker-30.html.</td></tr>
   <tr><td>9.0</td><td>2026-03-25</td><td>Claude (AI)</td><td>Earned Value Management integration. <strong>(1) P File XLSX parsing</strong> (F-186, Section 3.6): 6th file input for Peabody Excel exports. Embedded SheetJS library for XLSX parsing. Auto-detect header row, worksheet range override for human-formatted files, percentage decimal conversion. <strong>(2) EVM calculations</strong> (F-175): Per-work-order CPI, Program EAC, ETC, Production EAC, VAC, EV using hours. <strong>(3) EVM display in Detail View</strong> (F-176&ndash;F-178): Horizontal metrics row above each work order&rsquo;s gate-bar with color coding and tooltips. % Complete and Actual Hours included. <strong>(4) VAC Tracker Log</strong> (F-179&ndash;F-180, Section 3.7): 7th file input for cumulative VAC history. Appends new data after processing, exports updated log. Drives &Delta;VAC with dynamic time-span labels. <strong>(5) Manager EVM Report</strong> (F-181): Second snapshot button generating standalone HTML with Bench Cost Performance Summary and Detail View. Omits Gate View. <strong>(6) Bench Cost Performance Summary</strong> (F-182): Tabular overview organized by Program &rarr; Part Number &rarr; WO with color-coded metrics and hyperlinked work orders. <strong>(7) VAC trend plots</strong> (F-183): Canvas-rendered per-part-number plots showing VAC over time per work order, grouped by program above summary tables. Legend uses serial number or full WO number. <strong>(8) Unmapped part exclusion</strong> (F-184): Parts not in Decoder Ring completely omitted from EVM report; amber message shown in Detail View. <strong>(9) Decoder Ring EVM columns</strong> (F-185, Section 3.8): Labor Hours and Earnable Hours Flag columns added to Decoder Ring Builder export; yellow warning on import when missing. <strong>(10) VAC format converter</strong>: Companion tool (<code>vac-reformatter.html</code>) for converting wide-format historical VAC data to tall CSV format. App file: gate-tracker-28.html, decoder-ring-builder-2.html.</td></tr>
 </table>
 
