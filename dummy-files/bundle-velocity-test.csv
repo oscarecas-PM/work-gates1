@@ -1,0 +1,18 @@
+# SECTION 1: Bundle velocities
+Bundle Name,Program,Lookback Months,Exclude Current Month,Period Start,Period End,Velocity Lookback (hrs/mo),StdDev Lookback,CV Lookback,Month Count Lookback,Last Month,Velocity Last Month (hrs/mo),StdDev Last Month,CV Last Month
+Turbine-Blades,PHOENIX,6,Yes,2025-10,2026-02,120.50,15.20,0.126,5,2026-02,135.00,,
+Exhaust-Set,NEPTUNE,6,Yes,2025-10,2026-02,65.00,18.40,0.283,5,2026-02,72.50,,
+Fuel-System,ATLAS,6,Yes,2025-10,2026-02,40.00,22.00,0.550,5,2026-02,0.00,,
+
+# SECTION 2: Bundle membership
+Bundle Name,Order No,Part Number,Part Description,Serial Number
+Turbine-Blades,WO-5001,AAA-1000,Turbine Blade,SN-101
+Turbine-Blades,WO-5002,AAA-1000,Turbine Blade,SN-102
+Turbine-Blades,WO-5003,AAA-1000,Turbine Blade,SN-103
+Turbine-Blades,WO-5004,AAA-1000,Turbine Blade,SN-104
+Turbine-Blades,WO-5013,AAA-1000,Turbine Blade,SN-106
+Turbine-Blades,WO-5099,AAA-1000,Turbine Blade,SN-OLD
+Exhaust-Set,WO-5005,BBB-2000,Exhaust Nozzle,SN-201
+Exhaust-Set,WO-5010,DDD-4000,Heat Shield,SN-401
+Fuel-System,WO-5008,CCC-3000,Fuel Manifold,SN-301
+Fuel-System,WO-5015,CCC-3000,Fuel Manifold,SN-303

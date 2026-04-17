@@ -79,11 +79,11 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>9.3</td></tr>
-    <tr><td class="label">Date:</td><td>April 13, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>9.5</td></tr>
+    <tr><td class="label">Date:</td><td>April 16, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; Hold status backward compatibility (ORDER_HOLD/OPER_HOLD), Detail View audit location formatting</td></tr>
-    <tr><td class="label">App File:</td><td>gate-tracker-28.html</td></tr>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; Bundle-level completion estimates in Manager EVM Report; per-WO completion row removed; OPER_HOLD chip contrast improved</td></tr>
+    <tr><td class="label">App File:</td><td>gate-tracker-30.html</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
   </table>
 </div>
@@ -273,27 +273,16 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
 <p><span class="tag tag-explicit">EXPLICIT</span> <strong>Key rules:</strong> (1) Header row is auto-detected by scanning the first 10 rows for a row containing &ldquo;WO&rdquo; (case-insensitive). (2) The worksheet&rsquo;s <code>!ref</code> range is overridden by scanning actual cell keys to handle human-formatted files with restricted ranges. (3) Cell C3 is parsed for an &ldquo;As of M/D/YYYY&rdquo; date; the earliest date across all uploaded files is used as the report date. (4) Reading stops at the first blank WO cell to ignore totals rows and secondary tables. (5) Missing columns produce amber warnings, not blocking errors. (6) Requires embedded SheetJS (xlsx.mini.min.js) library for XLSX parsing &mdash; Apache-2.0 licensed, embedded inline with no network calls.</p>
 
 <h3>3.7 VAC Tracker Log (CSV) &mdash; Optional, Weekly</h3>
-<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file containing cumulative weekly VAC (Variance at Completion) observations per work order. Uploaded alongside P Files; after processing, the gate tracker appends new data and exports an updated log for the user to save. Drives the VAC trend plots in the Manager EVM Report.</p>
+<p><span class="tag tag-explicit">EXPLICIT</span> An optional CSV file containing cumulative weekly VAC (Variance at Completion) observations per work order. Uploaded alongside P Files; after processing, the gate tracker appends new data and exports an updated log for the user to save. Drives the VAC trend plots in the Manager EVM Report. This file is a machine intermediate &mdash; not intended to be read by humans.</p>
 
 <table class="data-table">
   <tr><th>Column</th><th>Required</th><th>Description</th></tr>
   <tr><td>Date</td><td>Yes</td><td>Date of the observation in <code>M/D/YYYY</code> format (from P File &ldquo;As of&rdquo; date).</td></tr>
-  <tr><td>Program</td><td>Yes</td><td>Program name.</td></tr>
-  <tr><td>Part Number</td><td>Yes</td><td>Part number.</td></tr>
-  <tr><td>Part Name</td><td>Yes</td><td>Part name/description.</td></tr>
   <tr><td>WO</td><td>Yes</td><td>Work order number.</td></tr>
-  <tr><td>Serial Number</td><td>No</td><td>Serial number (if applicable).</td></tr>
-  <tr><td>Program EAC</td><td>Yes</td><td>Baseline hours (from P File).</td></tr>
-  <tr><td>Total Actual Hours</td><td>Yes</td><td>Actual hours charged (from P File).</td></tr>
-  <tr><td>ETC</td><td>Yes</td><td>Estimated hours to complete (calculated).</td></tr>
-  <tr><td>Production EAC</td><td>Yes</td><td>Actual + ETC hours.</td></tr>
-  <tr><td>VAC</td><td>Yes</td><td>Program EAC &minus; Production EAC.</td></tr>
-  <tr><td>Percent Complete</td><td>Yes</td><td>Completion percentage.</td></tr>
-  <tr><td>EV</td><td>Yes</td><td>Earned Value (% Complete &times; Program EAC).</td></tr>
-  <tr><td>CPI</td><td>Yes</td><td>Cost Performance Index (EV / Actual Hours).</td></tr>
+  <tr><td>VAC</td><td>Yes</td><td>Program EAC &minus; Production EAC, in hours.</td></tr>
 </table>
 
-<p><span class="tag tag-explicit">EXPLICIT</span> <strong>Key rules:</strong> (1) The log grows monotonically &mdash; new rows appended, old rows never modified. (2) Deduplication on composite key: Date + WO. (3) A companion tool (<code>vac-reformatter.html</code>) converts wide-format historical VAC data into the tall CSV format.</p>
+<p><span class="tag tag-explicit">EXPLICIT</span> <strong>Key rules:</strong> (1) The log grows monotonically &mdash; new rows appended, old rows never modified. (2) Deduplication on composite key: Date + WO. (3) A companion tool (<code>vac-reformatter.html</code>) converts wide-format historical VAC data into the tall CSV format. (4) Revised in v9.5: the export format is trimmed to the three columns actually used on re-import (<code>Date, WO, VAC</code>) so files round-trip without manual column editing. Legacy 14-column logs are still accepted on import &mdash; columns are looked up by header name &mdash; and projected down to the 3-column shape on the next export.</p>
 
 <h3>3.8 Scanned Data CSV &mdash; Optional (Multiple Files)</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> One or more optional CSV files containing barcode scan data from a dashboard. A team member conducts daily barcode scanning of hardware to location; the scan data is downloaded from a dashboard and uploaded here. When loaded, this file <strong>drives Gate View placement</strong> as an alternative to the Mobile Audit CSV. The two inputs are mutually exclusive &mdash; loading one clears the other (F-196). The file input accepts multiple files which are automatically combined (F-190).</p>
@@ -911,7 +900,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-180</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>VAC Tracker Log export:</strong> After processing, the user can download an updated VAC Tracker Log CSV with new rows appended for the current P File date. Deduplication on Date + WO composite key.</td>
+    <td><strong>VAC Tracker Log export (revised v9.5):</strong> After processing, the user can download an updated VAC Tracker Log CSV with new rows appended for the current P File date. Writes only the three columns needed on re-import (<code>Date, WO, VAC</code>) so the file round-trips without human intervention. If the previously loaded log was in the legacy 14-column shape, its rows are projected down to the three required columns during re-export. Deduplication on Date + WO composite key.</td>
   </tr>
   <tr>
     <td class="req-id">F-181</td>
@@ -1195,22 +1184,39 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-211</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>WO Avg Hours file input:</strong> A 9th file input (&ldquo;9. WO Avg Hours&rdquo;, optional) accepts a CSV exported from the Earned Hour Analysis tool. Parsed on upload, storing per-WO average hours/month, std deviation, CV, month count, and period range in <code>woAvgData</code>.</td>
+    <td><strong>Bundle Velocity file input (revised v9.5):</strong> A 9th file input (&ldquo;9. Bundle Velocity&rdquo;, optional) accepts the two-section CSV exported from the Earned Hour Analysis tool's &ldquo;Export Bundle Velocity&rdquo; feature. Parsed on upload into:
+      <br>&bull; <code>bundleVelocityMap[bundleName]</code> &mdash; per-bundle velocity stats (lookback + last-month, both with std dev + CV), window metadata, and the lookback period start/end.
+      <br>&bull; <code>bundleMembershipMap[bundleName]</code> &mdash; array of member WOs (Order No, Part Number, Part Description, Serial Number).
+      <br>&bull; <code>orderToBundle[orderNo]</code> &mdash; reverse index for quick lookup.
+      <br>Sections in the CSV are split on the first blank line; each section is then parsed via the existing <code>parseCSV()</code> helper. The existing <code>woAvgData</code> global is removed.</td>
   </tr>
   <tr>
     <td class="req-id">F-212</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Standalone ETC calculation:</strong> ETC (sum of labor hours for Active/In Queue/Pending operations) is computed independently of P File data, stored in <code>woEtcOnly</code>. This enables completion estimates without requiring P File upload. The existing EVM calculation block (F-175) continues to produce the full EVM metrics when P File is present.</td>
+    <td><strong>Bundle ETC aggregation (revised v9.5):</strong> For each bundle in <code>bundleVelocityMap</code>, the bundle-level ETC is the sum of <code>evmResults[orderNo].etc</code> over every member WO that is still present in the current Daily Upload (i.e., exists in <code>evmResults</code> with a numeric <code>etc</code>). Members not in the daily upload are treated as Completed / Removed and contribute 0.</td>
   </tr>
   <tr>
     <td class="req-id">F-213</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Completion estimate row in Detail View:</strong> A green-background row (<code>.completion-row</code>) above the EVM row for each work order that has data in the WO Avg Hours file AND whose part number exists in the Decoder Ring (has labor hours data). Only renders when both conditions are met; parts not in the Decoder Ring are omitted entirely. Metrics: <strong>Remaining</strong> (ETC from Decoder Ring + Daily Upload), <strong>Est. Complete</strong> (ETC / avg hrs per month, displayed as day-precision date with duration label &mdash; days when &lt; 60, months otherwise &mdash; suffixed with &ldquo;assuming no holds&rdquo;). <em>Currently hidden (display commented out, calculations intact) pending review of averaging methodology and confidence scoring.</em> Planned additional metrics (code present but not rendered): Avg Earned (hrs/mo with month count), Confidence (CV-based: High/Medium/Low/Very Low).</td>
+    <td><strong>Dual-velocity completion dates (revised v9.5):</strong> Each bundle produces two estimated completion dates, both measured from today:
+      <br>&bull; <strong>Lookback:</strong> <code>today + (bundleEtc / velocityLookback) &times; 30.44 days</code>.
+      <br>&bull; <strong>Last-month:</strong> <code>today + (bundleEtc / velocityLastMonth) &times; 30.44 days</code>.
+      <br>When a velocity is 0 or missing, the corresponding date displays &ldquo;N/A&rdquo;. When velocity-last-month is 0, the cell shows &ldquo;N/A &mdash; no activity last month&rdquo;. When a bundle has no active WOs, both cells show &ldquo;&mdash; no active WOs&rdquo;.</td>
   </tr>
   <tr>
     <td class="req-id">F-214</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Completion row independence:</strong> The completion estimate row is independent of P File data and the EVM row. It requires WO Avg Hours data AND a part number present in the Decoder Ring (with labor hours). Both rows can display simultaneously for the same work order.</td>
+    <td><strong>Estimated Work Package Completion section in Manager EVM Report (revised v9.5):</strong> Inserted between the Bench Cost Performance Summary and the Detail View within <code>saveEvmReport()</code>. One table row per bundle, columns: Bundle, Program, ETC (hrs), Lookback Velocity (hrs/mo), Window, StdDev, CV, Est. Completion (lookback), Last-Month Velocity (hrs/mo), Est. Completion (last month). The Window cell shows the lookback span, e.g. &ldquo;6 mo (2025-11 &rarr; 2026-04)&rdquo;, with &ldquo;excl. current&rdquo; appended when the velocity was computed with exclude-current-month enabled. If no Bundle Velocity file was uploaded, the section is omitted entirely.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-215</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Bundle membership drill-down (v9.5):</strong> Each bundle row is clickable. Clicking toggles an expandable sub-table (collapsed by default) showing one row per member WO with columns: Part Number, Part Description, Serial Number, Order No, WO ETC (hrs), Status. WOs still in the daily upload show their numeric ETC and a green &ldquo;In daily upload&rdquo; status; WOs absent from the daily upload are rendered in muted style with an em-dash ETC and an italic &ldquo;Completed / removed&rdquo; status. Expand/collapse is implemented by <code>toggleBundleDetails()</code> (embedded in the saved snapshot). A print media query forces all sub-tables to expand so PDF exports include full membership.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-216</td>
+    <td><span class="tag tag-inferred">INFERRED</span></td>
+    <td><strong>Per-WO completion row removed (v9.5):</strong> The per-order-card <code>.completion-row</code> (previously F-213/F-214 in v9.4) and its CSS are removed entirely. Completion estimates are now surfaced only at the bundle level in the Manager EVM Report, per senior-manager guidance that PMs care about work-package delivery dates rather than individual WO estimates.</td>
   </tr>
 </table>
 
@@ -1502,8 +1508,18 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   </tr>
   <tr>
     <td class="req-id">V-71</td>
+    <td><span class="tag tag-inferred">REMOVED v9.5</span></td>
+    <td><strong>Completion estimate row &mdash; retired.</strong> The <code>.completion-row</code> element and its CSS were removed in v9.5 when completion estimates moved to the bundle-level Manager EVM Report section (see F-214/F-215). <code>.evm-amber</code> and <code>.evm-grey</code> remain defined and are still used elsewhere in the EVM presentation.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-72</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Completion estimate row:</strong> Class <code>.completion-row</code>. Background #f0fdf4 (light green), border-bottom 1px solid #86efac. Same flex layout and font-size (0.8rem) as the EVM row. Positioned above the EVM row in the order card. All metrics have descriptive tooltips. <em>Currently hidden pending review.</em> Additional CSS classes defined: <code>.evm-amber</code> (#b45309), <code>.evm-grey</code> (#6b7280).</td>
+    <td><strong>OPER_HOLD chip contrast (v9.5):</strong> The PENDING operation chip (<code>.oper-chip.active-pink</code>) background is lightened from <code>#db2777</code> to <code>#f472b6</code> (Tailwind pink-400) so the <code>#dc2626</code> red border applied for OPER_HOLD (<code>.oper-stop-border</code>) remains clearly readable against the chip background.</td>
+  </tr>
+  <tr>
+    <td class="req-id">V-73</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Bundle completion table (Manager EVM Report, v9.5):</strong> Section titled &ldquo;Estimated Work Package Completion&rdquo; inside a bordered container (<code>border:2px solid #334155</code>) matching the existing Bench Cost Performance Summary style. Each bundle row (<code>.bundle-row</code>) shows a rotating triangle indicator that turns 90&deg; when the row is expanded; on hover the row background becomes <code>#eef2f7</code>. Member sub-tables (<code>.bundle-details</code>) have <code>background:#f8fafc</code> and are collapsed by default, revealed on click or during print (<code>@media print { .bundle-details { display: table-row !important; } }</code>).</td>
   </tr>
 </table>
 

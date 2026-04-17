@@ -27,7 +27,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
 <p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
-<p class="version">Version 1.1 | April 7, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.2 | April 16, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
@@ -187,15 +187,20 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-83</span> Forces unbundled section and bundle data tables open during print.</p>
 <p><span class="req">F-84</span> <code>break-inside: avoid</code> on bundle sections.</p>
 
-<h3>6.9 Export WO Averages</h3>
-<p><span class="req">F-100</span> "Export WO Averages" button in the action bar, visible after analysis runs.</p>
+<h3>6.9 Export Bundle Velocity (v1.2)</h3>
+<p><em>Revised in v1.2: previously per-WO averages. Capacity throughput is better characterized at the bundle (work-package) level because month-to-month WO earning is noisy (kitting, long-lead parts, cert availability, capacity). Bundle-level velocity aligns with how project managers track delivery commitments.</em></p>
+<p><span class="req">F-100</span> "Export Bundle Velocity" button in the action bar, visible after analysis runs.</p>
 <p><span class="req">F-101</span> Clicking the button reveals an inline settings panel with: lookback months dropdown (3, 6, 9, 12; default 6), exclude current month checkbox (default checked), Download CSV button, Cancel button, and period info label.</p>
-<p><span class="req">F-102</span> Export includes ALL work orders in <code>lastHoursMap</code> (both bundled and unbundled).</p>
-<p><span class="req">F-103</span> Per work order: average = sum of hours in selected months / month count. Months with 0 hours count toward the average (represent months with no progress).</p>
-<p><span class="req">F-104</span> Standard deviation = population std dev over selected months. Coefficient of Variation (CV) = stdDev / avg. CV is blank when avg = 0.</p>
-<p><span class="req">F-105</span> CSV columns: Order No, Program, Part Number, Part Description, Serial Number, Bundle Name, Avg Hours Per Month, Std Deviation, CV, Month Count, Period Start, Period End.</p>
-<p><span class="req">F-106</span> Filename: <code>wo-avg-hours-YYYY-MM-DD.csv</code>.</p>
-<p><span class="req">F-107</span> WO metadata sourced from bundle definitions first, then EV Details fallback. Bundle Name = "Unbundled" for orphan WOs.</p>
+<p><span class="req">F-102</span> Export includes only bundles defined in the Bundle Definition CSV. Unbundled work orders are excluded (the separate "Export Unbundled CSV" remains for reference).</p>
+<p><span class="req">F-103</span> <strong>Bundle velocity (lookback)</strong> = mean of per-month bundle totals across the lookback window. Monthly total = sum of member WO hours for that month. Months with 0 hours count toward the mean (they represent months with no progress).</p>
+<p><span class="req">F-104</span> Std deviation = population std dev over per-month bundle totals. CV = stdDev / velocity; blank when velocity = 0.</p>
+<p><span class="req">F-104a</span> <strong>Bundle velocity (last month)</strong> = the bundle's total hours in the single most recent month of the selected window. Provides a "current pace" goalpost independent of the lookback trend. StdDev and CV for the last-month figure are emitted blank (single-sample statistic).</p>
+<p><span class="req">F-105</span> Two-section CSV:
+  <br>&nbsp;&nbsp;<strong>Section 1 (one row per bundle):</strong> Bundle Name, Program, Lookback Months, Exclude Current Month, Period Start, Period End, Velocity Lookback (hrs/mo), StdDev Lookback, CV Lookback, Month Count Lookback, Last Month, Velocity Last Month (hrs/mo), StdDev Last Month, CV Last Month.
+  <br>&nbsp;&nbsp;<strong>Section 2 (one row per member WO):</strong> Bundle Name, Order No, Part Number, Part Description, Serial Number.
+  <br>&nbsp;&nbsp;Sections are separated by a blank line and each is prefixed with a <code>#</code> comment header.</p>
+<p><span class="req">F-106</span> Filename: <code>bundle-velocity-YYYY-MM-DD.csv</code>.</p>
+<p><span class="req">F-107</span> Member WO metadata sourced from the Bundle Definition CSV. Program is inferred per-bundle from the first member WO that carries a Program value.</p>
 <p><span class="req">F-108</span> Lookback and exclude-current-month controls dynamically update the period info label showing the actual month range and count.</p>
 
 <h2>7. Visual & UI Requirements</h2>

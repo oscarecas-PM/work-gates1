@@ -88,7 +88,7 @@
   .oper-chip.active-green { background: #16a34a; color: #fff; font-weight: bold; }
   .oper-chip.active-yellow { background: #ca8a04; color: #fff; font-weight: bold; }
   .oper-chip.active-blue { background: #2563eb; color: #fff; font-weight: bold; }
-  .oper-chip.active-pink { background: #db2777; color: #fff; font-weight: bold; }
+  .oper-chip.active-pink { background: #f472b6; color: #fff; font-weight: bold; }
   .oper-chip.active-purple { background: #7c3aed; color: #fff; font-weight: bold; }
   .oper-chip.inactive { background: #e5e7eb; color: #aaa; }
   .oper-chip[title] { cursor: pointer; }
@@ -201,10 +201,17 @@
   .evm-arrow-up { color: #16a34a; font-weight: bold; }
   .evm-arrow-down { color: #dc2626; font-weight: bold; }
 
-  /* Completion estimate row */
-  .completion-row { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 6px 14px; background: #f0fdf4; border-bottom: 1px solid #86efac; font-size: 0.8rem; align-items: center; }
   .evm-amber { color: #b45309; font-weight: bold; }
   .evm-grey { color: #6b7280; font-weight: bold; }
+
+  /* Estimated Work Package Completion (in saved Manager EVM Report) */
+  .bundle-row { cursor: pointer; }
+  .bundle-row:hover { background: #eef2f7 !important; }
+  .bundle-details { display: none; background: #f8fafc; }
+  .bundle-details.open { display: table-row; }
+  .bundle-expand-icon { display: inline-block; width: 14px; text-align: center; transition: transform 0.15s; }
+  .bundle-row.open .bundle-expand-icon { transform: rotate(90deg); }
+  @media print { .bundle-details { display: table-row !important; } }
 
   /* Manager EVM Report button */
   #evm-report-btn { margin: 1rem 0 1rem 12px; padding: 10px 24px; font-size: 1rem; cursor: pointer; background: #7c3aed; color: #fff; border: none; border-radius: 4px; display: none; }
@@ -285,10 +292,10 @@
     <div id="scan-data-status" class="status"></div>
   </div>
   <div class="file-group">
-    <h3>9. WO Avg Hours <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
-    <p>Exported from Earned Hour Analysis. Columns: Order No, Avg Hours Per Month, Std Deviation, CV, Month Count, Period Start, Period End</p>
-    <input type="file" id="wo-avg-input" accept=".csv">
-    <div id="wo-avg-status" class="status"></div>
+    <h3>9. Bundle Velocity <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
+    <p>Exported from Earned Hour Analysis (&ldquo;Export Bundle Velocity&rdquo;). Two-section CSV: bundle velocities + bundle membership. Drives the Estimated Work Package Completion section of the Manager EVM Report.</p>
+    <input type="file" id="bundle-velocity-input" accept=".csv">
+    <div id="bundle-velocity-status" class="status"></div>
   </div>
 </div>
 
@@ -369,8 +376,12 @@ let vacLogData = [];        // Parsed VAC tracker log rows
 let laborHoursLookup = {};  // { partNo|||operNo: laborHours }
 let evmResults = {};        // { WO: { programEAC, totalActualHours, percentComplete, etc, productionEAC, vac, ev, cpi, deltaVac, deltaWeeks } }
 let evmPartHasHours = {};   // { partNo: true } — tracks which parts have labor hours in decoder ring
-let woAvgData = {};         // { WO: { avgHrsPerMonth, stdDev, cv, monthCount, periodStart, periodEnd } }
-let woEtcOnly = {};         // { WO: etcHours } — standalone ETC computed without P File
+let bundleVelocityMap = {}; // { bundleName: { program, lookbackMonths, excludeCurrent, periodStart, periodEnd,
+                            //                 velocityLookback, stdDevLookback, cvLookback, monthCountLookback,
+                            //                 lastMonth, velocityLastMonth, stdDevLastMonth, cvLastMonth } }
+let bundleMembershipMap = {}; // { bundleName: [ { orderNo, partNumber, partDescription, serialNumber } ] }
+let orderToBundle = {};       // { WO: bundleName } — reverse index
+let woEtcOnly = {};           // { WO: etcHours } — standalone ETC computed without P File
 
 document.getElementById('decoder-input').addEventListener('change', function(e) {
   loadCSV(e.target.files[0], function(rows) {
@@ -475,40 +486,120 @@ document.getElementById('scan-data-input').addEventListener('change', function(e
   });
 });
 
-// WO Avg Hours CSV handler
-document.getElementById('wo-avg-input').addEventListener('change', function(e) {
-  loadCSV(e.target.files[0], function(rows) {
-    woAvgData = {};
-    var hdr = rows[0];
-    var iOrder = -1, iAvg = -1, iStdDev = -1, iCV = -1, iMonths = -1, iStart = -1, iEnd = -1;
-    for (var h = 0; h < hdr.length; h++) {
-      var hn = (hdr[h] || '').trim().toLowerCase();
-      if (hn === 'order no') iOrder = h;
-      else if (hn === 'avg hours per month') iAvg = h;
-      else if (hn === 'std deviation') iStdDev = h;
-      else if (hn === 'cv') iCV = h;
-      else if (hn === 'month count') iMonths = h;
-      else if (hn === 'period start') iStart = h;
-      else if (hn === 'period end') iEnd = h;
+// Bundle Velocity CSV handler — two-section CSV (velocities + membership)
+document.getElementById('bundle-velocity-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    var text = String(ev.target.result || '');
+    // Split into two sections at the first blank line that follows data.
+    // A section-delimiter line looks like `\r?\n\r?\n` (blank between sections).
+    var parts = text.split(/\r?\n\r?\n/);
+    // Strip any leading `# SECTION N:` comment lines and drop empty fragments.
+    var sections = [];
+    for (var p = 0; p < parts.length; p++) {
+      var blk = parts[p];
+      var lines = blk.split(/\r?\n/).filter(function(ln) {
+        return ln.trim().length > 0 && ln.trim().indexOf('#') !== 0;
+      });
+      if (lines.length > 0) sections.push(lines.join('\n'));
     }
-    if (iOrder < 0 || iAvg < 0) { showStatus('wo-avg-status', 'Error: Missing required columns (Order No, Avg Hours Per Month)', true); return; }
-    var count = 0;
-    for (var r = 1; r < rows.length; r++) {
-      var row = rows[r];
-      var orderNo = (row[iOrder] || '').trim();
-      if (!orderNo) continue;
-      woAvgData[orderNo] = {
-        avgHrsPerMonth: parseFloat(row[iAvg]) || 0,
-        stdDev: iStdDev >= 0 ? (parseFloat(row[iStdDev]) || 0) : 0,
-        cv: iCV >= 0 ? parseFloat(row[iCV]) : -1,
-        monthCount: iMonths >= 0 ? (parseInt(row[iMonths], 10) || 0) : 0,
-        periodStart: iStart >= 0 ? (row[iStart] || '').trim() : '',
-        periodEnd: iEnd >= 0 ? (row[iEnd] || '').trim() : ''
+    if (sections.length < 2) {
+      showStatus('bundle-velocity-status', 'Error: expected two sections (velocities + membership) separated by a blank line.', true);
+      return;
+    }
+    var velRows = parseCSV(sections[0]);
+    var memRows = parseCSV(sections[1]);
+    if (!velRows.length || !memRows.length) {
+      showStatus('bundle-velocity-status', 'Error: unable to parse one of the sections.', true);
+      return;
+    }
+
+    // ---- Section 1: velocities ----
+    bundleVelocityMap = {};
+    var vHdr = velRows[0];
+    function col(h, name) {
+      var n = name.toLowerCase().trim();
+      for (var i = 0; i < h.length; i++) if ((h[i] || '').toLowerCase().trim() === n) return i;
+      return -1;
+    }
+    var iName = col(vHdr, 'Bundle Name');
+    var iProg = col(vHdr, 'Program');
+    var iLb = col(vHdr, 'Lookback Months');
+    var iExcl = col(vHdr, 'Exclude Current Month');
+    var iPS = col(vHdr, 'Period Start');
+    var iPE = col(vHdr, 'Period End');
+    var iVL = col(vHdr, 'Velocity Lookback (hrs/mo)');
+    var iSDL = col(vHdr, 'StdDev Lookback');
+    var iCVL = col(vHdr, 'CV Lookback');
+    var iMCL = col(vHdr, 'Month Count Lookback');
+    var iLM = col(vHdr, 'Last Month');
+    var iVLM = col(vHdr, 'Velocity Last Month (hrs/mo)');
+    var iSDLM = col(vHdr, 'StdDev Last Month');
+    var iCVLM = col(vHdr, 'CV Last Month');
+    if (iName < 0 || iVL < 0) {
+      showStatus('bundle-velocity-status', 'Error: section 1 missing required columns (Bundle Name, Velocity Lookback).', true);
+      return;
+    }
+    for (var vr = 1; vr < velRows.length; vr++) {
+      var row = velRows[vr];
+      var bName = (row[iName] || '').trim();
+      if (!bName) continue;
+      bundleVelocityMap[bName] = {
+        program: iProg >= 0 ? (row[iProg] || '').trim() : '',
+        lookbackMonths: iLb >= 0 ? (parseInt(row[iLb], 10) || 0) : 0,
+        excludeCurrent: iExcl >= 0 ? /^y(es)?$|^true$|^1$/i.test((row[iExcl] || '').trim()) : false,
+        periodStart: iPS >= 0 ? (row[iPS] || '').trim() : '',
+        periodEnd: iPE >= 0 ? (row[iPE] || '').trim() : '',
+        velocityLookback: iVL >= 0 ? (parseFloat(row[iVL]) || 0) : 0,
+        stdDevLookback: iSDL >= 0 ? (parseFloat(row[iSDL]) || 0) : 0,
+        cvLookback: iCVL >= 0 && row[iCVL] !== '' ? parseFloat(row[iCVL]) : NaN,
+        monthCountLookback: iMCL >= 0 ? (parseInt(row[iMCL], 10) || 0) : 0,
+        lastMonth: iLM >= 0 ? (row[iLM] || '').trim() : '',
+        velocityLastMonth: iVLM >= 0 ? (parseFloat(row[iVLM]) || 0) : 0,
+        stdDevLastMonth: iSDLM >= 0 && row[iSDLM] !== '' ? parseFloat(row[iSDLM]) : NaN,
+        cvLastMonth: iCVLM >= 0 && row[iCVLM] !== '' ? parseFloat(row[iCVLM]) : NaN
       };
-      count++;
     }
-    showStatus('wo-avg-status', 'Loaded ' + count + ' work order averages', false);
-  }, 'wo-avg-status');
+
+    // ---- Section 2: membership ----
+    bundleMembershipMap = {};
+    orderToBundle = {};
+    var mHdr = memRows[0];
+    var jName = col(mHdr, 'Bundle Name');
+    var jOrder = col(mHdr, 'Order No');
+    var jPN = col(mHdr, 'Part Number');
+    var jPD = col(mHdr, 'Part Description');
+    var jSN = col(mHdr, 'Serial Number');
+    if (jName < 0 || jOrder < 0) {
+      showStatus('bundle-velocity-status', 'Error: section 2 missing required columns (Bundle Name, Order No).', true);
+      return;
+    }
+    var memberCount = 0;
+    for (var mr = 1; mr < memRows.length; mr++) {
+      var m = memRows[mr];
+      var bn = (m[jName] || '').trim();
+      var on = (m[jOrder] || '').trim();
+      if (!bn || !on) continue;
+      if (!bundleMembershipMap[bn]) bundleMembershipMap[bn] = [];
+      bundleMembershipMap[bn].push({
+        orderNo: on,
+        partNumber: jPN >= 0 ? (m[jPN] || '').trim() : '',
+        partDescription: jPD >= 0 ? (m[jPD] || '').trim() : '',
+        serialNumber: jSN >= 0 ? (m[jSN] || '').trim() : ''
+      });
+      orderToBundle[on] = bn;
+      memberCount++;
+    }
+
+    var bundleCount = Object.keys(bundleVelocityMap).length;
+    showStatus('bundle-velocity-status', 'Loaded ' + bundleCount + ' bundle' + (bundleCount === 1 ? '' : 's') + ' (' + memberCount + ' work orders)', false);
+  };
+  reader.onerror = function() {
+    showStatus('bundle-velocity-status', 'Error reading file', true);
+  };
+  reader.readAsText(file);
 });
 
 // Peabody XLSX handler — supports multiple files
@@ -1066,6 +1157,16 @@ function printPage() {
   ts.textContent = 'Exported: ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
   ts.style.display = 'block';
   setTimeout(function() { window.print(); }, 100);
+}
+
+// Toggle the expandable bundle-members row in the Manager EVM Report
+function toggleBundleDetails(tr) {
+  var id = tr.getAttribute('data-target');
+  if (!id) return;
+  var details = document.getElementById(id);
+  if (!details) return;
+  var open = details.classList.toggle('open');
+  if (open) tr.classList.add('open'); else tr.classList.remove('open');
 }
 
 /* ── Master Gates parsing & validation ────────────────────────── */
@@ -2114,38 +2215,6 @@ function process() {
 
         const firstRow = rows[0];
 
-        // Completion estimate row (above EVM row, independent of P File)
-        // Completion estimate row — calculation kept intact, display hidden pending review
-        let completionHtml = '';
-        var avgData = woAvgData[orderNo];
-        if (avgData && evmPartHasHours[partNo]) {
-          var etcHrs = evmResults[orderNo] ? evmResults[orderNo].etc : (woEtcOnly[orderNo] !== undefined ? woEtcOnly[orderNo] : null);
-          if (etcHrs !== null) {
-            // Calculations preserved for future use
-            var _compEstDays = null, _compEstDate = null, _compDurationLabel = null;
-            if (avgData.avgHrsPerMonth > 0) {
-              var fractionalMonths = etcHrs / avgData.avgHrsPerMonth;
-              _compEstDays = Math.round(fractionalMonths * 30.44);
-              _compEstDate = new Date();
-              _compEstDate.setDate(_compEstDate.getDate() + _compEstDays);
-              _compDurationLabel = _compEstDays >= 60 ? Math.round(fractionalMonths * 10) / 10 + ' mo' : _compEstDays + ' days';
-            }
-            // Display disabled — uncomment below to re-enable
-            /*
-            completionHtml += '<div class="completion-row">';
-            completionHtml += '<span class="evm-metric" title="Estimate to Complete = Sum of planned labor hours for remaining Active, In Queue, and Pending operations (from Decoder Ring + Daily Upload)."><span class="evm-label">Remaining:</span> <span class="evm-val">' + etcHrs.toFixed(1) + 'h</span></span>';
-            if (avgData.avgHrsPerMonth > 0) {
-              var estMonthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              var estLabel = estMonthNames[_compEstDate.getMonth()] + ' ' + _compEstDate.getDate() + ', ' + _compEstDate.getFullYear();
-              completionHtml += '<span class="evm-metric" title="Estimated completion = Remaining hours / Avg hours per month = ' + _compDurationLabel + ' from today. Assumes consistent earning rate and no hold interruptions."><span class="evm-label">Est. Complete:</span> <span class="evm-val">' + estLabel + ' <span style="color:#888;font-weight:normal;">(' + _compDurationLabel + ', assuming no holds)</span></span></span>';
-            } else {
-              completionHtml += '<span class="evm-metric"><span class="evm-label">Est. Complete:</span> <span class="evm-val evm-grey">No activity</span></span>';
-            }
-            completionHtml += '</div>';
-            */
-          }
-        }
-
         // EVM row (above gate-bar, only if Peabody data loaded for this WO)
         let evmHtml = '';
         var evmData = evmResults[orderNo];
@@ -2174,7 +2243,7 @@ function process() {
           }
         }
 
-        let html = completionHtml + evmHtml + '<div class="order-row">';
+        let html = evmHtml + '<div class="order-row">';
 
         // Order info — fixed width; scan ALL rows for ORDER HOLD (not just firstRow)
         let orderHoldText = '';
@@ -3656,23 +3725,28 @@ function exportSignage() {
 function exportVacLog() {
   if (Object.keys(evmResults).length === 0) { alert('No EVM data to export. Ensure the Decoder Ring has "Labor Hours" and "Earnable Hours Flag" columns. Load P File(s) and Process first.'); return; }
 
-  // Build new rows from current EVM results
+  // Build new rows from current EVM results. Only the three columns needed on re-import
+  // are written (Date, WO, VAC) — matches the vac-reformatter output and the VAC log import parser.
   var newRows = [];
   var dateStr = peabodyDate ? (peabodyDate.getMonth() + 1) + '/' + peabodyDate.getDate() + '/' + peabodyDate.getFullYear() : '';
   for (var wo in evmResults) {
     var e = evmResults[wo];
-    newRows.push([dateStr, e.program, e.partNo, partNamesGlobal[e.partNo] || '', wo, e.serialNo,
-      e.programEAC.toFixed(2), e.totalActualHours.toFixed(2), e.etc.toFixed(2),
-      e.productionEAC.toFixed(2), e.vac.toFixed(2), e.percentComplete.toFixed(2),
-      e.ev.toFixed(2), e.cpi !== null ? e.cpi.toFixed(4) : ''].join(','));
+    newRows.push([dateStr, wo, e.vac.toFixed(2)].join(','));
   }
 
-  var header = 'Date,Program,Part Number,Part Name,WO,Serial Number,Program EAC,Total Actual Hours,ETC,Production EAC,VAC,Percent Complete,EV,CPI';
+  var header = 'Date,WO,VAC';
+  // Preserve existing VAC log rows, projecting them down to Date/WO/VAC by header name so
+  // legacy 14-column logs still round-trip cleanly into the new 3-column shape.
   var existingRows = [];
-  // Preserve existing VAC log rows (skip header)
   if (vacLogData && vacLogData.length > 1) {
-    for (var i = 1; i < vacLogData.length; i++) {
-      existingRows.push(vacLogData[i].join(','));
+    var hIdx = colIndex(vacLogData[0], 'Date');
+    var wIdx = colIndex(vacLogData[0], 'WO');
+    var vIdx = colIndex(vacLogData[0], 'VAC');
+    if (hIdx >= 0 && wIdx >= 0 && vIdx >= 0) {
+      for (var i = 1; i < vacLogData.length; i++) {
+        var row = vacLogData[i];
+        existingRows.push([(row[hIdx] || '').trim(), (row[wIdx] || '').trim(), (row[vIdx] || '').trim()].join(','));
+      }
     }
   }
 
@@ -3888,6 +3962,133 @@ function saveEvmReport() {
   }
   html += '</div>\n'; // end summary container
 
+  // === Estimated Work Package Completion ===
+  var bundleNames = Object.keys(bundleVelocityMap);
+  if (bundleNames.length > 0) {
+    bundleNames.sort();
+    html += '<div style="border:2px solid #334155;border-radius:6px;padding:16px;margin:1.5rem 0;">\n';
+    html += '<h2 style="margin:0 0 4px 0;font-size:1.2rem;color:#1e293b;">Estimated Work Package Completion</h2>\n';
+    html += '<p style="margin:0 0 12px 0;font-size:0.82rem;color:#64748b;">Bundle-level estimate: ETC = sum of member WO ETCs still in the daily upload. Two velocities are compared &mdash; the lookback window (trend) and last-month-only (current pace). Click a bundle to expand its member work orders.</p>\n';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">\n';
+    html += '<thead><tr style="background:#f1f5f9;border-bottom:2px solid #94a3b8;">';
+    html += '<th style="text-align:left;padding:6px 8px;">Bundle</th>';
+    html += '<th style="text-align:left;padding:6px 8px;">Program</th>';
+    html += '<th style="text-align:right;padding:6px 8px;">ETC (hrs)</th>';
+    html += '<th style="text-align:right;padding:6px 8px;">Lookback Vel. (hrs/mo)</th>';
+    html += '<th style="text-align:left;padding:6px 8px;">Window</th>';
+    html += '<th style="text-align:right;padding:6px 8px;">StdDev</th>';
+    html += '<th style="text-align:right;padding:6px 8px;">CV</th>';
+    html += '<th style="text-align:left;padding:6px 8px;">Est. Completion (lookback)</th>';
+    html += '<th style="text-align:right;padding:6px 8px;">Last-Month Vel. (hrs/mo)</th>';
+    html += '<th style="text-align:left;padding:6px 8px;">Est. Completion (last month)</th>';
+    html += '</tr></thead>\n<tbody>\n';
+
+    var todayMs = Date.now();
+    var monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    function fmtDateFromDays(days) {
+      var d = new Date(todayMs + days * 86400000);
+      return monthNamesShort[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+    }
+    function fmtWindow(bv) {
+      var lab = bv.lookbackMonths + ' mo (' + (bv.periodStart || '?') + ' \u2192 ' + (bv.periodEnd || '?') + ')';
+      if (bv.excludeCurrent) lab += ' excl. current';
+      return lab;
+    }
+
+    for (var bi = 0; bi < bundleNames.length; bi++) {
+      var bname = bundleNames[bi];
+      var bv = bundleVelocityMap[bname];
+      var members = bundleMembershipMap[bname] || [];
+
+      // Bundle ETC = sum over members that are still present in evmResults with a numeric etc
+      var bundleEtc = 0;
+      var activeCount = 0;
+      for (var mi = 0; mi < members.length; mi++) {
+        var mwo = members[mi];
+        var mev = evmResults[mwo.orderNo];
+        if (mev && typeof mev.etc === 'number' && !isNaN(mev.etc)) {
+          bundleEtc += mev.etc;
+          activeCount++;
+        }
+      }
+
+      // Completion date computations
+      var lookbackDateHtml = 'N/A';
+      if (bv.velocityLookback > 0 && bundleEtc > 0) {
+        var lbDays = Math.round((bundleEtc / bv.velocityLookback) * 30.44);
+        lookbackDateHtml = fmtDateFromDays(lbDays) + ' <span style="color:#64748b;font-weight:normal;">(' + lbDays + ' days)</span>';
+      } else if (bundleEtc === 0 && activeCount === 0) {
+        lookbackDateHtml = '<span style="color:#64748b;">\u2014 no active WOs</span>';
+      } else if (bv.velocityLookback <= 0) {
+        lookbackDateHtml = '<span style="color:#b45309;">N/A \u2014 zero velocity</span>';
+      }
+
+      var lastMonthDateHtml;
+      if (bv.velocityLastMonth > 0 && bundleEtc > 0) {
+        var lmDays = Math.round((bundleEtc / bv.velocityLastMonth) * 30.44);
+        lastMonthDateHtml = fmtDateFromDays(lmDays) + ' <span style="color:#64748b;font-weight:normal;">(' + lmDays + ' days)</span>';
+      } else if (bundleEtc === 0 && activeCount === 0) {
+        lastMonthDateHtml = '<span style="color:#64748b;">\u2014 no active WOs</span>';
+      } else {
+        lastMonthDateHtml = '<span style="color:#b45309;">N/A \u2014 no activity last month</span>';
+      }
+
+      var cvLbStr = isNaN(bv.cvLookback) ? '' : bv.cvLookback.toFixed(2);
+      var detailsId = 'bundle-details-' + bi;
+
+      html += '<tr class="bundle-row" onclick="toggleBundleDetails(this)" data-target="' + detailsId + '">';
+      html += '<td style="padding:6px 8px;font-weight:600;color:#1e293b;"><span class="bundle-expand-icon">\u25B6</span> ' + esc(bname) + '</td>';
+      html += '<td style="padding:6px 8px;">' + esc(bv.program) + '</td>';
+      html += '<td style="text-align:right;padding:6px 8px;">' + bundleEtc.toFixed(0) + '</td>';
+      html += '<td style="text-align:right;padding:6px 8px;">' + bv.velocityLookback.toFixed(1) + '</td>';
+      html += '<td style="padding:6px 8px;">' + esc(fmtWindow(bv)) + '</td>';
+      html += '<td style="text-align:right;padding:6px 8px;">' + bv.stdDevLookback.toFixed(1) + '</td>';
+      html += '<td style="text-align:right;padding:6px 8px;">' + cvLbStr + '</td>';
+      html += '<td style="padding:6px 8px;">' + lookbackDateHtml + '</td>';
+      html += '<td style="text-align:right;padding:6px 8px;">' + bv.velocityLastMonth.toFixed(1) + '</td>';
+      html += '<td style="padding:6px 8px;">' + lastMonthDateHtml + '</td>';
+      html += '</tr>\n';
+
+      // Details row (collapsed by default)
+      html += '<tr id="' + detailsId + '" class="bundle-details"><td colspan="10" style="padding:10px 18px;">\n';
+      if (members.length === 0) {
+        html += '<em style="color:#64748b;">No members in this bundle.</em>';
+      } else {
+        html += '<table style="width:100%;border-collapse:collapse;font-size:0.78rem;">\n';
+        html += '<thead><tr style="background:#e2e8f0;">';
+        html += '<th style="text-align:left;padding:4px 8px;">Part Number</th>';
+        html += '<th style="text-align:left;padding:4px 8px;">Part Description</th>';
+        html += '<th style="text-align:left;padding:4px 8px;">Serial Number</th>';
+        html += '<th style="text-align:left;padding:4px 8px;">Order No</th>';
+        html += '<th style="text-align:right;padding:4px 8px;">WO ETC (hrs)</th>';
+        html += '<th style="text-align:left;padding:4px 8px;">Status</th>';
+        html += '</tr></thead><tbody>\n';
+        for (var mj = 0; mj < members.length; mj++) {
+          var mem = members[mj];
+          var memEvm = evmResults[mem.orderNo];
+          var inUpload = !!(memEvm && typeof memEvm.etc === 'number');
+          var etcCell = inUpload ? memEvm.etc.toFixed(0) : '\u2014';
+          var statusCell = inUpload
+            ? '<span style="color:#15803d;">In daily upload</span>'
+            : '<span style="color:#94a3b8;font-style:italic;">Completed / removed</span>';
+          var rowStyle = inUpload ? '' : ' style="color:#94a3b8;"';
+          html += '<tr' + rowStyle + '>';
+          html += '<td style="padding:4px 8px;">' + esc(mem.partNumber) + '</td>';
+          html += '<td style="padding:4px 8px;">' + esc(mem.partDescription) + '</td>';
+          html += '<td style="padding:4px 8px;">' + esc(mem.serialNumber || '\u2014') + '</td>';
+          html += '<td style="padding:4px 8px;"><a href="#wo-' + esc(mem.orderNo) + '" style="color:#2563eb;text-decoration:none;">' + esc(mem.orderNo) + '</a></td>';
+          html += '<td style="text-align:right;padding:4px 8px;">' + etcCell + '</td>';
+          html += '<td style="padding:4px 8px;">' + statusCell + '</td>';
+          html += '</tr>\n';
+        }
+        html += '</tbody></table>\n';
+      }
+      html += '</td></tr>\n';
+    }
+    html += '</tbody></table>\n';
+    html += '</div>\n'; // end bundle completion section
+  }
+
   // Detail View (visible by default, no toggle needed)
   html += '<div id="detail-view" style="display:block">\n';
 
@@ -3941,6 +4142,7 @@ function saveEvmReport() {
   html += applyFilters.toString() + '\n\n';
   html += esc.toString() + '\n\n';
   html += searchParts.toString() + '\n\n';
+  html += toggleBundleDetails.toString() + '\n\n';
 
   html += 'function printPage() {\n';
   html += '  var ts = document.getElementById("print-timestamp");\n';
