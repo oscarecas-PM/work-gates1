@@ -286,8 +286,8 @@
     <div id="vac-log-status" class="status"></div>
   </div>
   <div class="file-group">
-    <h3>8. Scanned Data <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional — select multiple files)</span></h3>
-    <p>Columns: Work Order ID, Date Time, Location</p>
+    <h3>8. Scanned Data <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional &mdash; select or add multiple files)</span></h3>
+    <p>Columns: Work Order ID, Date Time, Location. Each upload <strong>appends</strong> to the existing pool &mdash; you can add files across several picks. Click <em>Clear</em> to reset.</p>
     <input type="file" id="scan-data-input" accept=".csv" multiple>
     <div id="scan-data-status" class="status"></div>
   </div>
@@ -441,6 +441,35 @@ document.getElementById('history-input').addEventListener('change', function(e) 
   }, 'history-status');
 });
 
+// Scan data supports incremental upload — each `change` event appends to the existing pool
+// so the user can pick files across multiple dialogs instead of merging them manually.
+var scannedFileCount = 0;
+
+function clearScanData() {
+  scannedFileData = null;
+  scannedFileCount = 0;
+  document.getElementById('scan-data-input').value = '';
+  var el = document.getElementById('scan-data-status');
+  el.textContent = '';
+  el.className = 'status';
+}
+
+// Return a column-index map {originalIdx -> canonicalIdx} that maps the incoming file's columns
+// onto the canonical header order. Returns null if any required column is missing.
+function buildScanHeaderMap(canonical, incoming) {
+  var map = new Array(canonical.length);
+  for (var ci = 0; ci < canonical.length; ci++) {
+    var want = String(canonical[ci] || '').toLowerCase().trim();
+    var found = -1;
+    for (var ii = 0; ii < incoming.length; ii++) {
+      if (String(incoming[ii] || '').toLowerCase().trim() === want) { found = ii; break; }
+    }
+    if (found < 0) return null;
+    map[ci] = found;
+  }
+  return map;
+}
+
 document.getElementById('scan-data-input').addEventListener('change', function(e) {
   var files = Array.from(e.target.files);
   if (files.length === 0) return;
@@ -452,7 +481,7 @@ document.getElementById('scan-data-input').addEventListener('change', function(e
   auditInput.value = '';
 
   var pending = files.length;
-  var allParsed = [];
+  var allParsed = new Array(files.length);
   var hadError = false;
   files.forEach(function(file, idx) {
     var reader = new FileReader();
@@ -460,7 +489,7 @@ document.getElementById('scan-data-input').addEventListener('change', function(e
       try {
         var rows = parseCSV(ev.target.result);
         if (rows.length < 2) throw new Error('File "' + file.name + '" has no data rows');
-        allParsed[idx] = rows;
+        allParsed[idx] = { name: file.name, rows: rows };
       } catch (err) {
         if (!hadError) {
           hadError = true;
@@ -468,22 +497,63 @@ document.getElementById('scan-data-input').addEventListener('change', function(e
         }
       }
       pending--;
-      if (pending === 0 && !hadError) {
-        // Combine: header from first file, data rows from all
-        var combined = [allParsed[0][0]]; // header
-        var totalDataRows = 0;
-        for (var f = 0; f < allParsed.length; f++) {
-          for (var r = 1; r < allParsed[f].length; r++) {
-            combined.push(allParsed[f][r]);
-            totalDataRows++;
-          }
-        }
-        scannedFileData = combined;
-        showStatus('scan-data-status', 'Loaded ' + totalDataRows + ' rows from ' + files.length + ' file' + (files.length > 1 ? 's' : ''), false);
-      }
+      if (pending === 0 && !hadError) finishScanUpload(allParsed);
     };
     reader.readAsText(file);
   });
+
+  function finishScanUpload(parsed) {
+    // Establish the canonical header. If we already have scan data loaded, reuse its header;
+    // otherwise adopt the header from the first new file.
+    var hasExisting = scannedFileData && scannedFileData.length > 0;
+    var canonical = hasExisting ? scannedFileData[0] : parsed[0].rows[0];
+    var combined = hasExisting ? scannedFileData : [canonical];
+    var addedRows = 0;
+    var mismatches = [];
+
+    for (var f = 0; f < parsed.length; f++) {
+      var fileEntry = parsed[f];
+      var fileHeader = fileEntry.rows[0];
+      var map = buildScanHeaderMap(canonical, fileHeader);
+      if (!map) {
+        mismatches.push(fileEntry.name);
+        continue;
+      }
+      for (var r = 1; r < fileEntry.rows.length; r++) {
+        var src = fileEntry.rows[r];
+        var reordered = new Array(canonical.length);
+        for (var c = 0; c < canonical.length; c++) reordered[c] = src[map[c]] || '';
+        combined.push(reordered);
+        addedRows++;
+      }
+    }
+
+    if (mismatches.length > 0) {
+      showStatus('scan-data-status',
+        'Error: header mismatch in ' + mismatches.length + ' file(s): ' + mismatches.join(', ') +
+        '. Expected columns: ' + canonical.join(', ') + '. Nothing appended.',
+        true);
+      return;
+    }
+
+    scannedFileData = combined;
+    scannedFileCount += parsed.length;
+    var totalRows = scannedFileData.length - 1;
+    var el = document.getElementById('scan-data-status');
+    el.className = 'status loaded';
+    el.textContent = 'Loaded ' + totalRows + ' rows from ' + scannedFileCount +
+      ' file' + (scannedFileCount === 1 ? '' : 's') +
+      ' (+' + addedRows + ' this upload) \u2022 ';
+    var clearLink = document.createElement('a');
+    clearLink.href = '#';
+    clearLink.textContent = 'Clear';
+    clearLink.style.cssText = 'color:#dc2626;text-decoration:underline;cursor:pointer;';
+    clearLink.addEventListener('click', function(ev) { ev.preventDefault(); clearScanData(); });
+    el.appendChild(clearLink);
+
+    // Reset the input's value so the same filename can be re-picked later if needed.
+    document.getElementById('scan-data-input').value = '';
+  }
 });
 
 // Bundle Velocity CSV handler — two-section CSV (velocities + membership)

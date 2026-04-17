@@ -1072,7 +1072,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-190</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Multi-file upload:</strong> The Scanned Data file input accepts multiple files via a single multi-select input. Files are combined automatically &mdash; header from the first file, data rows appended from all files. Status displays total rows and file count (e.g., &ldquo;Loaded 744 rows from 2 files&rdquo;).</td>
+    <td><strong>Multi-file upload (revised v9.5):</strong> The Scanned Data file input accepts multiple files. Every file-picker <em>change</em> event <strong>appends</strong> its files to the existing pool &mdash; the user can accumulate files across multiple picks rather than being forced to Ctrl-click everything in one dialog or merge rows by hand. The canonical header is established by the first upload; subsequent files are matched by <em>header name</em> so columns can appear in any order and will be reordered to the canonical layout on append. Files whose header is missing a required column are rejected as a batch and nothing is appended (status shows the offending filename and the expected column list). The status line displays running totals (&ldquo;Loaded N rows from K files (+X this upload)&rdquo;) and includes an inline <em>Clear</em> link that resets <code>scannedFileData</code> and the cumulative file count. Loading a Mobile Audit CSV continues to clear the scan pool (F-196 mutual exclusivity).</td>
   </tr>
   <tr>
     <td class="req-id">F-191</td>
