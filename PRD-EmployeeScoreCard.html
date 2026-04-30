@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD - Employee Score Card</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #222; line-height: 1.6; }
+h1 { color: #1e3a5f; border-bottom: 3px solid #1e3a5f; padding-bottom: 0.5rem; }
+h2 { color: #1e3a5f; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+h3 { color: #334155; margin-top: 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+th { background: #334155; color: #fff; padding: 8px 12px; text-align: left; }
+td { padding: 6px 12px; border-bottom: 1px solid #e5e7eb; }
+tr:nth-child(even) { background: #f8fafc; }
+code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+.req { font-weight: bold; color: #2563eb; margin-right: 6px; }
+.version { color: #666; font-size: 0.9em; }
+ul { margin: 0.5rem 0; }
+li { margin: 0.3rem 0; }
+.note { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+.bug { background: #fef2f2; border-left: 4px solid #dc2626; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+.formula { background: #f1f5f9; border-left: 4px solid #2563eb; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; font-family: 'Courier New', monospace; }
+</style>
+</head>
+<body>
+
+<h1>Product Requirements Document (PRD)</h1>
+<p><strong>Product Name:</strong> Employee Score Card</p>
+<p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
+<p class="version">Version 1.0 | April 28, 2026 | Author: Oscar Castillo</p>
+
+<h2>1. Overview</h2>
+<p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
+
+<h2>2. Objectives</h2>
+<ul>
+  <li>Ingest one or many .xlsx employee charge files (multi-file because the source system limits exports by part-number wildcard) and dedup overlapping rows</li>
+  <li>Convert cumulative <code>Total Hours</code> values to incremental per-week charges per (Employee, Order No, Operation)</li>
+  <li>Join charges to the Hours Earned CSV on (Order No, Oper No) and split each closed operation's earned hours pro-rata across the employees who charged on it</li>
+  <li>Aggregate per-employee per-month: Total Earned Hours, Total Actual Hours, CPI</li>
+  <li>Visualize the distribution of productivity across employees with multiple chart perspectives (ranked bar, histogram, monthly box plot, actual-vs-earned scatter)</li>
+  <li>Produce a per-month grid (employee &times; month) with drill-down to contributing operations, including a "split" flag for operations shared across techs</li>
+  <li>Surface unmatched charges (charge rows whose operation has no Hours Earned row) ranked by total actual hours so the user can prioritize follow-up data pulls</li>
+  <li>Provide an anonymize toggle that replaces names/badges with stable <code>Tech 1, Tech 2, &hellip;</code> labels throughout the UI, exports, and snapshots</li>
+  <li>Provide self-contained HTML snapshot, CSV exports, and Print/PDF output</li>
+</ul>
+
+<h2>3. Architecture Constraints</h2>
+<ul>
+  <li>Entirely client-side; all parsing, joining, splitting, and chart rendering happens in the browser</li>
+  <li>Single self-contained HTML file with embedded libraries (no CDN, no network calls)</li>
+  <li>No persistent storage (cookies, localStorage, etc.). All data resides in memory for the session</li>
+  <li>Must work in modern browsers (Chrome, Edge)</li>
+  <li>Handle multi-file xlsx ingest of tens of thousands of rows without freezing</li>
+  <li>Clean, professional UI styling matching the existing tool family (navy/gray palette, right-aligned numerics)</li>
+  <li>Personally identifiable information (employee name, badge) never leaves the browser</li>
+</ul>
+
+<h2>4. Embedded Libraries</h2>
+<table>
+  <tr><th>Library</th><th>Version</th><th>Purpose</th><th>License</th></tr>
+  <tr><td>SheetJS Community Edition</td><td>v0.18.5</td><td>.xlsx parsing</td><td>Apache-2.0</td></tr>
+  <tr><td>PapaParse</td><td>v5.5.2</td><td>CSV parsing</td><td>MIT</td></tr>
+  <tr><td>Chart.js</td><td>v4.4.7</td><td>Bar, scatter, line, custom box-plot rendering</td><td>MIT</td></tr>
+</table>
+<p>Each library is annotated in the source with version, source URL, embed date, and license for future update tracking, matching the convention used in <code>gate-tracker-30.html</code> and <code>earned-hour-analysis-1.html</code>.</p>
+
+<h2>5. Data Inputs</h2>
+
+<h3>5.1 Employee Charge Files (.xlsx, required, multiple)</h3>
+<p>The user uploads one or more .xlsx files. Each file's data table starts on <strong>row 4</strong> (rows 1&ndash;3 are export metadata and are skipped). The header row is auto-detected by scanning the first 10 rows for a cell whose value matches <code>Order No</code>, mirroring the auto-detect approach in <code>gate-tracker-30.html</code>.</p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+  <tr><td>Order No</td><td>String</td><td>Work order identifier; primary join key to Hours Earned CSV</td></tr>
+  <tr><td>Week Ending</td><td>Date/Time</td><td>Format <code>MM/DD/YYYY HH:MM:SS AM/PM</code>. Used to attribute Actual Hours to a calendar month and as part of the dedup key.</td></tr>
+  <tr><td>Employee Name</td><td>String</td><td>Display label only. Names may repeat or change &mdash; not used as identity.</td></tr>
+  <tr><td>Badge</td><td>String</td><td>Stable employee identity. Used as the grouping key and as the seed for the anonymize mapping.</td></tr>
+  <tr><td>Part No.</td><td>String</td><td>Used for the Unmatched Charges report grouping</td></tr>
+  <tr><td>Part Description</td><td>String</td><td>Display only</td></tr>
+  <tr><td>Operation</td><td>String</td><td>Operation number; secondary join key (Oper No) to Hours Earned CSV</td></tr>
+  <tr><td>Total Hours</td><td>Numeric</td><td>Cumulative-as-of-Week-Ending hours that this employee has charged against this operation. Non-numeric treated as 0 with warning.</td></tr>
+  <tr><td>Status</td><td>String</td><td><code>CLOSE</code> or <code>ACTIVE</code>. Operation-level status as of the Week Ending row.</td></tr>
+</table>
+<p>Multi-file ingest: rows are concatenated across files. Duplicates by composite key <code>(Badge, Order No, Oper No, Week Ending)</code> are deduplicated, keeping the row with the highest <code>Total Hours</code> (most recent snapshot wins).</p>
+
+<h3>5.2 Hours Earned CSV (required)</h3>
+<p>Identical format to <code>PRD-EarnedHourAnalysis.html</code> &sect;5.1. Required columns: <code>Order No</code>, <code>Year of Actual End Date</code>, <code>Month of Actual End Date</code>, <code>Oper No</code>, <code>Hours Earned</code>. The optional <code>Actual End Date</code> column is preserved but not required.</p>
+<p>Each row represents one closed operation. The Earned Hour Analysis tool aggregates these rows to (Order No, Month) for its bundle view; this tool keeps them at (Order No, Oper No, Month) grain so per-operation pro-rata splits are possible.</p>
+
+<h3>5.3 EV Details CSV (optional, multiple files)</h3>
+<p>Identical format to <code>PRD-EarnedHourAnalysis.html</code> &sect;5.3. Used solely for Program enrichment of the Program filter chips. Columns: <code>Network</code>, <code>Order No</code>, <code>Part No</code>, <code>Plan Title</code>, <code>Program</code>. Duplicate Order Nos deduplicated; first occurrence wins. If not uploaded, the Program filter chips are hidden.</p>
+
+<h2>6. Functional Requirements</h2>
+
+<h3>6.1 Data Processing</h3>
+<p><span class="req">F-01</span> Auto-detect the header row in each xlsx by scanning the first 10 rows for a cell exactly matching <code>Order No</code>. Data starts at the row after the detected header. Files where no header is found produce a validation error.</p>
+<p><span class="req">F-02</span> After concatenating rows from all uploaded xlsx files, deduplicate by <code>(Badge, Order No, Oper No, Week Ending)</code>. When duplicates exist, retain the row with the maximum <code>Total Hours</code>. Surface dedup count in the validation panel.</p>
+<p><span class="req">F-03</span> Convert cumulative <code>Total Hours</code> to incremental per-week charges. For each <code>(Badge, Order No, Oper No)</code> series, sort by <code>Week Ending</code> ascending and compute <code>incremental[i] = Total Hours[i] - Total Hours[i-1]</code> (incremental[0] = Total Hours[0]). Negative diffs (corrections / re-categorizations upstream) are clamped to 0 and counted in the validation panel.</p>
+<p><span class="req">F-04</span> Parse the Hours Earned CSV with the same column-tolerance and <code>parseMonth()</code> logic used in <code>earned-hour-analysis-1.html</code>. Non-numeric <code>Hours Earned</code> values treated as 0 with a warning.</p>
+<p><span class="req">F-05</span> <strong>Pro-rata split.</strong> For each row in the Hours Earned CSV (one closed operation = one earned-hours value):
+  <span class="formula">total_charged = &Sigma; incremental_charges over all badges on (Order No, Oper No)<br>earned_share[badge] = Hours Earned &times; (charge[badge] / total_charged)</span>
+  <ul>
+    <li>If <code>total_charged === 0</code>: credit nothing; add the operation to the "earned but unmatched to charges" warning list.</li>
+    <li>If more than one badge contributed charges: flag the operation as <code>split</code> for the per-month drill-down view.</li>
+    <li>The earned_share is credited to the calendar month identified by (<code>Year of Actual End Date</code>, <code>Month of Actual End Date</code>) for that Hours Earned row.</li>
+  </ul>
+</p>
+<p><span class="req">F-06</span> <strong>Per-employee per-month aggregation.</strong>
+  <ul>
+    <li><strong>Total Earned Hours</strong> = &Sigma; <code>earned_share</code> across all operations that closed in (Badge, YearMonth).</li>
+    <li><strong>Total Actual Hours</strong> = &Sigma; incremental charges where <code>Week Ending</code> falls in YearMonth, regardless of operation status. Both <code>CLOSE</code> and <code>ACTIVE</code> charge rows count.</li>
+    <li><strong>CPI</strong> = Earned / Actual. Display as em-dash (&mdash;) when Actual = 0.</li>
+  </ul>
+</p>
+<p><span class="req">F-07</span> Active operations contribute zero earned hours regardless of how many charges sit against them. They contribute fully to Actual Hours. Operations transition to earned-hours contributors only when they appear in the Hours Earned CSV.</p>
+
+<h3>6.2 Filters</h3>
+<p><span class="req">F-10</span> "Data starts from" filter: Month/Year dropdowns. Default: January 2026. Months before the selected month are excluded from all summary tables, charts, and the per-month grid.</p>
+<p><span class="req">F-11</span> "Hide current month" toggle: Checkbox, checked by default. Removes the most recent month in the dataset from all views (because it is partial / still in progress).</p>
+<p><span class="req">F-12</span> Program filter chips: Visible only when EV Details CSV is uploaded. Clickable chips for each unique Program. Blue = included, grey strikethrough = excluded. Deselecting a program removes its WOs everywhere (summary, charts, grid, exports).</p>
+<p><span class="req">F-13</span> Badge multi-select: Dropdown / chip strip listing all badges discovered in the charge files. Default = all selected. Deselecting a badge hides them from all visible views (does not affect calculations).</p>
+<p><span class="req">F-14</span> "Anonymize" toggle: When ON, all visible badges and names are replaced with <code>Tech 1, Tech 2, &hellip;</code> labels. Mapping is deterministic for a given session: badges are sorted alphabetically and assigned indices in that order so the same badge always becomes the same Tech N within a session.</p>
+<p><span class="req">F-15</span> Filters apply immediately on toggle/click (no separate Apply button), with a debounce on numeric range changes.</p>
+
+<h3>6.3 Summary Section</h3>
+<p><span class="req">F-20</span> Summary section at top, titled "Per-Employee Totals (Filtered Range)".</p>
+<p><span class="req">F-21</span> One row per badge with columns: Tech (badge or anonymized label), Earned Hours, Actual Hours, CPI, # Split Operations participated in, # WOs touched. Footer row shows column totals (CPI footer = sum(Earned) / sum(Actual)).</p>
+<p><span class="req">F-22</span> Sortable on every numeric column (click header to toggle ascending/descending). Default sort: Earned Hours descending.</p>
+<p><span class="req">F-23</span> Tech labels in the first column hyperlink to the badge's row in the per-month grid.</p>
+<p><span class="req">F-24</span> Color-coded CPI cells: green for &ge; 1.0, amber for 0.7&ndash;1.0, red for &lt; 0.7. Em-dash cells (Actual = 0) are uncolored.</p>
+
+<h3>6.4 Distribution Charts</h3>
+<p><span class="req">F-30</span> Distribution panel with a tab strip exposing four sub-views. Only one tab is visible at a time on screen; all four are exported in the snapshot and printed.</p>
+<p><span class="req">F-31</span> <strong>Tab A &mdash; Ranked Bar:</strong> One bar per badge, sorted by Earned Hours descending. Mean and median reference lines drawn as horizontal annotations. Y-axis label: "Earned Hours (Filtered Range)".</p>
+<p><span class="req">F-32</span> <strong>Tab B &mdash; Histogram:</strong> Bins of Earned-Hours values. Bin width via Freedman&ndash;Diaconis rule (<code>2 &times; IQR &times; n^(-1/3)</code>) with a minimum of 5 hours per bin. Bar height = count of badges in bin. Hovering a bar shows the badge labels in that bin (limited to 10 with "+N more" overflow).</p>
+<p><span class="req">F-33</span> <strong>Tab C &mdash; Box Plot per Month:</strong> One vertical box per month in the filtered range, computed from the per-(badge, month) Earned Hours values. Whiskers = min/max within 1.5&times;IQR; outliers shown as individual dots. Drawn on a Chart.js canvas via custom plugin (no extra dependency).</p>
+<p><span class="req">F-34</span> <strong>Tab D &mdash; Scatter (Actual vs. Earned):</strong> One dot per badge. X = Total Actual Hours, Y = Total Earned Hours, both over the filtered range. Dashed diagonal at <code>y = x</code> represents CPI = 1.0. Hovering a dot shows the badge label, Earned, Actual, and CPI.</p>
+<p><span class="req">F-35</span> Each chart respects the Anonymize toggle: when ON, axis labels and tooltips display Tech N rather than badge / name.</p>
+<p><span class="req">F-36</span> Each chart respects the Badge filter: deselected badges are hidden from the rendered chart.</p>
+
+<h3>6.5 Per-Month Grid</h3>
+<p><span class="req">F-40</span> Grid with badges as rows (sorted by total Earned Hours descending) and months as columns (oldest to newest in the filtered range).</p>
+<p><span class="req">F-41</span> Each cell shows three stacked values: Earned (top), Actual (middle, smaller font), CPI (bottom, color-coded by F-24 thresholds).</p>
+<p><span class="req">F-42</span> Cells are clickable. Clicking opens a drill-down modal listing every operation that contributed to that (badge, month) cell. Modal columns: Order No, Oper No, Part No., Status, Total Hours Charged (badge), Total Charged (all badges on this op), Hours Earned (this op), Earned Share (this badge), Split flag.</p>
+<p><span class="req">F-43</span> The drill-down modal includes a "Copy as CSV" button.</p>
+<p><span class="req">F-44</span> Empty cells (no activity) render as a faint dash, not zero.</p>
+
+<h3>6.6 Unmatched Charges Report</h3>
+<p><span class="req">F-50</span> Report section titled "Charges Without Earned Credit". For every (Order No, Oper No) where charges exist but no Hours Earned row matches, group rows by Part No.</p>
+<p><span class="req">F-51</span> Columns: Part No., Part Description, Total Actual Hours (no earned), # WOs, # Operations, # Badges. Sorted by Total Actual Hours descending.</p>
+<p><span class="req">F-52</span> "Export Unmatched CSV" button next to the section header. CSV includes all visible columns plus one extra section listing the underlying (Order No, Oper No) tuples and their actual hours.</p>
+<p><span class="req">F-53</span> Filename: <code>employee-score-card-unmatched-YYYY-MM-DD.csv</code>.</p>
+<p><span class="req">F-54</span> The total at the bottom shows the sum of unmatched actual hours and the percentage of all charged hours represented by the unmatched bucket. This communicates the total earned-hours blind spot.</p>
+
+<h3>6.7 Validation Panel</h3>
+<p><span class="req">F-60</span> Collapsed-by-default amber panel below the action bar showing: rows ingested per file, dedup count, negative-diff clamps, badges with missing names, charges with zero hours, Hours Earned rows with missing Oper No or Order No, Hours Earned rows whose operation appears nowhere in the charge files (the "earned but unmatched to charges" list).</p>
+<p><span class="req">F-61</span> "Earned but unmatched to charges" sub-list shows up to the top 50 rows; full list available via "Copy as CSV" inside the panel.</p>
+
+<h3>6.8 Export: Save Snapshot</h3>
+<p><span class="req">F-70</span> Green "Save Snapshot" button visible after Analyze.</p>
+<p><span class="req">F-71</span> Generates a self-contained HTML file with all CSS, rendered tables, and fully interactive Chart.js charts. Chart.js library and chart configurations embedded as JSON and reconstructed on load (same pattern as <code>earned-hour-analysis-1.html</code>).</p>
+<p><span class="req">F-72</span> Includes "Proprietary &mdash; Internal Use Only" banner.</p>
+<p><span class="req">F-73</span> Includes snapshot timestamp.</p>
+<p><span class="req">F-74</span> If Anonymize was ON when the snapshot was generated, the snapshot is locked to anonymized labels and contains no badge or name strings anywhere in its serialized JSON.</p>
+<p><span class="req">F-75</span> Filename: <code>employee-score-card-YYYY-MM-DD.html</code>.</p>
+
+<h3>6.9 Export: CSVs</h3>
+<p><span class="req">F-80</span> "Export Per-Employee Monthly CSV": one row per (badge, month) with columns Tech (badge or anonymized), YearMonth, Earned Hours, Actual Hours, CPI, # Split Ops.</p>
+<p><span class="req">F-81</span> "Export Split Operations Log": one row per (Order No, Oper No) flagged as split, with columns Order No, Oper No, Part No., Closed Year, Closed Month, Hours Earned, Total Charged, plus one repeated triplet (Badge, Charged, Earned Share) per participant.</p>
+<p><span class="req">F-82</span> All CSV exports honor the Anonymize toggle (Tech labels replace badges and names).</p>
+<p><span class="req">F-83</span> CSV field quoting: commas in values wrapped in double quotes; embedded quotes doubled.</p>
+<p><span class="req">F-84</span> Field length cap: 32,768 characters per cell (matches the gate-tracker convention).</p>
+
+<h3>6.10 Export: Print / PDF</h3>
+<p><span class="req">F-90</span> "Print / Export PDF" button triggers <code>window.print()</code>.</p>
+<p><span class="req">F-91</span> Print timestamp shown during print.</p>
+<p><span class="req">F-92</span> <code>@media print</code> hides: file inputs, action bar, validation panel toggle, filter controls. Forces all four distribution tabs and the per-month grid to render in sequence on separate pages.</p>
+<p><span class="req">F-93</span> <code>break-inside: avoid</code> on each chart and on each summary section.</p>
+
+<h2>7. Visual & UI Requirements</h2>
+<p><span class="req">V-01</span> Navy/gray color palette aligned with the rest of the family: #1e3a5f (headings), #334155 (table headers), #2563eb (primary buttons), #f5f5f5 (background).</p>
+<p><span class="req">V-02</span> Right-aligned numeric columns with <code>font-variant-numeric: tabular-nums</code>.</p>
+<p><span class="req">V-03</span> CPI color thresholds: green #15803d (&ge; 1.0), amber #b45309 (0.7&ndash;1.0), red #dc2626 (&lt; 0.7).</p>
+<p><span class="req">V-04</span> Distribution tab strip: blue underline on active tab, hover state on inactive tabs.</p>
+<p><span class="req">V-05</span> Anonymize toggle visually distinct (orange chip) so the user always knows which mode they're in.</p>
+<p><span class="req">V-06</span> Drill-down modal: navy header bar, gray body, scroll-locked, dismissable via Esc or backdrop click.</p>
+<p><span class="req">V-07</span> Unmatched Charges section header: amber (#b45309) to telegraph "this is data quality, fix me".</p>
+<p><span class="req">V-08</span> Chart canvas height: 480px for tab charts, 600px for the scatter (it benefits from extra room for the diagonal).</p>
+
+<h2>8. Security Controls</h2>
+<p><span class="req">S-01</span> <code>esc()</code> function for XSS prevention (5-char HTML entity escaping).</p>
+<p><span class="req">S-02</span> CSP meta tag: <code>default-src 'self' 'unsafe-inline'; img-src 'self' data:;</code></p>
+<p><span class="req">S-03</span> JSON <code>&lt;</code> sanitization in snapshot script blocks (<code>\x3c</code> escape).</p>
+<p><span class="req">S-04</span> Proprietary banner on snapshots.</p>
+<p><span class="req">S-05</span> CSV field quoting in exports.</p>
+<p><span class="req">S-06</span> Field length cap of 32,768 characters per CSV cell.</p>
+<p><span class="req">S-07</span> Anonymize toggle locks names/badges out of generated snapshots when ON, eliminating PII at the data layer (not just the display layer).</p>
+
+<h2>9. Known Issues</h2>
+<p style="font-size:0.9rem;color:#666;">No known issues at first release.</p>
+
+<h2>10. Open Questions</h2>
+<ol>
+  <li>Should the Status field on charge rows ever drive earned hours (e.g., <code>CLOSE</code> with no Hours Earned row should perhaps surface as a data-quality alert rather than silent zero earned)?</li>
+  <li>Should pro-rata splits weight by something other than charged hours (e.g., presence of a Lead Tech designation if the upstream system ever exports it)?</li>
+  <li>Should the histogram bin width be user-adjustable, or is Freedman&ndash;Diaconis with a 5-hour minimum sufficient?</li>
+  <li>Should the per-month grid show three stacked numbers per cell, or use a tab/toggle to switch between Earned-only, Actual-only, and CPI-only heatmaps?</li>
+</ol>
+
+<h2>11. Verification &amp; Open Issues</h2>
+
+<h3>11.1 End-to-end verification &mdash; NOT YET PERFORMED</h3>
+<p>The tool was scaffolded against this PRD but has not been run end-to-end against the synthetic test data. Before relying on its outputs:</p>
+<ol>
+  <li>Run <code>python dummy-files/_make_score_card_test.py</code> to generate <code>test-charges-555-777.xlsx</code>, <code>test-charges-5x-and-999.xlsx</code>, <code>test-hours-earned.csv</code>, and <code>test-ev-details.csv</code>.</li>
+  <li>Open <code>employee-score-card-1.html</code> in Chrome, upload the four files, click Analyze.</li>
+  <li>Hand-verify the totals against the expected outputs printed by the test script: Alice CPI 0.80 (36/45), Bob 1.057 (74/70), Charlie 0.69 (40/58); split operation WO-100/0010 with Alice 30/Bob 20 charge split &rarr; Alice 36/Bob 24 earned; unmatched charges ranked 999-05 (18h) above 555-01 (5h).</li>
+  <li>Verify all four distribution tabs render (ranked bar, histogram, box plot per month, scatter), the per-month grid drill-down works, anonymize toggles cleanly, snapshot round-trips with charts intact, and all CSV exports produce expected files.</li>
+</ol>
+
+<h3>11.2 Open issue &mdash; Historical Employee Charge data sourcing</h3>
+<p>The tool's primary input is <code>Employee Charge .xlsx</code> exports (per-employee, per-operation, per-week, cumulative <code>Total Hours</code>). This schema is materially different from any input we ingest elsewhere:</p>
+<ul>
+  <li><strong>P Files:</strong> WO-level cumulative actuals at a snapshot date. No employee breakdown. Cannot substitute.</li>
+  <li><strong>VAC Tracker Log:</strong> WO-level cumulative VAC, Actual Hours, EV, and CPI per snapshot date. No employee breakdown. Cannot substitute.</li>
+  <li><strong>Hours Earned CSV (existing):</strong> per-WO-per-operation closure events. Provides the <em>numerator</em> (earned hours per closed operation) but no charge data. The tool already requires this and uses it correctly.</li>
+</ul>
+<p>Two unverified assumptions:</p>
+<ol>
+  <li><strong>Current data availability:</strong> can the labor-charge system actually produce the .xlsx schema described in &sect;5.1? Header row 4, columns Order No / Week Ending / Employee Name / Badge / Part No. / Part Description / Operation / Total Hours / Status. Until this is confirmed with a sample export, the tool's input contract is hypothetical.</li>
+  <li><strong>Historical data availability:</strong> if current exports work, can they be requested for past months/quarters so the tool can show a trended CPI history? The labor system may only retain rolling snapshots, in which case historical Employee Score Card output would be limited to whatever window is exportable.</li>
+</ol>
+<p>If either assumption fails, the path forward is to derive employee-level charges from a different source. Options to investigate (not yet validated):</p>
+<ul>
+  <li>Timecard / payroll system direct export (different report, different schema &mdash; would require adapting &sect;5.1).</li>
+  <li>Per-operation labor allocation derived from MES audit history + technician assignments (much weaker signal; may not preserve charge-hour fidelity).</li>
+  <li>Limit the tool to current-only views and live with the lack of historical depth.</li>
+</ul>
+<p>This open issue is the gating concern for production use of the tool. The code is correct against the documented input contract; the contract itself needs ground truth.</p>
+
+</body>
+</html>
