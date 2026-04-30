@@ -133,7 +133,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.0 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.1 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -1139,6 +1139,7 @@ function computeFilteredTotals() {
       if (r.monthKey !== cell.monthKey) continue;
       if (!programOk(r.orderNo)) continue;
       actualF += r.incremental;
+      t.woSet.add(r.orderNo);
     }
     // Avoid double-counting actuals: only assign once per cell
     if (!t.monthCells.has(cell.monthKey)) {
@@ -1422,6 +1423,12 @@ function buildChartForTab(tabId, totals, activeMonths) {
     }
     const labels = stats.map(s => monthKeyLabel(s.mk));
 
+    // Compute Y-axis max from box stats so the plot has a real scale
+    // even when there are no outliers (otherwise Chart.js auto-scales to 0..1
+    // and all boxes clip below the chart area). Bug fix v1.1.
+    const yValues = stats.flatMap(s => s.n > 0 ? [s.q1, s.q3, s.med, s.lo, s.hi, ...(s.outliers || [])] : []);
+    const yMax = yValues.length ? Math.max(...yValues) * 1.1 : 1;
+
     // Use a scatter chart and draw boxes via plugin
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
       type: 'scatter',
@@ -1447,7 +1454,7 @@ function buildChartForTab(tabId, totals, activeMonths) {
             },
             title: { display: true, text: 'Month' }
           },
-          y: { beginAtZero: true, title: { display: true, text: 'Earned Hours per Tech' } }
+          y: { beginAtZero: true, max: yMax, title: { display: true, text: 'Earned Hours per Tech' } }
         }
       },
       plugins: [{
@@ -1487,7 +1494,9 @@ function buildChartForTab(tabId, totals, activeMonths) {
       }]
     });
   } else if (tabId === 'scatter') {
-    const data = rows.map(r => ({ x: r.actual, y: r.earned, badge: r.badge }));
+    // Use labelFor() so the dataset carries the anonymized identifier
+    // when Anonymize is ON; this prevents PII leaking into snapshot JSON. F-74/S-07.
+    const data = rows.map(r => ({ x: r.actual, y: r.earned, badge: labelFor(r.badge) }));
     const maxV = Math.max(1, ...data.map(d => Math.max(d.x, d.y)));
 
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
@@ -1754,29 +1763,30 @@ function downloadFile(filename, content, type) {
 document.getElementById('export-monthly-btn').onclick = () => {
   const totals = computeFilteredTotals();
   const activeMonths = getActiveMonthKeys();
-  const lines = [csvRow(['Tech', 'Badge', 'YearMonth', 'Earned Hours', 'Actual Hours', 'CPI', '# Split Ops'])];
+  // F-80: single Tech column (badge or anonymized). Use labelFor() so the column
+  // matches the in-tool display exactly.
+  const lines = [csvRow(['Tech', 'YearMonth', 'Earned Hours', 'Actual Hours', 'CPI', '# Split Ops'])];
   const sorted = Array.from(totals.values()).sort((a, b) => b.earned - a.earned);
   for (const r of sorted) {
     for (const mk of activeMonths) {
       const c = r.monthCells.get(mk);
       if (!c) continue;
       const cpi = c.actual ? c.earned / c.actual : '';
-      const tech = State.filters.anonymize ? (State.anonMap.get(r.badge) || r.badge) : (Array.from(State.badgeMeta.get(r.badge).names)[0] || '');
-      const badgeLabel = State.filters.anonymize ? (State.anonMap.get(r.badge) || '') : r.badge;
-      lines.push(csvRow([tech, badgeLabel, mk, round1(c.earned), round1(c.actual), cpi === '' ? '' : Math.round(cpi * 100) / 100, c.splitOps]));
+      lines.push(csvRow([labelFor(r.badge), mk, round1(c.earned), round1(c.actual), cpi === '' ? '' : Math.round(cpi * 100) / 100, c.splitOps]));
     }
   }
   downloadFile('employee-score-card-monthly-' + todayStr() + '.csv', lines.join(''), 'text/csv');
 };
 
 document.getElementById('export-split-btn').onclick = () => {
+  // F-81: per-participant repeated triplet (Badge, Charged, Earned Share).
+  // Badge column carries the anonymized label when Anonymize is ON, matching
+  // F-82's display rule.
   const lines = [csvRow(['Order No', 'Oper No', 'Part No.', 'Description', 'Closed Year', 'Closed Month', 'Hours Earned', 'Total Charged', '# Participants', 'Participants…'])];
   for (const rec of State.splitOps) {
     const partsCells = [];
     for (const p of rec.parts) {
-      const tech = State.filters.anonymize ? State.anonMap.get(p.badge) : (p.names && p.names.length ? p.names[0] : '');
-      const badgeOut = State.filters.anonymize ? '' : p.badge;
-      partsCells.push(tech, badgeOut, round1(p.charged), round1(p.share));
+      partsCells.push(labelFor(p.badge), round1(p.charged), round1(p.share));
     }
     lines.push(csvRow([rec.orderNo, rec.operNo, rec.partNo || '', rec.partDesc || '', rec.year, rec.month, round1(rec.hoursEarned), round1(rec.totalCharged), rec.parts.length, ...partsCells]));
   }
@@ -1855,8 +1865,20 @@ function buildSnapshot() {
   ['rankedBar', 'histogram', 'boxPlot', 'scatter'].forEach(t => buildChartForTab(t, totals, activeMonths));
 
   // Capture rendered HTML from results / validation / filter values
-  const resultsHtml = document.getElementById('results').innerHTML;
+  let resultsHtml = document.getElementById('results').innerHTML;
   const validationHtml = document.getElementById('validation-zone').innerHTML;
+  // F-74/S-07: when Anonymize is ON, strip badge identifiers that the live DOM
+  // carries in data-cell="<badge>||<mk>" attributes (used by drill-down click
+  // handlers, which are not re-attached on snapshot reload anyway).
+  if (State.filters.anonymize) {
+    for (const [badge, anonLabel] of State.anonMap) {
+      const escBadge = badge.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      resultsHtml = resultsHtml.replace(
+        new RegExp('data-cell="' + escBadge + '\\|\\|', 'g'),
+        'data-cell="' + anonLabel + '||'
+      );
+    }
+  }
   // Capture chart configs (labels, datasets) — Chart.js charts can be rebuilt from config
   const chartConfigs = {};
   for (const [k, ch] of Object.entries(State.charts)) {

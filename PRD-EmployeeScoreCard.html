@@ -28,7 +28,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Employee Score Card</p>
 <p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
-<p class="version">Version 1.0 | April 28, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.1 | April 29, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
@@ -198,7 +198,28 @@ li { margin: 0.3rem 0; }
 <p><span class="req">S-07</span> Anonymize toggle locks names/badges out of generated snapshots when ON, eliminating PII at the data layer (not just the display layer).</p>
 
 <h2>9. Known Issues</h2>
-<p style="font-size:0.9rem;color:#666;">No known issues at first release.</p>
+<p style="font-size:0.9rem;color:#666;">No open issues. v1.1 (2026-04-29) closed five defects found in the first end-to-end verification pass against synthetic test data &mdash; see the v1.1 row in the change log below.</p>
+<table>
+  <tr><th>Version</th><th>Date</th><th>Changes</th></tr>
+  <tr>
+    <td>1.1</td>
+    <td>2026-04-29</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-21 fix:</b> "# WOs" column now counts every WO the badge has charges on, including ACTIVE/in-progress operations with no earned hours yet (previously only counted WOs with earned credit, hiding ACTIVE engagement).</li>
+        <li><b>F-33 fix:</b> Box Plot per Month now renders correctly when there are no outliers. The chart Y-axis now scales explicitly from box stats (q1, q3, lo, hi, med, outliers) instead of relying on Chart.js auto-scaling, which collapsed to 0&ndash;1 when the only dataset (outliers) was empty.</li>
+        <li><b>F-74 / S-07 fix:</b> When Anonymize is ON, snapshots no longer leak badge identifiers. The scatter chart dataset now serializes the anonymized label, and the captured grid HTML is post-processed to rewrite <code>data-cell="&lt;badge&gt;||"</code> attributes with the anonymized identifier.</li>
+        <li><b>F-80 fix:</b> Per-Employee Monthly CSV header reduced from <code>(Tech, Badge, ...)</code> to single <code>Tech</code> column per the original spec, eliminating a redundant column.</li>
+        <li><b>F-81 fix:</b> Split Operations Log per-participant block reduced from 4 fields to the spec's 3-field triplet <code>(Badge, Charged, Earned Share)</code>; <code>Badge</code> column carries the anonymized label when F-82 applies.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td>1.0</td>
+    <td>2026-04-28</td>
+    <td>Initial release. Scaffolded against this PRD; not yet verified end-to-end (see v1.1 row).</td>
+  </tr>
+</table>
 
 <h2>10. Open Questions</h2>
 <ol>
@@ -210,13 +231,14 @@ li { margin: 0.3rem 0; }
 
 <h2>11. Verification &amp; Open Issues</h2>
 
-<h3>11.1 End-to-end verification &mdash; NOT YET PERFORMED</h3>
-<p>The tool was scaffolded against this PRD but has not been run end-to-end against the synthetic test data. Before relying on its outputs:</p>
+<h3>11.1 End-to-end verification &mdash; PERFORMED (synthetic data)</h3>
+<p>End-to-end verification was performed on 2026-04-29 against the synthetic test data, with five defects found and fixed in v1.1 (see &sect;9). Verification protocol for future runs:</p>
 <ol>
   <li>Run <code>python dummy-files/_make_score_card_test.py</code> to generate <code>test-charges-555-777.xlsx</code>, <code>test-charges-5x-and-999.xlsx</code>, <code>test-hours-earned.csv</code>, and <code>test-ev-details.csv</code>.</li>
   <li>Open <code>employee-score-card-1.html</code> in Chrome, upload the four files, click Analyze.</li>
-  <li>Hand-verify the totals against the expected outputs printed by the test script: Alice CPI 0.80 (36/45), Bob 1.057 (74/70), Charlie 0.69 (40/58); split operation WO-100/0010 with Alice 30/Bob 20 charge split &rarr; Alice 36/Bob 24 earned; unmatched charges ranked 999-05 (18h) above 555-01 (5h).</li>
-  <li>Verify all four distribution tabs render (ranked bar, histogram, box plot per month, scatter), the per-month grid drill-down works, anonymize toggles cleanly, snapshot round-trips with charts intact, and all CSV exports produce expected files.</li>
+  <li>Toggle "Hide current month" OFF (so April 2026 is included) and verify the totals: Alice CPI 0.80 (36/45), Bob 1.06 (74/70), Charlie 0.69 (40/58); split operation WO-100/0010 with Alice 30/Bob 20 charge split &rarr; Alice 36/Bob 24 earned; unmatched charges ranked 999-05 (18h) above 555-01 (5h); dedup count 16 &rarr; 11 charge rows.</li>
+  <li>Verify all four distribution tabs render (ranked bar, histogram, box plot per month with visible boxes, scatter with CPI=1 diagonal), the per-month grid drill-down works, anonymize toggles cleanly with deterministic alphabetical-badge ordering (B001&rarr;Tech 1, B002&rarr;Tech 2, B003&rarr;Tech 3), snapshot round-trips with charts intact and contains zero badge strings when Anonymize was ON, and all CSV exports honor F-82 anonymization with schemas matching F-52/F-80/F-81.</li>
+  <li>Verify "# WOs" column counts engagement breadth, not earned-credit WOs: Alice should show 2 (WO-100 + WO-300), Bob 3 (WO-100 + WO-400 + WO-500), Charlie 2 (WO-200 + WO-300).</li>
 </ol>
 
 <h3>11.2 Open issue &mdash; Historical Employee Charge data sourcing</h3>
