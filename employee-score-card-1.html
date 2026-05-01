@@ -144,6 +144,12 @@
   .center { text-align: center; }
   .nowrap { white-space: nowrap; }
   details summary { cursor: pointer; font-weight: 600; padding: 0.3rem 0; }
+  .section-collapsible > summary { cursor: pointer; list-style: none; padding: 0; user-select: none; display: flex; align-items: center; gap: 6px; }
+  .section-collapsible > summary::-webkit-details-marker { display: none; }
+  .section-collapsible > summary h2 { display: inline-block; margin: 0; border-bottom: none; padding-bottom: 0; }
+  .section-collapsible > summary .sec-arrow { display: inline-block; color: var(--blue); transition: transform 0.15s; font-size: 0.85em; }
+  .section-collapsible[open] > summary .sec-arrow { transform: rotate(90deg); }
+  .section-collapsible > .sec-body { margin-top: 0.7rem; }
   .modal-backdrop .pii.anon { /* applied programmatically when anonymized */ }
   @media print {
     body { background: #fff; max-width: none; padding: 0; }
@@ -151,6 +157,8 @@
     .tabs { display: none !important; }
     .tab-panel { display: block !important; page-break-inside: avoid; break-inside: avoid; margin-bottom: 1rem; }
     .summary-section, .dist-section, .grid-section, .unmatched-section { page-break-inside: avoid; break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+    details:not([open]) > *:not(summary) { display: block !important; }
+    .section-collapsible > .sec-body { display: block !important; }
     h2 { page-break-after: avoid; }
     .chart-wrap { height: 380px; }
     .chart-wrap.tall { height: 460px; }
@@ -163,7 +171,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.4 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.5 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -1149,6 +1157,18 @@ function getActiveMonthKeys() {
   return keys;
 }
 
+// Average earned hours per ACTIVE month for a row from computeFilteredTotals.
+// "Active month" = the badge had charges (actual > 0) in that month. Months with
+// zero charged hours are excluded from the divisor so leave/sick/vacation months
+// don't pull the per-tech rate down toward zero.
+function avgEarnedPerActiveMonth(r) {
+  let sum = 0, n = 0;
+  for (const [, c] of r.monthCells) {
+    if (c.actual > 0) { sum += c.earned; n++; }
+  }
+  return n > 0 ? sum / n : 0;
+}
+
 // Compute filtered totals: returns Map<badge, {earned, actual, splitOps, monthCells:Map<mk,cell>}>
 function computeFilteredTotals() {
   const activeMonths = new Set(getActiveMonthKeys());
@@ -1279,10 +1299,10 @@ function renderSummary(totals) {
 
   function arrow(k) { return k === summarySortKey ? (summarySortDir < 0 ? ' ▼' : ' ▲') : ''; }
 
-  let html = '<div class="summary-section"><h2>Per-Employee Totals (Filtered Range)</h2>';
+  let html = '<details class="summary-section section-collapsible"><summary><span class="sec-arrow">&#9654;</span><h2>Per-Employee Totals (Filtered Range)</h2></summary><div class="sec-body">';
   if (rows.length === 0) {
     html += '<div class="empty-state">No employees match the current filters.</div>';
-    html += '</div>';
+    html += '</div></details>';
     return html;
   }
   html += '<table>';
@@ -1313,7 +1333,7 @@ function renderSummary(totals) {
   html += '<td class="num">' + totSplit + '</td>';
   html += '<td class="num">' + totWO.size + '</td></tr>';
   html += '</tbody></table>';
-  html += '</div>';
+  html += '</div></details>';
   return html;
 }
 
@@ -1362,22 +1382,39 @@ function buildChartForTab(tabId, totals, activeMonths) {
     const sorted = rows.slice().sort((a, b) => b.earned - a.earned);
     const labels = sorted.map(r => labelFor(r.badge));
     const data = sorted.map(r => round1(r.earned));
+    const avgData = sorted.map(r => round1(avgEarnedPerActiveMonth(r)));
     const mean = sorted.reduce((s, r) => s + r.earned, 0) / sorted.length;
     const sortedVals = sorted.map(r => r.earned).sort((a, b) => a - b);
     const median = sortedVals.length ? (sortedVals.length % 2 ? sortedVals[(sortedVals.length - 1) / 2] : (sortedVals[sortedVals.length / 2 - 1] + sortedVals[sortedVals.length / 2]) / 2) : 0;
 
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
       type: 'bar',
-      data: { labels, datasets: [{ label: 'Earned Hours', data, backgroundColor: '#2563eb' }] },
+      data: {
+        labels,
+        datasets: [
+          { label: 'Total Earned (filtered range)', data, backgroundColor: '#2563eb', yAxisID: 'y', order: 2 },
+          { label: 'Avg Earned / Active Month', data: avgData, backgroundColor: '#f59e0b', yAxisID: 'y2', order: 1 }
+        ]
+      },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
           title: { display: true, text: 'Earned Hours by Technician (Filtered Range)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
-          legend: { display: false },
-          tooltip: { callbacks: { label: ctx => 'Earned: ' + fmtNum(ctx.parsed.y, 1) } }
+          subtitle: { display: true, text: 'Blue = total earned this range (left axis). Orange = avg earned per active month, ignoring zero-charge months (right axis).', color: '#475569', font: { size: 11 }, padding: { bottom: 8 } },
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const lbl = ctx.dataset.label;
+                if (lbl && lbl.indexOf('Avg') === 0) return 'Avg/Active Month: ' + fmtNum(ctx.parsed.y, 1) + ' h';
+                return 'Total Earned: ' + fmtNum(ctx.parsed.y, 1) + ' h';
+              }
+            }
+          }
         },
         scales: {
-          y: { beginAtZero: true, title: { display: true, text: 'Earned Hours' } },
+          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Total Earned Hours', color: '#2563eb' }, ticks: { color: '#2563eb' } },
+          y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Avg Earned Hrs / Active Month', color: '#b45309' }, ticks: { color: '#b45309' }, grid: { drawOnChartArea: false } },
           x: { ticks: { maxRotation: 60, minRotation: 30 } }
         }
       },
@@ -1403,31 +1440,37 @@ function buildChartForTab(tabId, totals, activeMonths) {
       }]
     });
   } else if (tabId === 'histogram') {
-    const vals = rows.map(r => r.earned).sort((a, b) => a - b);
+    // Bin the per-tech "average earned hours per active month" so the
+    // distribution reflects production RATE rather than total volume.
+    // Active month = a month where the tech had charged hours (actual > 0).
+    const techVals = rows.map(r => ({ badge: r.badge, v: avgEarnedPerActiveMonth(r) }));
+    const vals = techVals.map(t => t.v).sort((a, b) => a - b);
     if (vals.length < 2) {
       const ctx = canvas.getContext('2d');
       ctx.font = '14px Arial'; ctx.fillStyle = '#888';
       ctx.fillText('Not enough employees to histogram (need ≥ 2).', 10, 40);
       return;
     }
-    // Freedman–Diaconis bin width
+    // Freedman–Diaconis bin width. Min bin width is smaller here (1 hr) than
+    // for the prior totals histogram (5 hr) since per-month averages are
+    // typically much smaller than total earned over a multi-month range.
     const q1 = quantile(vals, 0.25), q3 = quantile(vals, 0.75);
     const iqr = q3 - q1;
     let bw = iqr > 0 ? 2 * iqr * Math.pow(vals.length, -1 / 3) : (vals[vals.length - 1] - vals[0]) / Math.sqrt(vals.length);
-    if (!isFinite(bw) || bw < 5) bw = 5;
+    if (!isFinite(bw) || bw < 1) bw = 1;
     const minV = vals[0], maxV = vals[vals.length - 1];
     const nBins = Math.max(1, Math.ceil((maxV - minV) / bw) || 1);
     const bins = Array.from({ length: nBins }, (_, i) => ({
       min: minV + i * bw, max: minV + (i + 1) * bw, count: 0, badges: []
     }));
-    for (const r of rows) {
-      let bi = Math.floor((r.earned - minV) / bw);
+    for (const t of techVals) {
+      let bi = Math.floor((t.v - minV) / bw);
       if (bi >= nBins) bi = nBins - 1;
       if (bi < 0) bi = 0;
       bins[bi].count++;
-      if (bins[bi].badges.length < 10) bins[bi].badges.push(labelFor(r.badge));
+      if (bins[bi].badges.length < 10) bins[bi].badges.push(labelFor(t.badge));
     }
-    const labels = bins.map(b => fmtNum(b.min, 0) + '–' + fmtNum(b.max, 0));
+    const labels = bins.map(b => fmtNum(b.min, 1) + '–' + fmtNum(b.max, 1));
     const data = bins.map(b => b.count);
 
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
@@ -1436,7 +1479,8 @@ function buildChartForTab(tabId, totals, activeMonths) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
-          title: { display: true, text: 'Distribution of Earned Hours (Histogram, bin width = ' + fmtNum(bw, 1) + ' hrs)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
+          title: { display: true, text: 'Distribution of Avg Earned Hours per Active Month (bin width = ' + fmtNum(bw, 1) + ' hrs)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
+          subtitle: { display: true, text: 'X-axis = avg earned hrs per month for each tech (months with zero charged hours excluded). Y-axis = number of techs in that bin.', color: '#475569', font: { size: 11 }, padding: { bottom: 8 } },
           legend: { display: false },
           tooltip: {
             callbacks: {
@@ -1451,7 +1495,7 @@ function buildChartForTab(tabId, totals, activeMonths) {
         },
         scales: {
           y: { beginAtZero: true, title: { display: true, text: '# Employees' }, ticks: { precision: 0 } },
-          x: { title: { display: true, text: 'Earned Hours bin' } }
+          x: { title: { display: true, text: 'Avg Earned Hrs / Active Month (bin)' } }
         }
       }
     });
@@ -1661,9 +1705,9 @@ function round1(x) { return Math.round(x * 10) / 10; }
 
 // ---------- Per-month grid ----------
 function renderGrid(totals, activeMonths) {
-  let html = '<div class="grid-section"><h2>Per-Month Detail</h2>';
+  let html = '<details class="grid-section section-collapsible"><summary><span class="sec-arrow">&#9654;</span><h2>Per-Month Detail</h2></summary><div class="sec-body">';
   if (totals.size === 0 || activeMonths.length === 0) {
-    html += '<div class="empty-state">Nothing to show with current filters.</div></div>';
+    html += '<div class="empty-state">Nothing to show with current filters.</div></div></details>';
     return html;
   }
   html += '<p class="muted small">Each cell shows Earned (top), Actual (mid), CPI (bottom). Click a cell to see contributing operations. Tech column and header row stay visible while scrolling.</p>';
@@ -1703,7 +1747,7 @@ function renderGrid(totals, activeMonths) {
   html += '<div class="grid-scroll-controls" id="grid-scroll-controls">';
   html += '<button class="grid-scroll-btn" id="grid-scroll-left" title="Scroll one month earlier">&#9664;</button>';
   html += '<button class="grid-scroll-btn" id="grid-scroll-right" title="Scroll one month later">&#9654;</button>';
-  html += '</div></div>';
+  html += '</div></div></details>';
   return html;
 }
 
@@ -1732,6 +1776,10 @@ function wireGridScroll() {
   };
   wrap.addEventListener('scroll', updateVisibility);
   window.addEventListener('resize', updateVisibility);
+  // Re-evaluate when the parent collapsible section is expanded — scrollWidth
+  // is 0 while collapsed, which would otherwise leave the controls hidden after expand.
+  const detailsEl = wrap.closest('details');
+  if (detailsEl) detailsEl.addEventListener('toggle', () => setTimeout(updateVisibility, 50));
   updateVisibility();
 }
 
@@ -2022,6 +2070,9 @@ function buildSnapshot() {
   // Capture rendered HTML from results / validation / filter values
   let resultsHtml = document.getElementById('results').innerHTML;
   const validationHtml = document.getElementById('validation-zone').innerHTML;
+  // Force all collapsible sections to be CLOSED in the snapshot regardless
+  // of their live state. The user wants the snapshot to open compact.
+  resultsHtml = resultsHtml.replace(/<details([^>]*)\sopen(\s*=\s*"[^"]*")?/gi, '<details$1');
   // F-74/S-07: when Anonymize is ON, strip badge identifiers that the live DOM
   // carries in data-cell="<badge>||<mk>" attributes (used by drill-down click
   // handlers, which are not re-attached on snapshot reload anyway).
