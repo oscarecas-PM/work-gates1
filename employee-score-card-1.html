@@ -36,7 +36,7 @@
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .muted { color: #666; font-size: 0.85em; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
-  .pill.split { background: #fde68a; color: #92400e; }
+  .pill.split { background: #e2e8f0; color: #64748b; }
   .pill.active { background: #dbeafe; color: #1e3a5f; }
   .pill.close { background: #dcfce7; color: #166534; }
   .pill.warn { background: #fee2e2; color: #991b1b; }
@@ -83,6 +83,7 @@
   .grid-cell .e { font-weight: 600; font-variant-numeric: tabular-nums; }
   .grid-cell .a { font-size: 0.78rem; color: #666; font-variant-numeric: tabular-nums; }
   .grid-cell .c { font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .grid-cell .lbl { font-size: 0.62rem; color: #94a3b8; font-weight: 400; margin-left: 3px; text-transform: uppercase; letter-spacing: 0.03em; }
   .grid-cell.empty { color: #cbd5e1; }
   .tabs { display: flex; gap: 0; border-bottom: 2px solid var(--gray-line); margin-bottom: 0.8rem; }
   .tab { padding: 8px 16px; cursor: pointer; border: none; background: transparent; color: var(--slate-2); font-weight: 500; border-bottom: 3px solid transparent; margin-bottom: -2px; }
@@ -100,6 +101,11 @@
   .modal-head h3 { margin: 0; color: #fff; font-size: 1rem; }
   .modal-body { padding: 0.8rem 1rem; overflow-y: auto; flex: 1; }
   .modal-foot { padding: 0.6rem 1rem; border-top: 1px solid var(--gray-line); display: flex; gap: 0.5rem; justify-content: flex-end; }
+  .cpi-summary { display: flex; gap: 1.6rem; align-items: baseline; padding: 0.7rem 0.9rem; margin-bottom: 0.9rem; background: #f8fafc; border-left: 4px solid var(--blue); border-radius: 0 4px 4px 0; }
+  .cpi-summary .stat { display: flex; flex-direction: column; }
+  .cpi-summary .stat .lbl { font-size: 0.72rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cpi-summary .stat .val { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cpi-summary .calc { font-size: 0.85rem; color: #475569; margin-left: auto; font-variant-numeric: tabular-nums; }
   .modal-close { background: transparent; color: #fff; border: 1px solid #fff; padding: 4px 10px; }
   .modal-close:hover { background: #1d4ed8; }
   .stack-link { color: var(--blue); text-decoration: none; border-bottom: 1px dashed #93c5fd; cursor: pointer; }
@@ -303,6 +309,7 @@ const State = {
   // validation accumulators
   validation: {
     fileSummaries: [],
+    chargeFileFailures: [],
     dedupCount: 0,
     negativeDiffs: 0,
     missingNames: [],
@@ -365,10 +372,14 @@ function monthKeyLabel(key) {
   return MONTH_SHORT[parseInt(m, 10) - 1] + ' ' + y;
 }
 
+function normHeader(s) {
+  return String(s || '').replace(/[^A-Za-z0-9]+/g, ' ').trim().toLowerCase();
+}
+
 function colIndex(headers, name) {
-  const target = String(name).trim().toLowerCase();
+  const target = normHeader(name);
   for (let i = 0; i < headers.length; i++) {
-    if (String(headers[i] || '').trim().toLowerCase() === target) return i;
+    if (normHeader(headers[i]) === target) return i;
   }
   return -1;
 }
@@ -486,7 +497,7 @@ function parseChargeFile(file) {
         for (let r = 0; r < Math.min(allRows.length, 10); r++) {
           const row = allRows[r];
           for (let c = 0; c < row.length; c++) {
-            if (String(row[c] || '').trim().toLowerCase() === 'order no') {
+            if (normHeader(row[c]) === 'order no') {
               headerIdx = r;
               break;
             }
@@ -652,6 +663,7 @@ const fileInputs = {
 };
 
 let chargeFilesParsed = [];
+let chargeFileFailures = [];
 let earnedParsed = null;
 let evParsed = [];
 
@@ -665,17 +677,24 @@ fileInputs.charge.addEventListener('change', async (e) => {
   if (files.length === 0) return;
   setStatus('charge-status', 'Parsing ' + files.length + ' file(s)…');
   chargeFilesParsed = [];
-  const summaries = [];
-  try {
-    for (const f of files) {
+  chargeFileFailures = [];
+  for (const f of files) {
+    try {
       const out = await parseChargeFile(f);
       chargeFilesParsed.push(out);
-      summaries.push(f.name + ': ' + out.rows.length + ' rows (header on row ' + (out.headerIdx + 1) + ')');
+    } catch (err) {
+      chargeFileFailures.push({ name: f.name, error: err.message });
     }
-    setStatus('charge-status', summaries.join(' • '));
-  } catch (err) {
-    setStatus('charge-status', 'ERROR: ' + err.message, true);
-    chargeFilesParsed = [];
+  }
+  const okCount = chargeFilesParsed.length;
+  const failCount = chargeFileFailures.length;
+  if (failCount === 0) {
+    setStatus('charge-status', okCount + ' of ' + files.length + ' file(s) parsed');
+  } else if (okCount === 0) {
+    setStatus('charge-status', 'ERROR: 0 of ' + files.length + ' file(s) parsed. First failure: ' + chargeFileFailures[0].name + ' — ' + chargeFileFailures[0].error, true);
+  } else {
+    const failNames = chargeFileFailures.map(f => f.name).join(', ');
+    setStatus('charge-status', okCount + ' of ' + files.length + ' file(s) parsed (' + failCount + ' failed: ' + failNames + ')', true);
   }
   refreshAnalyzeBtn();
 });
@@ -731,7 +750,7 @@ document.getElementById('analyze-btn').addEventListener('click', () => {
 
 function runAnalyze() {
   // Reset
-  State.validation = { fileSummaries: [], dedupCount: 0, negativeDiffs: 0, missingNames: [], zeroChargeRows: 0, badEarnedHours: earnedParsed ? earnedParsed.badHours : 0, earnedRowsTotal: 0, evRowsTotal: 0, evDuplicates: 0 };
+  State.validation = { fileSummaries: [], chargeFileFailures: chargeFileFailures.slice(), dedupCount: 0, negativeDiffs: 0, missingNames: [], zeroChargeRows: 0, badEarnedHours: earnedParsed ? earnedParsed.badHours : 0, earnedRowsTotal: 0, evRowsTotal: 0, evDuplicates: 0 };
 
   // 1. Concat all charge rows
   const allCharges = [];
@@ -1589,14 +1608,14 @@ function renderGrid(totals, activeMonths) {
       } else {
         const cpi = c.actual ? c.earned / c.actual : null;
         html += '<td class="grid-cell num ' + cpiClass(cpi) + '" data-cell="' + esc(r.badge) + '||' + esc(mk) + '">';
-        html += '<div class="e">' + fmtNum(c.earned, 1) + '</div>';
-        html += '<div class="a">a: ' + fmtNum(c.actual, 1) + '</div>';
-        html += '<div class="c">' + fmtCpi(cpi) + (c.splitOps ? ' <span class="pill split" style="font-size:0.65rem;">' + c.splitOps + ' split</span>' : '') + '</div>';
+        html += '<div class="e">' + fmtNum(c.earned, 1) + '<span class="lbl">Earned</span></div>';
+        html += '<div class="a">' + fmtNum(c.actual, 1) + '<span class="lbl">Actuals</span></div>';
+        html += '<div class="c">' + fmtCpi(cpi) + '<span class="lbl">CPI</span>' + (c.splitOps ? ' <span class="pill split" style="font-size:0.65rem;">' + c.splitOps + ' split</span>' : '') + '</div>';
         html += '</td>';
       }
     }
     const totCpi = r.actual ? r.earned / r.actual : null;
-    html += '<td class="num ' + cpiClass(totCpi) + '"><div class="e">' + fmtNum(r.earned, 1) + '</div><div class="a">a: ' + fmtNum(r.actual, 1) + '</div><div class="c">' + fmtCpi(totCpi) + '</div></td>';
+    html += '<td class="num grid-cell ' + cpiClass(totCpi) + '" style="cursor:default;"><div class="e">' + fmtNum(r.earned, 1) + '<span class="lbl">Earned</span></div><div class="a">' + fmtNum(r.actual, 1) + '<span class="lbl">Actuals</span></div><div class="c">' + fmtCpi(totCpi) + '<span class="lbl">CPI</span></div></td>';
     html += '</tr>';
   }
   html += '</tbody></table></div></div>';
@@ -1611,10 +1630,26 @@ function openDrillDown(badge, mk) {
   if (!cell) return;
   // Re-filter ops by program filter
   const ops = cell.ops.filter(op => programOk(op.orderNo));
+  const wkRowsAll = State.chargeRows.filter(r => r.badge === badge && r.monthKey === mk && r.incremental > 0 && programOk(r.orderNo));
+
+  // Cell totals (match the grid cell exactly: earned = sum of pro-rata shares, actual = sum of incremental charges in month)
+  const totalEarned = ops.reduce((s, op) => s + op.myShare, 0);
+  const totalActual = wkRowsAll.reduce((s, r) => s + r.incremental, 0);
+  const cellCpi = totalActual ? totalEarned / totalActual : null;
 
   document.getElementById('modal-title').textContent = labelFor(badge) + ' — ' + monthKeyLabel(mk);
 
   let body = '';
+  body += '<div class="cpi-summary">';
+  body += '<div class="stat"><span class="lbl">Earned</span><span class="val">' + fmtNum(totalEarned, 1) + '</span></div>';
+  body += '<div class="stat"><span class="lbl">Actuals</span><span class="val">' + fmtNum(totalActual, 1) + '</span></div>';
+  body += '<div class="stat"><span class="lbl">CPI</span><span class="val ' + (cellCpi === null ? '' : cpiClass(cellCpi)) + '" style="padding:0 6px;border-radius:3px;">' + fmtCpi(cellCpi) + '</span></div>';
+  if (cellCpi !== null) {
+    body += '<div class="calc">' + fmtNum(totalEarned, 1) + ' ÷ ' + fmtNum(totalActual, 1) + ' = ' + fmtCpi(cellCpi) + '</div>';
+  } else {
+    body += '<div class="calc">No actual hours — CPI not defined</div>';
+  }
+  body += '</div>';
   body += '<table>';
   body += '<thead><tr>';
   body += '<th>Order No</th><th>Oper No</th><th>Part No.</th><th>Description</th>';
@@ -1641,7 +1676,7 @@ function openDrillDown(badge, mk) {
   body += '</tbody></table>';
 
   // Plus this badge's actual charges in the month, even ones without earned (unmatched)
-  const wkRows = State.chargeRows.filter(r => r.badge === badge && r.monthKey === mk && r.incremental > 0 && programOk(r.orderNo));
+  const wkRows = wkRowsAll;
   if (wkRows.length > 0) {
     body += '<h3>All charges this month</h3><table>';
     body += '<thead><tr><th>Week Ending</th><th>Order No</th><th>Oper No</th><th>Part No.</th><th>Status</th><th class="num">Incremental Hrs</th></tr></thead><tbody>';
@@ -1729,6 +1764,13 @@ function renderValidation() {
   let html = '<details class="validation"><summary>Validation summary (' + State.chargeRows.length + ' charge rows, ' + v.earnedRowsTotal + ' earned rows, ' + v.evRowsTotal + ' EV rows)</summary>';
   html += '<ul class="v-list">';
   for (const f of v.fileSummaries) html += '<li>' + esc(f.name) + ': ' + f.rows + ' rows</li>';
+  if (v.chargeFileFailures && v.chargeFileFailures.length) {
+    html += '<li style="color:#dc2626;"><b>' + v.chargeFileFailures.length + ' charge file(s) failed to parse:</b><ul>';
+    for (const f of v.chargeFileFailures) {
+      html += '<li>' + esc(f.name) + ' — ' + esc(f.error) + '</li>';
+    }
+    html += '</ul></li>';
+  }
   if (v.dedupCount) html += '<li>Deduped <b>' + v.dedupCount + '</b> overlapping rows across files (kept max Total Hours per (badge, order, oper, week))</li>';
   if (v.negativeDiffs) html += '<li>Clamped <b>' + v.negativeDiffs + '</b> negative incremental diffs to 0 (cumulative correction in source)</li>';
   if (v.zeroChargeRows) html += '<li>' + v.zeroChargeRows + ' CLOSE rows had Total Hours = 0 (no actual charge against this employee)</li>';

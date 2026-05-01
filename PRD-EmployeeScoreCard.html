@@ -28,7 +28,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Employee Score Card</p>
 <p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
-<p class="version">Version 1.1 | April 29, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.3 | April 30, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
@@ -69,7 +69,7 @@ li { margin: 0.3rem 0; }
 <h2>5. Data Inputs</h2>
 
 <h3>5.1 Employee Charge Files (.xlsx, required, multiple)</h3>
-<p>The user uploads one or more .xlsx files. Each file's data table starts on <strong>row 4</strong> (rows 1&ndash;3 are export metadata and are skipped). The header row is auto-detected by scanning the first 10 rows for a cell whose value matches <code>Order No</code>, mirroring the auto-detect approach in <code>gate-tracker-30.html</code>.</p>
+<p>The user uploads one or more .xlsx files. Each file's data table starts on <strong>row 4</strong> (rows 1&ndash;3 are export metadata and are skipped). The header row is auto-detected by scanning the first 10 rows for a cell whose value matches <code>Order No</code>, mirroring the auto-detect approach in <code>gate-tracker-30.html</code>. Header matching is normalized via <code>normHeader()</code> &mdash; case-insensitive and tolerant of routine punctuation/whitespace variations (e.g. <code>Order No.</code>, <code>order_no</code>, <code>Order  No</code> all match). The same normalization is applied to required-column lookups via <code>colIndex()</code>, eliminating the trailing-period ambiguity in headers like <code>Part No.</code> vs <code>Part No</code>.</p>
 <table>
   <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
   <tr><td>Order No</td><td>String</td><td>Work order identifier; primary join key to Hours Earned CSV</td></tr>
@@ -94,8 +94,10 @@ li { margin: 0.3rem 0; }
 <h2>6. Functional Requirements</h2>
 
 <h3>6.1 Data Processing</h3>
-<p><span class="req">F-01</span> Auto-detect the header row in each xlsx by scanning the first 10 rows for a cell exactly matching <code>Order No</code>. Data starts at the row after the detected header. Files where no header is found produce a validation error.</p>
+<p><span class="req">F-01</span> Auto-detect the header row in each xlsx by scanning the first 10 rows for a cell whose normalized value matches <code>Order No</code> (case-insensitive, punctuation- and whitespace-tolerant via <code>normHeader()</code>). Data starts at the row after the detected header. Files where no header is found produce a per-file failure recorded in the validation panel; remaining files in the batch continue to parse independently (see F-02a).</p>
+<p><span class="req">F-01a</span> Required-column lookups via <code>colIndex()</code> use the same <code>normHeader()</code> normalization, so headers like <code>Part No</code> vs <code>Part No.</code>, or <code>Total Hours</code> vs <code>Total  Hours</code>, all resolve to the same column.</p>
 <p><span class="req">F-02</span> After concatenating rows from all uploaded xlsx files, deduplicate by <code>(Badge, Order No, Oper No, Week Ending)</code>. When duplicates exist, retain the row with the maximum <code>Total Hours</code>. Surface dedup count in the validation panel.</p>
+<p><span class="req">F-02a</span> <strong>Per-file resilience.</strong> The charge-file ingest loop processes each .xlsx independently. A failure in one file (missing header, missing required columns, read error) does not abort the batch &mdash; remaining files continue to parse. The status line shows <code>N of M file(s) parsed</code>, and failed files are listed by name in both the status line and the validation panel (with the underlying error message). Analyze remains enabled as long as at least one charge file parsed successfully and the Hours Earned CSV is loaded.</p>
 <p><span class="req">F-03</span> Convert cumulative <code>Total Hours</code> to incremental per-week charges. For each <code>(Badge, Order No, Oper No)</code> series, sort by <code>Week Ending</code> ascending and compute <code>incremental[i] = Total Hours[i] - Total Hours[i-1]</code> (incremental[0] = Total Hours[0]). Negative diffs (corrections / re-categorizations upstream) are clamped to 0 and counted in the validation panel.</p>
 <p><span class="req">F-04</span> Parse the Hours Earned CSV with the same column-tolerance and <code>parseMonth()</code> logic used in <code>earned-hour-analysis-1.html</code>. Non-numeric <code>Hours Earned</code> values treated as 0 with a warning.</p>
 <p><span class="req">F-05</span> <strong>Pro-rata split.</strong> For each row in the Hours Earned CSV (one closed operation = one earned-hours value):
@@ -141,8 +143,8 @@ li { margin: 0.3rem 0; }
 
 <h3>6.5 Per-Month Grid</h3>
 <p><span class="req">F-40</span> Grid with badges as rows (sorted by total Earned Hours descending) and months as columns (oldest to newest in the filtered range).</p>
-<p><span class="req">F-41</span> Each cell shows three stacked values: Earned (top), Actual (middle, smaller font), CPI (bottom, color-coded by F-24 thresholds).</p>
-<p><span class="req">F-42</span> Cells are clickable. Clicking opens a drill-down modal listing every operation that contributed to that (badge, month) cell. Modal columns: Order No, Oper No, Part No., Status, Total Hours Charged (badge), Total Charged (all badges on this op), Hours Earned (this op), Earned Share (this badge), Split flag.</p>
+<p><span class="req">F-41</span> Each cell shows three stacked values, each with a small uppercase label suffix for legibility: <code>9.1 EARNED</code> (top, bold), <code>22.7 ACTUALS</code> (middle, smaller dim font), <code>0.40 CPI</code> (bottom, color-coded by F-24 thresholds). The label suffix is a small caps slate-400 span (<code>.lbl</code>) that follows each number. The rightmost Total column uses the same labeled three-value format.</p>
+<p><span class="req">F-42</span> Cells are clickable. Clicking opens a drill-down modal that opens with a CPI summary block at the top (Earned, Actuals, CPI as large stat tiles plus the explicit calculation <code>{earned} ÷ {actuals} = {cpi}</code>), followed by a table listing every operation that contributed to that (badge, month) cell. Operation table columns: Order No, Oper No, Part No., Description, Earned (op), Total Charged (op), My Charged, My Share, Flag. A second table below lists all the badge's incremental charges in the month (matched and unmatched).</p>
 <p><span class="req">F-43</span> The drill-down modal includes a "Copy as CSV" button.</p>
 <p><span class="req">F-44</span> Empty cells (no activity) render as a faint dash, not zero.</p>
 
@@ -187,6 +189,7 @@ li { margin: 0.3rem 0; }
 <p><span class="req">V-06</span> Drill-down modal: navy header bar, gray body, scroll-locked, dismissable via Esc or backdrop click.</p>
 <p><span class="req">V-07</span> Unmatched Charges section header: amber (#b45309) to telegraph "this is data quality, fix me".</p>
 <p><span class="req">V-08</span> Chart canvas height: 480px for tab charts, 600px for the scatter (it benefits from extra room for the diagonal).</p>
+<p><span class="req">V-09</span> Split-operation pill (<code>.pill.split</code>) is intentionally low-emphasis: slate-200 background (<code>#e2e8f0</code>) with slate-500 text (<code>#64748b</code>). Split participation is auxiliary information and should not visually compete with the CPI value or section headers. Applies to both the per-month grid cell pill and the SPLIT badge in the drill-down modal.</p>
 
 <h2>8. Security Controls</h2>
 <p><span class="req">S-01</span> <code>esc()</code> function for XSS prevention (5-char HTML entity escaping).</p>
@@ -198,9 +201,31 @@ li { margin: 0.3rem 0; }
 <p><span class="req">S-07</span> Anonymize toggle locks names/badges out of generated snapshots when ON, eliminating PII at the data layer (not just the display layer).</p>
 
 <h2>9. Known Issues</h2>
-<p style="font-size:0.9rem;color:#666;">No open issues. v1.1 (2026-04-29) closed five defects found in the first end-to-end verification pass against synthetic test data &mdash; see the v1.1 row in the change log below.</p>
+<p style="font-size:0.9rem;color:#666;">No open issues. v1.3 (2026-04-30) is a readability pass on the per-month grid &mdash; see the v1.3 row below. v1.2 (2026-04-30) closed two ingest defects. v1.1 (2026-04-29) closed five defects from the first end-to-end verification pass.</p>
 <table>
   <tr><th>Version</th><th>Date</th><th>Changes</th></tr>
+  <tr>
+    <td>1.3</td>
+    <td>2026-04-30</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-41 readability:</b> Per-month grid cells now show explicit labels next to each value (<code>9.1 EARNED</code>, <code>22.7 ACTUALS</code>, <code>0.40 CPI</code>) instead of the prior <code>a:</code> prefix and unlabeled top/bottom numbers. Labels are small uppercase slate-400 spans (<code>.lbl</code>). Same labels applied to the rightmost Total column.</li>
+        <li><b>F-42 drill-down CPI calc:</b> Drill-down modal now opens with a CPI summary block at the top showing the Earned, Actuals, and CPI values as labeled stat tiles plus the explicit calculation <code>{earned} ÷ {actuals} = {cpi}</code>. Eliminates the prior gap where users could see contributing operations but had to compute the CPI themselves.</li>
+        <li><b>V-09 split chip de-emphasis:</b> <code>.pill.split</code> recolored from amber (<code>#fde68a</code>/<code>#92400e</code>) to slate (<code>#e2e8f0</code>/<code>#64748b</code>). Split participation is auxiliary info; the prior amber competed with the CPI color and section headers for attention.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td>1.2</td>
+    <td>2026-04-30</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-01 fix:</b> Header row scan now uses <code>normHeader()</code> (case-insensitive, punctuation- and whitespace-tolerant) instead of strict <code>=== 'order no'</code> comparison. Real-world exports whose header reads <code>Order No.</code> (with trailing period) now match correctly. Closes the silent-rejection bug where 11 of 11 user files failed because of a single character difference.</li>
+        <li><b>F-01a / colIndex fix:</b> Required-column lookups now use the same <code>normHeader()</code> normalization, so headers like <code>Part No</code>, <code>Part No.</code>, and <code>Total  Hours</code> all resolve correctly regardless of trailing punctuation or extra whitespace.</li>
+        <li><b>F-02a fix:</b> Charge-file ingest loop is now per-file resilient. Previously the entire batch was wrapped in one try/catch, so the first failing file aborted the loop AND wiped <code>chargeFilesParsed</code>, surfacing one filename in the error while silently rejecting all 11 files. Now each file is parsed in its own try/catch; failures are collected separately, status reads <code>N of M file(s) parsed</code>, and the validation panel lists each failed file with its error message.</li>
+      </ul>
+    </td>
+  </tr>
   <tr>
     <td>1.1</td>
     <td>2026-04-29</td>
