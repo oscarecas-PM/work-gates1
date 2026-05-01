@@ -73,6 +73,30 @@
   .validation .v-list li { margin: 0.2rem 0; }
   .err { background: #fef2f2; border-left: 4px solid var(--red); padding: 0.5rem 1rem; margin: 0.6rem 0; font-size: 0.9rem; color: #7f1d1d; }
   .summary-section, .dist-section, .grid-section, .unmatched-section { background: #fff; border: 1px solid var(--gray-line); border-radius: 6px; padding: 0.9rem 1rem 1rem; margin: 0.9rem 0; }
+  .grid-section { position: relative; }
+  .grid-scroll-wrap { overflow-x: auto; padding-right: 36px; }
+  .grid-scroll-wrap table { border-collapse: separate; border-spacing: 0; }
+  .grid-scroll-wrap thead th { position: sticky; top: 0; background: var(--navy); color: #fff; padding: 6px 8px; text-align: center; z-index: 2; }
+  .grid-scroll-wrap th.tech-header { left: 0; z-index: 3; min-width: 110px; max-width: 140px; box-shadow: 1px 0 0 var(--gray-line); }
+  .grid-scroll-wrap td.tech-cell { position: sticky; left: 0; background: #fff; z-index: 1; min-width: 110px; max-width: 140px; padding: 4px 8px; box-shadow: 1px 0 0 var(--gray-line); }
+  .grid-scroll-wrap tr:nth-child(even) td.tech-cell { background: #f8fafc; }
+  .grid-scroll-wrap td.tech-cell .tech-name { font-weight: 600; line-height: 1.15; }
+  .grid-scroll-wrap td.tech-cell .tech-badge { font-size: 0.72rem; color: #94a3b8; line-height: 1.15; margin-top: 1px; }
+  .grid-scroll-controls { position: absolute; right: 8px; top: 60px; bottom: 12px; display: none; flex-direction: column; gap: 2px; z-index: 5; pointer-events: none; }
+  .grid-scroll-controls.show { display: flex; }
+  .grid-scroll-btn { flex: 1; width: 28px; background: var(--blue); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; font-weight: 700; padding: 0; pointer-events: auto; opacity: 0.85; }
+  .grid-scroll-btn:hover { background: #1d4ed8; opacity: 1; }
+  .grid-scroll-btn:disabled { background: #cbd5e1; cursor: not-allowed; opacity: 0.6; }
+  .boxplot-explainer { font-size: 0.88rem; color: #475569; background: #f8fafc; border-left: 3px solid var(--blue); padding: 0.5rem 0.8rem; margin: 0.4rem 0 0.6rem; border-radius: 0 4px 4px 0; }
+  .boxplot-legend { display: flex; flex-wrap: wrap; gap: 1.1rem; font-size: 0.82rem; color: #334155; margin-bottom: 0.5rem; padding: 0.4rem 0.6rem; background: #f1f5f9; border-radius: 4px; align-items: center; }
+  .boxplot-legend .swatch { display: inline-block; width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; border: 1px solid #2563eb; }
+  .boxplot-legend .swatch.box { background: rgba(37, 99, 235, 0.15); }
+  .boxplot-legend .swatch.median { background: transparent; border: none; border-top: 3px solid #1e3a5f; height: 3px; margin-bottom: 4px; }
+  .boxplot-legend .swatch.outlier { background: #dc2626; border: none; border-radius: 50%; width: 8px; height: 8px; margin-right: 6px; }
+  .boxplot-legend b { color: #1e3a5f; }
+  .boxplot-tooltip { position: absolute; background: rgba(15, 23, 42, 0.92); color: #fff; padding: 0.5rem 0.7rem; border-radius: 4px; font-size: 0.78rem; pointer-events: none; z-index: 10; line-height: 1.45; white-space: nowrap; display: none; }
+  .boxplot-tooltip .t-title { font-weight: 700; margin-bottom: 3px; color: #fbbf24; }
+  .boxplot-tooltip .t-row { font-variant-numeric: tabular-nums; }
   .unmatched-section { border-left: 5px solid var(--amber); }
   .unmatched-section h2 { color: var(--amber); border-bottom-color: #fcd34d; }
   .cpi-good { background: #dcfce7; }
@@ -139,7 +163,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.1 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.4 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -1186,6 +1210,9 @@ function renderAll() {
   html += renderUnmatched();
   document.getElementById('results').innerHTML = html;
 
+  // Wire grid scroll buttons (re-wire each render — IDs are recreated)
+  wireGridScroll();
+
   // Wire grid cell clicks
   document.querySelectorAll('.grid-cell[data-cell]').forEach(el => {
     el.addEventListener('click', () => {
@@ -1306,6 +1333,16 @@ function renderDistribution(totals, activeMonths) {
   html += '</div>';
   for (const t of tabs) {
     html += '<div class="tab-panel' + (t.id === State.activeTab ? ' active' : '') + '" data-tab="' + t.id + '">';
+    if (t.id === 'boxPlot') {
+      html += '<div class="boxplot-explainer">Each box shows how spread-out tech productivity was that month. A <b>wide</b> box means techs varied a lot &mdash; your future production rate is uncertain. A <b>narrow</b> box means techs converged &mdash; a single rate estimate is more reliable. Use these distributions to set realistic low/high production-rate bounds when forecasting completion dates.</div>';
+      html += '<div class="boxplot-legend">';
+      html += '<span><span class="swatch box"></span><b>Box</b> = middle 50% of techs (Q1&ndash;Q3)</span>';
+      html += '<span><span class="swatch median"></span><b>Line</b> = median</span>';
+      html += '<span><b>Whiskers</b> = full range excluding outliers (within 1.5&times;IQR)</span>';
+      html += '<span><span class="swatch outlier"></span><b>Red dots</b> = outlier techs</span>';
+      html += '<span><b>n</b> = number of techs that month</span>';
+      html += '</div>';
+    }
     html += '<div class="chart-wrap' + (t.id === 'scatter' ? ' tall' : '') + '"><canvas id="chart-' + t.id + '"></canvas></div>';
     html += '</div>';
   }
@@ -1448,30 +1485,59 @@ function buildChartForTab(tabId, totals, activeMonths) {
     const yValues = stats.flatMap(s => s.n > 0 ? [s.q1, s.q3, s.med, s.lo, s.hi, ...(s.outliers || [])] : []);
     const yMax = yValues.length ? Math.max(...yValues) * 1.1 : 1;
 
-    // Use a scatter chart and draw boxes via plugin
+    // Use a category-x scatter chart and draw boxes via plugin.
+    // The "Box hover" dataset sits invisibly at each box's median so Chart.js
+    // tooltips fire when the user hovers anywhere in a column (intersect:false).
+    const boxHoverData = stats.map((s, i) => s.n > 0 ? { x: labels[i], y: s.med, statIdx: i } : null).filter(Boolean);
+    const outlierData = stats.flatMap((s, i) => (s.outliers || []).map(v => ({ x: labels[i], y: v })));
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
       type: 'scatter',
-      data: { datasets: [{ label: 'Outliers', data: stats.flatMap((s, i) => (s.outliers || []).map(v => ({ x: i, y: v }))), backgroundColor: '#dc2626', pointRadius: 4 }] },
+      data: {
+        datasets: [
+          { label: 'Outliers', data: outlierData, backgroundColor: '#dc2626', pointRadius: 4 },
+          { label: 'Box hover', data: boxHoverData, backgroundColor: 'rgba(0,0,0,0)', pointRadius: 0, hoverRadius: 0, showLine: false }
+        ]
+      },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
         plugins: {
           title: { display: true, text: 'Earned Hours per Month (Box Plot)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
           legend: { display: false },
           tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+            titleColor: '#fbbf24',
+            bodyColor: '#fff',
+            padding: 10,
+            displayColors: false,
             callbacks: {
-              label: ctx => 'Outlier: ' + fmtNum(ctx.parsed.y, 1) + ' (' + labels[Math.round(ctx.parsed.x)] + ')'
+              title: ctx => {
+                if (!ctx || !ctx.length) return '';
+                return ctx[0].label || '';
+              },
+              label: ctx => {
+                if (ctx.dataset.label === 'Outliers') {
+                  return 'Outlier: ' + fmtNum(ctx.parsed.y, 1) + ' h';
+                }
+                const s = stats[ctx.raw.statIdx];
+                if (!s || s.n === 0) return '';
+                return [
+                  'n techs: ' + s.n,
+                  'median: ' + fmtNum(s.med, 1) + ' h',
+                  'middle 50%: ' + fmtNum(s.q1, 1) + ' – ' + fmtNum(s.q3, 1) + ' h (IQR ' + fmtNum(s.q3 - s.q1, 1) + ')',
+                  'whiskers: ' + fmtNum(s.lo, 1) + ' – ' + fmtNum(s.hi, 1) + ' h',
+                  'outliers: ' + (s.outliers ? s.outliers.length : 0)
+                ];
+              }
             }
           }
         },
         scales: {
           x: {
-            type: 'linear',
-            min: -0.5, max: stats.length - 0.5,
-            ticks: {
-              stepSize: 1,
-              callback: v => labels[v] || ''
-            },
-            title: { display: true, text: 'Month' }
+            type: 'category',
+            labels: labels,
+            title: { display: true, text: 'Month' },
+            offset: true
           },
           y: { beginAtZero: true, max: yMax, title: { display: true, text: 'Earned Hours per Tech' } }
         }
@@ -1484,7 +1550,7 @@ function buildChartForTab(tabId, totals, activeMonths) {
           const halfW = (ca.right - ca.left) / Math.max(stats.length, 1) * 0.32;
           stats.forEach((stat, i) => {
             if (stat.n === 0) return;
-            const xC = s.x.getPixelForValue(i);
+            const xC = s.x.getPixelForValue(labels[i]);
             const yQ1 = s.y.getPixelForValue(stat.q1);
             const yQ3 = s.y.getPixelForValue(stat.q3);
             const yMed = s.y.getPixelForValue(stat.med);
@@ -1504,9 +1570,18 @@ function buildChartForTab(tabId, totals, activeMonths) {
             ctx.beginPath(); ctx.moveTo(xC - halfW * 0.5, yLo); ctx.lineTo(xC + halfW * 0.5, yLo); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(xC, yQ3); ctx.lineTo(xC, yHi); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(xC - halfW * 0.5, yHi); ctx.lineTo(xC + halfW * 0.5, yHi); ctx.stroke();
-            // n label
-            ctx.fillStyle = '#475569'; ctx.font = '10px Arial';
-            ctx.fillText('n=' + stat.n, xC - halfW + 2, yQ1 + 12);
+            // n label below the lower whisker, centered
+            ctx.fillStyle = '#475569';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'center';
+            const nText = 'n=' + stat.n;
+            // background plate so it stays legible against grid lines
+            const tw = ctx.measureText(nText).width;
+            ctx.fillStyle = 'rgba(255,255,255,0.85)';
+            ctx.fillRect(xC - tw / 2 - 2, yLo + 8, tw + 4, 14);
+            ctx.fillStyle = '#475569';
+            ctx.fillText(nText, xC, yLo + 19);
+            ctx.textAlign = 'start';
           });
           ctx.restore();
         }
@@ -1591,16 +1666,22 @@ function renderGrid(totals, activeMonths) {
     html += '<div class="empty-state">Nothing to show with current filters.</div></div>';
     return html;
   }
-  html += '<p class="muted small">Each cell shows Earned (top), Actual (mid), CPI (bottom). Click a cell to see contributing operations.</p>';
-  html += '<div style="overflow-x:auto;"><table style="font-size:0.85rem;">';
-  html += '<thead><tr><th>Tech</th>';
+  html += '<p class="muted small">Each cell shows Earned (top), Actual (mid), CPI (bottom). Click a cell to see contributing operations. Tech column and header row stay visible while scrolling.</p>';
+  html += '<div class="grid-scroll-wrap" id="grid-scroll-wrap"><table style="font-size:0.85rem;">';
+  html += '<thead><tr><th class="tech-header">Tech</th>';
   for (const mk of activeMonths) html += '<th class="num">' + esc(monthKeyLabel(mk)) + '</th>';
   html += '<th class="num">Total</th></tr></thead><tbody>';
 
   const sorted = Array.from(totals.values()).sort((a, b) => b.earned - a.earned);
   for (const r of sorted) {
     html += '<tr>';
-    html += '<td class="pii nowrap">' + esc(labelFor(r.badge)) + '</td>';
+    if (State.filters.anonymize) {
+      html += '<td class="tech-cell pii nowrap"><div class="tech-name">' + esc(labelFor(r.badge)) + '</div></td>';
+    } else {
+      const meta = State.badgeMeta.get(r.badge);
+      const nm = (meta && meta.names.size > 0) ? Array.from(meta.names)[0] : '';
+      html += '<td class="tech-cell pii"><div class="tech-name">' + esc(nm || r.badge) + '</div>' + (nm ? '<div class="tech-badge">' + esc(r.badge) + '</div>' : '') + '</td>';
+    }
     for (const mk of activeMonths) {
       const c = r.monthCells.get(mk);
       if (!c) {
@@ -1618,8 +1699,40 @@ function renderGrid(totals, activeMonths) {
     html += '<td class="num grid-cell ' + cpiClass(totCpi) + '" style="cursor:default;"><div class="e">' + fmtNum(r.earned, 1) + '<span class="lbl">Earned</span></div><div class="a">' + fmtNum(r.actual, 1) + '<span class="lbl">Actuals</span></div><div class="c">' + fmtCpi(totCpi) + '<span class="lbl">CPI</span></div></td>';
     html += '</tr>';
   }
-  html += '</tbody></table></div></div>';
+  html += '</tbody></table></div>';
+  html += '<div class="grid-scroll-controls" id="grid-scroll-controls">';
+  html += '<button class="grid-scroll-btn" id="grid-scroll-left" title="Scroll one month earlier">&#9664;</button>';
+  html += '<button class="grid-scroll-btn" id="grid-scroll-right" title="Scroll one month later">&#9654;</button>';
+  html += '</div></div>';
   return html;
+}
+
+function wireGridScroll() {
+  const wrap = document.getElementById('grid-scroll-wrap');
+  const controls = document.getElementById('grid-scroll-controls');
+  if (!wrap || !controls) return;
+  const updateVisibility = () => {
+    const overflows = wrap.scrollWidth > wrap.clientWidth + 2;
+    controls.classList.toggle('show', overflows);
+    document.getElementById('grid-scroll-left').disabled = wrap.scrollLeft <= 1;
+    document.getElementById('grid-scroll-right').disabled = wrap.scrollLeft >= wrap.scrollWidth - wrap.clientWidth - 1;
+  };
+  const monthColWidth = () => {
+    const ths = wrap.querySelectorAll('thead th');
+    if (ths.length < 2) return 100;
+    return ths[1].offsetWidth || 100;
+  };
+  document.getElementById('grid-scroll-left').onclick = () => {
+    wrap.scrollBy({ left: -monthColWidth(), behavior: 'smooth' });
+    setTimeout(updateVisibility, 350);
+  };
+  document.getElementById('grid-scroll-right').onclick = () => {
+    wrap.scrollBy({ left: monthColWidth(), behavior: 'smooth' });
+    setTimeout(updateVisibility, 350);
+  };
+  wrap.addEventListener('scroll', updateVisibility);
+  window.addEventListener('resize', updateVisibility);
+  updateVisibility();
 }
 
 // ---------- Drill-down modal ----------

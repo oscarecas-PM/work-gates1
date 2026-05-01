@@ -28,7 +28,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Employee Score Card</p>
 <p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
-<p class="version">Version 1.3 | April 30, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.4 | April 30, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
@@ -136,13 +136,13 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-30</span> Distribution panel with a tab strip exposing four sub-views. Only one tab is visible at a time on screen; all four are exported in the snapshot and printed.</p>
 <p><span class="req">F-31</span> <strong>Tab A &mdash; Ranked Bar:</strong> One bar per badge, sorted by Earned Hours descending. Mean and median reference lines drawn as horizontal annotations. Y-axis label: "Earned Hours (Filtered Range)".</p>
 <p><span class="req">F-32</span> <strong>Tab B &mdash; Histogram:</strong> Bins of Earned-Hours values. Bin width via Freedman&ndash;Diaconis rule (<code>2 &times; IQR &times; n^(-1/3)</code>) with a minimum of 5 hours per bin. Bar height = count of badges in bin. Hovering a bar shows the badge labels in that bin (limited to 10 with "+N more" overflow).</p>
-<p><span class="req">F-33</span> <strong>Tab C &mdash; Box Plot per Month:</strong> One vertical box per month in the filtered range, computed from the per-(badge, month) Earned Hours values. Whiskers = min/max within 1.5&times;IQR; outliers shown as individual dots. Drawn on a Chart.js canvas via custom plugin (no extra dependency).</p>
+<p><span class="req">F-33</span> <strong>Tab C &mdash; Box Plot per Month:</strong> One vertical box per month in the filtered range, computed from the per-(badge, month) Earned Hours values. Box = Q1&ndash;Q3 (middle 50% of techs); horizontal line in box = median; whiskers = min/max within 1.5&times;IQR; red dots = outliers; <code>n=N</code> label centered below each box's lower whisker = number of techs that month. Drawn on a Chart.js canvas via custom plugin (no extra dependency). The X-axis uses a category scale so month labels render correctly. Above the chart: a purpose-explainer paragraph (connecting distribution width to production-rate uncertainty) and a legend strip with colored swatches explaining the box, median line, whiskers, outliers, and <code>n</code>. Hovering anywhere within a box's column shows a tooltip with all stats: <code>n techs / median / middle 50% (Q1&ndash;Q3, IQR) / whiskers / outlier count</code>. Outlier dots retain their per-point tooltip.</p>
 <p><span class="req">F-34</span> <strong>Tab D &mdash; Scatter (Actual vs. Earned):</strong> One dot per badge. X = Total Actual Hours, Y = Total Earned Hours, both over the filtered range. Dashed diagonal at <code>y = x</code> represents CPI = 1.0. Hovering a dot shows the badge label, Earned, Actual, and CPI.</p>
 <p><span class="req">F-35</span> Each chart respects the Anonymize toggle: when ON, axis labels and tooltips display Tech N rather than badge / name.</p>
 <p><span class="req">F-36</span> Each chart respects the Badge filter: deselected badges are hidden from the rendered chart.</p>
 
 <h3>6.5 Per-Month Grid</h3>
-<p><span class="req">F-40</span> Grid with badges as rows (sorted by total Earned Hours descending) and months as columns (oldest to newest in the filtered range).</p>
+<p><span class="req">F-40</span> Grid with badges as rows (sorted by total Earned Hours descending) and months as columns (oldest to newest in the filtered range). The Tech column is a stacked cell &mdash; technician name on top (bold), badge below in small dim text &mdash; reducing column width vs. the prior single-line <code>Name (Badge)</code> format. When Anonymize is ON, only the <code>Tech N</code> label shows (no badge sub-line). The Tech column is sticky-left and the header row is sticky-top, both stay visible while the grid scrolls horizontally and the page scrolls vertically; the corner cell sits above both. A vertical scroll-button strip on the right edge of the grid section (◄ scroll one month earlier, ► scroll one month later) is shown only when the grid overflows the viewport horizontally; buttons disable at scroll extremes.</p>
 <p><span class="req">F-41</span> Each cell shows three stacked values, each with a small uppercase label suffix for legibility: <code>9.1 EARNED</code> (top, bold), <code>22.7 ACTUALS</code> (middle, smaller dim font), <code>0.40 CPI</code> (bottom, color-coded by F-24 thresholds). The label suffix is a small caps slate-400 span (<code>.lbl</code>) that follows each number. The rightmost Total column uses the same labeled three-value format.</p>
 <p><span class="req">F-42</span> Cells are clickable. Clicking opens a drill-down modal that opens with a CPI summary block at the top (Earned, Actuals, CPI as large stat tiles plus the explicit calculation <code>{earned} ÷ {actuals} = {cpi}</code>), followed by a table listing every operation that contributed to that (badge, month) cell. Operation table columns: Order No, Oper No, Part No., Description, Earned (op), Total Charged (op), My Charged, My Share, Flag. A second table below lists all the badge's incremental charges in the month (matched and unmatched).</p>
 <p><span class="req">F-43</span> The drill-down modal includes a "Copy as CSV" button.</p>
@@ -201,9 +201,20 @@ li { margin: 0.3rem 0; }
 <p><span class="req">S-07</span> Anonymize toggle locks names/badges out of generated snapshots when ON, eliminating PII at the data layer (not just the display layer).</p>
 
 <h2>9. Known Issues</h2>
-<p style="font-size:0.9rem;color:#666;">No open issues. v1.3 (2026-04-30) is a readability pass on the per-month grid &mdash; see the v1.3 row below. v1.2 (2026-04-30) closed two ingest defects. v1.1 (2026-04-29) closed five defects from the first end-to-end verification pass.</p>
+<p style="font-size:0.9rem;color:#666;">No open issues. v1.4 (2026-04-30) added grid navigation (sticky tech column / sticky header / scroll buttons) and Box Plot per Month clarity (legend, hover tooltips, explainer, fixed month labels). v1.3 was a grid readability pass. v1.2 closed two ingest defects. v1.1 closed five defects from the first end-to-end verification.</p>
 <table>
   <tr><th>Version</th><th>Date</th><th>Changes</th></tr>
+  <tr>
+    <td>1.4</td>
+    <td>2026-04-30</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-40 navigation:</b> Per-Month Detail grid is now navigable at any size. Tech column stacks name/badge to halve its width, sticks to the left edge during horizontal scroll, and stays visible while the page scrolls vertically (header row stays at top too). Vertical ◄/► scroll buttons appear on the right edge of the grid section when the table overflows; one click scrolls one month worth of width with smooth animation. Buttons disable at scroll extremes and hide entirely when no overflow.</li>
+        <li><b>F-33 box plot labels:</b> Month names now render correctly on the X-axis. Root cause was a tick-callback bug (<code>callback: v =&gt; labels[v]</code> with a linear scale producing fractional tick values like <code>-0.5</code>, <code>0.5</code>, never integer indices). Switched the X scale to <code>category</code> with <code>offset: true</code>, which feeds month labels directly and centers each month over its box.</li>
+        <li><b>F-33 box plot clarity:</b> Added an explainer paragraph above the chart connecting box width to production-rate uncertainty, plus a legend strip with colored swatches identifying box / median line / whiskers / outliers / <code>n</code>. Added column-hover tooltips (Chart.js <code>interaction.intersect: false</code> with an invisible "Box hover" dataset at each median) showing <code>n techs</code>, <code>median</code>, <code>middle 50% (Q1&ndash;Q3, IQR)</code>, <code>whiskers</code>, and <code>outlier count</code>. Outlier dots retain their per-point tooltip. Repositioned the <code>n=N</code> label from inside the box (10 px gray, easy to miss) to centered below the lower whisker (11 px on a translucent white plate) so the box itself stays clean.</li>
+      </ul>
+    </td>
+  </tr>
   <tr>
     <td>1.3</td>
     <td>2026-04-30</td>
@@ -252,6 +263,7 @@ li { margin: 0.3rem 0; }
   <li>Should pro-rata splits weight by something other than charged hours (e.g., presence of a Lead Tech designation if the upstream system ever exports it)?</li>
   <li>Should the histogram bin width be user-adjustable, or is Freedman&ndash;Diaconis with a 5-hour minimum sufficient?</li>
   <li>Should the per-month grid show three stacked numbers per cell, or use a tab/toggle to switch between Earned-only, Actual-only, and CPI-only heatmaps?</li>
+  <li><b>ECD-from-distribution (deferred to Gate Tracker, agreed 2026-04-30):</b> The Box Plot per Month was built to support estimated-completion-date forecasting from per-tech production-rate distributions. That feature will live in Gate Tracker (where techs and managers watch weekly), not in the Score Card. Methodology agreed: <em>backward</em> = solve "equivalent heads" from a bundle's earned hours and the median per-tech rate (translates "5 names touched the WO" into "but only ~2.3 equivalent full-time heads worth of work happened"); <em>forward</em> = apply assumed headcount &times; per-tech rate (low/median/high from quartile presets, default low=p25 / median=p50 / high=p75 with override) to remaining bundle hours to produce ECD(early)/ECD(median)/ECD(late). The Score Card may need a CSV export of the per-tech-per-month rate distribution as a Gate Tracker input when that feature is built. Open: file format and join key.</li>
 </ol>
 
 <h2>11. Verification &amp; Open Issues</h2>
