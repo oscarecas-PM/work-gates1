@@ -28,7 +28,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Employee Score Card</p>
 <p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
-<p class="version">Version 1.5 | April 30, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.6 | May 1, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
@@ -134,7 +134,7 @@ li { margin: 0.3rem 0; }
 
 <h3>6.4 Distribution Charts</h3>
 <p><span class="req">F-30</span> Distribution panel with a tab strip exposing four sub-views. Only one tab is visible at a time on screen; all four are exported in the snapshot and printed.</p>
-<p><span class="req">F-31</span> <strong>Tab A &mdash; Ranked Bar:</strong> Two bars per badge (paired side-by-side), sorted by Total Earned Hours descending. <strong>Blue bar</strong> = total earned in the filtered range (left Y-axis). <strong>Orange bar</strong> = average earned hours per active month, where "active month" means a month in which the badge had charged hours &gt; 0 (right Y-axis, separate scale). Mean and median reference lines apply to the Total Earned series (left axis). Legend at top, color-coded axis titles and tick labels match each series. The dual-axis design lets the user compare absolute output against per-month rate; the orange series is the input for the future ECD-from-distribution work in Gate Tracker (per &sect;10).</p>
+<p><span class="req">F-31</span> <strong>Tab A &mdash; Ranked Bar:</strong> Two bars per badge (paired side-by-side), sorted by Total Earned Hours descending. <strong>Orange bar</strong> = avg earned hours per active month (left Y-axis, primary), where "active month" means a month in which the badge had charged hours &gt; 0. <strong>Blue bar</strong> = total earned in the filtered range (right Y-axis, secondary). Two horizontal dashed reference lines drawn against the orange axis: <strong>green dash = "Group avg"</strong> (workforce-wide average of per-month rates) and <strong>amber dash = "Middle tech"</strong> (median per-month rate &mdash; half of techs earn more, half earn less). Audience-friendly labels intentionally avoid the bare "mean"/"median" stats jargon. Bar tooltip footer always defines both reference lines with their numeric values for hover discoverability. Subtitle line under the title makes the dual-axis layout explicit. Legend at top; axis titles and tick labels color-coded to each series. The orange (per-month rate) series is the input for the future ECD-from-distribution work in Gate Tracker (per &sect;10).</p>
 <p><span class="req">F-32</span> <strong>Tab B &mdash; Histogram:</strong> Bins the per-tech "average earned hours per active month" metric (same calculation as F-31's orange series). Bin width via Freedman&ndash;Diaconis rule (<code>2 &times; IQR &times; n^(-1/3)</code>) with a minimum of 1 hour per bin (averages are typically much smaller than total earned over a multi-month range). Bar height = count of badges in bin. Hovering a bar shows the badge labels in that bin (limited to 10 with "+N more" overflow). X-axis: avg earned hrs/active month bins. Y-axis: # employees. Subtitle line under the title makes the metric explicit.</p>
 <p><span class="req">F-33</span> <strong>Tab C &mdash; Box Plot per Month:</strong> One vertical box per month in the filtered range, computed from the per-(badge, month) Earned Hours values. Box = Q1&ndash;Q3 (middle 50% of techs); horizontal line in box = median; whiskers = min/max within 1.5&times;IQR; red dots = outliers; <code>n=N</code> label centered below each box's lower whisker = number of techs that month. Drawn on a Chart.js canvas via custom plugin (no extra dependency). The X-axis uses a category scale so month labels render correctly. Above the chart: a purpose-explainer paragraph (connecting distribution width to production-rate uncertainty) and a legend strip with colored swatches explaining the box, median line, whiskers, outliers, and <code>n</code>. Hovering anywhere within a box's column shows a tooltip with all stats: <code>n techs / median / middle 50% (Q1&ndash;Q3, IQR) / whiskers / outlier count</code>. Outlier dots retain their per-point tooltip.</p>
 <p><span class="req">F-34</span> <strong>Tab D &mdash; Scatter (Actual vs. Earned):</strong> One dot per badge. X = Total Actual Hours, Y = Total Earned Hours, both over the filtered range. Dashed diagonal at <code>y = x</code> represents CPI = 1.0. Hovering a dot shows the badge label, Earned, Actual, and CPI.</p>
@@ -201,9 +201,22 @@ li { margin: 0.3rem 0; }
 <p><span class="req">S-07</span> Anonymize toggle locks names/badges out of generated snapshots when ON, eliminating PII at the data layer (not just the display layer).</p>
 
 <h2>9. Known Issues</h2>
-<p style="font-size:0.9rem;color:#666;">No open issues. v1.5 (2026-04-30) added collapsibility for Per-Employee Totals and Per-Month Detail (closed by default, including in snapshots), introduced a per-tech "avg earned hours per active month" rate metric as a second series on the Ranked Bar (dual-axis) and as the new metric for the Histogram. v1.4 added grid navigation and Box Plot clarity. v1.3 grid readability. v1.2 ingest defects. v1.1 first end-to-end verification.</p>
+<p style="font-size:0.9rem;color:#666;">No open issues. v1.6 (2026-05-01) reframed the Ranked Bar around per-month rate: orange (rate) is now the primary left axis, blue (totals) the secondary right axis. Reference lines now describe the rate distribution and use audience-friendly labels ("Group avg", "Middle tech") with hover-tooltip definitions. v1.5 added collapsibility and the per-month rate metric. v1.4 added grid navigation and Box Plot clarity. v1.3 grid readability. v1.2 ingest defects. v1.1 first end-to-end verification.</p>
 <table>
   <tr><th>Version</th><th>Date</th><th>Changes</th></tr>
+  <tr>
+    <td>1.6</td>
+    <td>2026-05-01</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-31 axis swap:</b> Ranked Bar's primary (left) axis is now the orange "Avg Earned Hrs / Active Month" series; secondary (right) axis is the blue "Total Earned" series. Reflects the per-month rate as the first-class metric for production-rate analysis (orange feeds the future ECD work in &sect;10), with totals as supporting context.</li>
+        <li><b>F-31 reference lines reframed:</b> Mean and median dashed lines now compute against the per-month rate distribution (the orange series), not the totals. Labels reworded from bare "Mean" / "Median" to audience-friendly "<b>Group avg</b>" (workforce-wide average per-month rate) and "<b>Middle tech</b>" (median rate &mdash; half above, half below). Line labels include units (h/mo) and are positioned at the chart's left edge to leave the right side clear for axis tick labels.</li>
+        <li><b>F-31 tooltip definitions:</b> Bar tooltip now includes a footer that always names and defines both reference lines with their numeric values, so a manager hovering any bar sees what the dashed lines mean without needing to remember stats vocabulary.</li>
+        <li><b>F-31 subtitle update:</b> Subtitle text rewritten to reflect the swapped axes and the new reference-line framing.</li>
+        <li><b>Banner:</b> v1.5 → v1.6.</li>
+      </ul>
+    </td>
+  </tr>
   <tr>
     <td>1.5</td>
     <td>2026-04-30</td>

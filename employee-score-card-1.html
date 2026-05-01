@@ -171,7 +171,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.5 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.6 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -1383,38 +1383,47 @@ function buildChartForTab(tabId, totals, activeMonths) {
     const labels = sorted.map(r => labelFor(r.badge));
     const data = sorted.map(r => round1(r.earned));
     const avgData = sorted.map(r => round1(avgEarnedPerActiveMonth(r)));
-    const mean = sorted.reduce((s, r) => s + r.earned, 0) / sorted.length;
-    const sortedVals = sorted.map(r => r.earned).sort((a, b) => a - b);
-    const median = sortedVals.length ? (sortedVals.length % 2 ? sortedVals[(sortedVals.length - 1) / 2] : (sortedVals[sortedVals.length / 2 - 1] + sortedVals[sortedVals.length / 2]) / 2) : 0;
+    // Reference lines describe the per-month RATE (the orange series, now on the
+    // primary left axis), not totals. "Mean" = workforce average rate. "Median" =
+    // the middle tech's rate (half of techs earn more per month, half earn less).
+    const rateMean = avgData.length ? avgData.reduce((s, v) => s + v, 0) / avgData.length : 0;
+    const rateSorted = avgData.slice().sort((a, b) => a - b);
+    const rateMedian = rateSorted.length ? (rateSorted.length % 2 ? rateSorted[(rateSorted.length - 1) / 2] : (rateSorted[rateSorted.length / 2 - 1] + rateSorted[rateSorted.length / 2]) / 2) : 0;
 
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
       type: 'bar',
       data: {
         labels,
         datasets: [
-          { label: 'Total Earned (filtered range)', data, backgroundColor: '#2563eb', yAxisID: 'y', order: 2 },
-          { label: 'Avg Earned / Active Month', data: avgData, backgroundColor: '#f59e0b', yAxisID: 'y2', order: 1 }
+          { label: 'Avg Earned / Active Month', data: avgData, backgroundColor: '#f59e0b', yAxisID: 'y', order: 1 },
+          { label: 'Total Earned (filtered range)', data, backgroundColor: '#2563eb', yAxisID: 'y2', order: 2 }
         ]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
           title: { display: true, text: 'Earned Hours by Technician (Filtered Range)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
-          subtitle: { display: true, text: 'Blue = total earned this range (left axis). Orange = avg earned per active month, ignoring zero-charge months (right axis).', color: '#475569', font: { size: 11 }, padding: { bottom: 8 } },
+          subtitle: { display: true, text: 'Orange (left axis) = avg earned per active month — the per-tech production rate. Blue (right axis) = total earned over the filtered range. Dashed lines mark the group average and middle-tech rate.', color: '#475569', font: { size: 11 }, padding: { bottom: 8 } },
           legend: { display: true, position: 'top' },
           tooltip: {
             callbacks: {
               label: ctx => {
                 const lbl = ctx.dataset.label;
-                if (lbl && lbl.indexOf('Avg') === 0) return 'Avg/Active Month: ' + fmtNum(ctx.parsed.y, 1) + ' h';
+                if (lbl && lbl.indexOf('Avg') === 0) return 'Avg / Active Month: ' + fmtNum(ctx.parsed.y, 1) + ' h';
                 return 'Total Earned: ' + fmtNum(ctx.parsed.y, 1) + ' h';
-              }
+              },
+              footer: () => [
+                '',
+                'Reference lines (orange axis):',
+                '— Green dash = Group avg (' + fmtNum(rateMean, 1) + ' h/mo): the workforce-wide average per-month rate',
+                '— Amber dash = Middle tech (' + fmtNum(rateMedian, 1) + ' h/mo): half of techs earn more per month, half earn less'
+              ]
             }
           }
         },
         scales: {
-          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Total Earned Hours', color: '#2563eb' }, ticks: { color: '#2563eb' } },
-          y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Avg Earned Hrs / Active Month', color: '#b45309' }, ticks: { color: '#b45309' }, grid: { drawOnChartArea: false } },
+          y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Avg Earned Hrs / Active Month', color: '#b45309' }, ticks: { color: '#b45309' } },
+          y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Total Earned Hours', color: '#2563eb' }, ticks: { color: '#2563eb' }, grid: { drawOnChartArea: false } },
           x: { ticks: { maxRotation: 60, minRotation: 30 } }
         }
       },
@@ -1423,18 +1432,18 @@ function buildChartForTab(tabId, totals, activeMonths) {
         afterDatasetsDraw(chart) {
           const { ctx, chartArea: ca, scales: s } = chart;
           ctx.save();
-          // Mean
+          // Group average (formerly "Mean") — on left axis, computed from per-month rates
           ctx.strokeStyle = '#15803d'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
-          let y = s.y.getPixelForValue(mean);
+          let y = s.y.getPixelForValue(rateMean);
           ctx.beginPath(); ctx.moveTo(ca.left, y); ctx.lineTo(ca.right, y); ctx.stroke();
           ctx.fillStyle = '#15803d'; ctx.font = 'bold 11px Arial';
-          ctx.fillText('Mean: ' + fmtNum(mean, 1), ca.right - 110, y - 4);
-          // Median
+          ctx.fillText('Group avg: ' + fmtNum(rateMean, 1) + ' h/mo', ca.left + 6, y - 4);
+          // Middle tech (formerly "Median") — on left axis, computed from per-month rates
           ctx.strokeStyle = '#b45309'; ctx.setLineDash([2, 3]);
-          y = s.y.getPixelForValue(median);
+          y = s.y.getPixelForValue(rateMedian);
           ctx.beginPath(); ctx.moveTo(ca.left, y); ctx.lineTo(ca.right, y); ctx.stroke();
           ctx.fillStyle = '#b45309';
-          ctx.fillText('Median: ' + fmtNum(median, 1), ca.right - 110, y - 4);
+          ctx.fillText('Middle tech: ' + fmtNum(rateMedian, 1) + ' h/mo', ca.left + 6, y - 4);
           ctx.restore();
         }
       }]
