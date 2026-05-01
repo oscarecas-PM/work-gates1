@@ -1,0 +1,7 @@
+Network,Order No,Part No,Plan Title,Program
+NET-A,WO-100,555-01,Wing Spar Machining,Aero-Alpha
+NET-A,WO-200,777-12,Fuselage Drill,Aero-Alpha
+NET-B,WO-300,999-05,Final Inspection,Aero-Beta
+NET-A,WO-400,555-02,Sheet Metal Cut,Aero-Alpha
+NET-A,WO-500,555-01,Wing Spar Machining,Aero-Alpha
+NET-A,WO-600,555-03,Cleaning Bay 5,Aero-Alpha
