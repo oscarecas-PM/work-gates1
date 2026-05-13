@@ -1,0 +1,8 @@
+# Dependencies
+node_modules/
+
+# Claude Code local state (sessions, plans, worktrees, settings)
+.claude/
+
+# Test inputs / sample data — local-only, not source of truth
+dummy-files/
