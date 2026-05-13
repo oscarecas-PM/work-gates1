@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>Scan Report</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; padding: 1.5rem; background: #f5f5f5; color: #222; }
+h1 { color: #1e3a5f; margin-bottom: 0.5rem; }
+h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
+.description { color: #555; margin-bottom: 1.5rem; font-size: 0.95rem; }
+.file-inputs { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; min-width: 280px; flex: 1; }
+.file-group h3 { margin-bottom: 0.5rem; color: #1e3a5f; font-size: 1rem; }
+.file-group p { font-size: 0.82rem; color: #666; margin-bottom: 0.5rem; }
+.status { font-size: 0.85rem; margin-top: 0.5rem; min-height: 1.2em; }
+.status.loaded { color: #16a34a; }
+.status.warning { color: #b45309; }
+.status.error { color: #dc2626; }
+.action-bar { margin: 1rem 0; display: flex; gap: 12px; align-items: center; }
+.btn { padding: 10px 24px; font-size: 1rem; cursor: pointer; border: none; border-radius: 4px; color: #fff; }
+.btn:disabled { background: #aaa; cursor: default; }
+.btn-primary { background: #2563eb; }
+.btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn-slate { background: #334155; }
+.btn-slate:hover:not(:disabled) { background: #1e293b; }
+.btn-green { background: #16a34a; }
+.btn-green:hover:not(:disabled) { background: #15803d; }
+.val-panel { margin-bottom: 1.5rem; }
+.val-error { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; color: #991b1b; font-size: 0.9rem; }
+.val-warning { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; color: #92400e; font-size: 0.9rem; }
+.val-info { background: #eff6ff; border: 1px solid #93c5fd; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.5rem; color: #1e40af; font-size: 0.9rem; }
+
+/* KPI cards */
+.section-heading { font-size: 1.3rem; font-weight: bold; color: #1e3a5f; margin: 1.5rem 0 0.75rem 0; border-bottom: 2px solid #334155; padding-bottom: 4px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.kpi-card { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1.25rem; text-align: center; }
+.kpi-value { font-size: 2rem; font-weight: bold; color: #1e3a5f; font-variant-numeric: tabular-nums; }
+.kpi-label { font-size: 0.85rem; color: #555; margin-top: 0.25rem; }
+
+/* Calendar */
+.scan-calendar { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.cal-hdr { font-size: 0.75rem; font-weight: 600; color: #64748b; padding: 4px 0; }
+.cal-day { padding: 8px 4px; border-radius: 4px; min-height: 52px; font-size: 0.8rem; }
+.cal-day .day-num { font-weight: 600; color: #334155; font-size: 0.85rem; }
+.cal-day .day-count { font-size: 1.1rem; font-weight: bold; color: #2563eb; margin-top: 2px; }
+.cal-day.workday { background: #f0f9ff; }
+.cal-day.scanned { background: #dbeafe; border: 1px solid #93c5fd; }
+.cal-day.weekend { background: #f8fafc; color: #94a3b8; }
+.cal-day.off-friday { background: #fef3c7; }
+.cal-day.future { background: #f1f5f9; opacity: 0.5; }
+.cal-day.no-scan { background: #fef2f2; border: 1px solid #fca5a5; }
+.cal-day .day-count.zero { color: #dc2626; font-size: 0.8rem; }
+
+/* Location tables */
+.loc-table-wrap { overflow-x: auto; background: #fff; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 1.5rem; }
+.loc-table { width: auto; border-collapse: collapse; font-size: 0.85rem; }
+.loc-table th { background: #334155; color: #fff; padding: 8px 12px; text-align: left; white-space: nowrap; font-weight: 600; position: sticky; top: 0; }
+.loc-table td { padding: 6px 12px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }
+.loc-table tbody tr:nth-child(even) { background: #f8fafc; }
+.loc-table tbody tr:hover { background: #e2e8f0; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Currently-there cards */
+.current-cards { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+.wo-card { display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 4px; padding: 4px 10px; font-size: 0.8rem; position: relative; cursor: default; }
+.wo-card .wo-id { font-weight: 600; color: #1e3a5f; }
+.wo-card .wo-days { color: #64748b; font-size: 0.75rem; }
+
+/* Tooltips */
+.has-tip { position: relative; cursor: default; }
+.tip { display: none; position: absolute; z-index: 100; background: #1e293b; color: #f1f5f9; border-radius: 6px; padding: 8px 12px; font-size: 0.78rem; line-height: 1.5; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.has-tip:hover .tip { display: block; }
+.cal-day .tip { left: 50%; transform: translateX(-50%); top: 100%; margin-top: 4px; }
+.wo-card .tip { left: 0; bottom: 100%; margin-bottom: 6px; }
+.tip-line { display: flex; gap: 12px; }
+.tip-line .tip-wo { font-weight: 600; min-width: 80px; }
+.tip-line .tip-loc { color: #93c5fd; }
+.tip-line .tip-date { color: #cbd5e1; min-width: 70px; }
+.cal-day .day-label { font-size: 0.6rem; color: #64748b; margin-top: 1px; }
+
+@media print {
+  .file-inputs, .action-bar, .description, .val-panel { display: none !important; }
+  body { background: #fff; padding: 0.5rem; }
+  #print-timestamp { display: block !important; }
+  .detail-section { display: block !important; }
+}
+</style>
+
+<!-- ============================================================
+     PapaParse v5.5.2  |  CSV Parser
+     Source: https://github.com/mholt/PapaParse
+     CDN ref: https://cdn.jsdelivr.net/npm/papaparse@5.5.2/papaparse.min.js
+     Embedded: 2026-04-08  |  License: MIT
+     ============================================================ -->
+<script>
+/* @license
+Papa Parse
+v5.5.2
+https://github.com/mholt/PapaParse
+License: MIT
+*/
+((e,t)=>{"function"==typeof define&&define.amd?define([],t):"object"==typeof module&&"undefined"!=typeof exports?module.exports=t():e.Papa=t()})(this,function r(){var n="undefined"!=typeof self?self:"undefined"!=typeof window?window:void 0!==n?n:{};var d,s=!n.document&&!!n.postMessage,a=n.IS_PAPA_WORKER||!1,o={},h=0,v={};function u(e){this._handle=null,this._finished=!1,this._completed=!1,this._halted=!1,this._input=null,this._baseIndex=0,this._partialLine="",this._rowCount=0,this._start=0,this._nextChunk=null,this.isFirstChunk=!0,this._completeResults={data:[],errors:[],meta:{}},function(e){var t=w(e);t.chunkSize=parseInt(t.chunkSize),e.step||e.chunk||(t.chunkSize=null);this._handle=new i(t),(this._handle.streamer=this)._config=t}.call(this,e),this.parseChunk=function(t,e){var i=parseInt(this._config.skipFirstNLines)||0;if(this.isFirstChunk&&0<i){let e=this._config.newline;e||(r=this._config.quoteChar||'"',e=this._handle.guessLineEndings(t,r)),t=[...t.split(e).slice(i)].join(e)}this.isFirstChunk&&U(this._config.beforeFirstChunk)&&void 0!==(r=this._config.beforeFirstChunk(t))&&(t=r),this.isFirstChunk=!1,this._halted=!1;var i=this._partialLine+t,r=(this._partialLine="",this._handle.parse(i,this._baseIndex,!this._finished));if(!this._handle.paused()&&!this._handle.aborted()){t=r.meta.cursor,i=(this._finished||(this._partialLine=i.substring(t-this._baseIndex),this._baseIndex=t),r&&r.data&&(this._rowCount+=r.data.length),this._finished||this._config.preview&&this._rowCount>=this._config.preview);if(a)n.postMessage({results:r,workerId:v.WORKER_ID,finished:i});else if(U(this._config.chunk)&&!e){if(this._config.chunk(r,this._handle),this._handle.paused()||this._handle.aborted())return void(this._halted=!0);this._completeResults=r=void 0}return this._config.step||this._config.chunk||(this._completeResults.data=this._completeResults.data.concat(r.data),this._completeResults.errors=this._completeResults.errors.concat(r.errors),this._completeResults.meta=r.meta),this._completed||!i||!U(this._config.complete)||r&&r.meta.aborted||(this._config.complete(this._completeResults,this._input),this._completed=!0),i||r&&r.meta.paused||this._nextChunk(),r}this._halted=!0},this._sendError=function(e){U(this._config.error)?this._config.error(e):a&&this._config.error&&n.postMessage({workerId:v.WORKER_ID,error:e,finished:!1})}}function f(e){var r;(e=e||{}).chunkSize||(e.chunkSize=v.RemoteChunkSize),u.call(this,e),this._nextChunk=s?function(){this._readChunk(),this._chunkLoaded()}:function(){this._readChunk()},this.stream=function(e){this._input=e,this._nextChunk()},this._readChunk=function(){if(this._finished)this._chunkLoaded();else{if(r=new XMLHttpRequest,this._config.withCredentials&&(r.withCredentials=this._config.withCredentials),s||(r.onload=y(this._chunkLoaded,this),r.onerror=y(this._chunkError,this)),r.open(this._config.downloadRequestBody?"POST":"GET",this._input,!s),this._config.downloadRequestHeaders){var e,t=this._config.downloadRequestHeaders;for(e in t)r.setRequestHeader(e,t[e])}var i;this._config.chunkSize&&(i=this._start+this._config.chunkSize-1,r.setRequestHeader("Range","bytes="+this._start+"-"+i));try{r.send(this._config.downloadRequestBody)}catch(e){this._chunkError(e.message)}s&&0===r.status&&this._chunkError()}},this._chunkLoaded=function(){4===r.readyState&&(r.status<200||400<=r.status?this._chunkError():(this._start+=this._config.chunkSize||r.responseText.length,this._finished=!this._config.chunkSize||this._start>=(e=>null!==(e=e.getResponseHeader("Content-Range"))?parseInt(e.substring(e.lastIndexOf("/")+1)):-1)(r),this.parseChunk(r.responseText)))},this._chunkError=function(e){e=r.statusText||e;this._sendError(new Error(e))}}function l(e){(e=e||{}).chunkSize||(e.chunkSize=v.LocalChunkSize),u.call(this,e);var i,r,n="undefined"!=typeof FileReader;this.stream=function(e){this._input=e,r=e.slice||e.webkitSlice||e.mozSlice,n?((i=new FileReader).onload=y(this._chunkLoaded,this),i.onerror=y(this._chunkError,this)):i=new FileReaderSync,this._nextChunk()},this._nextChunk=function(){this._finished||this._config.preview&&!(this._rowCount<this._config.preview)||this._readChunk()},this._readChunk=function(){var e=this._input,t=(this._config.chunkSize&&(t=Math.min(this._start+this._config.chunkSize,this._input.size),e=r.call(e,this._start,t)),i.readAsText(e,this._config.encoding));n||this._chunkLoaded({target:{result:t}})},this._chunkLoaded=function(e){this._start+=this._config.chunkSize,this._finished=!this._config.chunkSize||this._start>=this._input.size,this.parseChunk(e.target.result)},this._chunkError=function(){this._sendError(i.error)}}function c(e){var i;u.call(this,e=e||{}),this.stream=function(e){return i=e,this._nextChunk()},this._nextChunk=function(){var e,t;if(!this._finished)return e=this._config.chunkSize,i=e?(t=i.substring(0,e),i.substring(e)):(t=i,""),this._finished=!i,this.parseChunk(t)}}function p(e){u.call(this,e=e||{});var t=[],i=!0,r=!1;this.pause=function(){u.prototype.pause.apply(this,arguments),this._input.pause()},this.resume=function(){u.prototype.resume.apply(this,arguments),this._input.resume()},this.stream=function(e){this._input=e,this._input.on("data",this._streamData),this._input.on("end",this._streamEnd),this._input.on("error",this._streamError)},this._checkIsFinished=function(){r&&1===t.length&&(this._finished=!0)},this._nextChunk=function(){this._checkIsFinished(),t.length?this.parseChunk(t.shift()):i=!0},this._streamData=y(function(e){try{t.push("string"==typeof e?e:e.toString(this._config.encoding)),i&&(i=!1,this._checkIsFinished(),this.parseChunk(t.shift()))}catch(e){this._streamError(e)}},this),this._streamError=y(function(e){this._streamCleanUp(),this._sendError(e)},this),this._streamEnd=y(function(){this._streamCleanUp(),r=!0,this._streamData("")},this),this._streamCleanUp=y(function(){this._input.removeListener("data",this._streamData),this._input.removeListener("end",this._streamEnd),this._input.removeListener("error",this._streamError)},this)}function i(m){var n,s,a,t,o=Math.pow(2,53),h=-o,u=/^\s*-?(\d+\.?|\.\d+|\d+\.\d+)([eE][-+]?\d+)?\s*$/,d=/^((\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d\.\d+([+-][0-2]\d:[0-5]\d|Z))|(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z))|(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d([+-][0-2]\d:[0-5]\d|Z)))$/,i=this,r=0,f=0,l=!1,e=!1,c=[],p={data:[],errors:[],meta:{}};function y(e){return"greedy"===m.skipEmptyLines?""===e.join("").trim():1===e.length&&0===e[0].length}function g(){if(p&&a&&(k("Delimiter","UndetectableDelimiter","Unable to auto-detect delimiting character; defaulted to '"+v.DefaultDelimiter+"'"),a=!1),m.skipEmptyLines&&(p.data=p.data.filter(function(e){return!y(e)})),_()){if(p)if(Array.isArray(p.data[0])){for(var e=0;_()&&e<p.data.length;e++)p.data[e].forEach(t);p.data.splice(0,1)}else p.data.forEach(t);function t(e,t){U(m.transformHeader)&&(e=m.transformHeader(e,t)),c.push(e)}}function i(e,t){for(var i=m.header?{}:[],r=0;r<e.length;r++){var n=r,s=e[r],s=((e,t)=>(e=>(m.dynamicTypingFunction&&void 0===m.dynamicTyping[e]&&(m.dynamicTyping[e]=m.dynamicTypingFunction(e)),!0===(m.dynamicTyping[e]||m.dynamicTyping)))(e)?"true"===t||"TRUE"===t||"false"!==t&&"FALSE"!==t&&((e=>{if(u.test(e)){e=parseFloat(e);if(h<e&&e<o)return 1}})(t)?parseFloat(t):d.test(t)?new Date(t):""===t?null:t):t)(n=m.header?r>=c.length?"__parsed_extra":c[r]:n,s=m.transform?m.transform(s,n):s);"__parsed_extra"===n?(i[n]=i[n]||[],i[n].push(s)):i[n]=s}return m.header&&(r>c.length?k("FieldMismatch","TooManyFields","Too many fields: expected "+c.length+" fields but parsed "+r,f+t):r<c.length&&k("FieldMismatch","TooFewFields","Too few fields: expected "+c.length+" fields but parsed "+r,f+t)),i}var r;p&&(m.header||m.dynamicTyping||m.transform)&&(r=1,!p.data.length||Array.isArray(p.data[0])?(p.data=p.data.map(i),r=p.data.length):p.data=i(p.data,0),m.header&&p.meta&&(p.meta.fields=c),f+=r)}function _(){return m.header&&0===c.length}function k(e,t,i,r){e={type:e,code:t,message:i};void 0!==r&&(e.row=r),p.errors.push(e)}U(m.step)&&(t=m.step,m.step=function(e){p=e,_()?g():(g(),0!==p.data.length&&(r+=e.data.length,m.preview&&r>m.preview?s.abort():(p.data=p.data[0],t(p,i))))}),this.parse=function(e,t,i){var r=m.quoteChar||'"',r=(m.newline||(m.newline=this.guessLineEndings(e,r)),a=!1,m.delimiter?U(m.delimiter)&&(m.delimiter=m.delimiter(e),p.meta.delimiter=m.delimiter):((r=((e,t,i,r,n)=>{var s,a,o,h;n=n||[",","\t","|",";",v.RECORD_SEP,v.UNIT_SEP];for(var u=0;u<n.length;u++){for(var d,f=n[u],l=0,c=0,p=0,g=(o=void 0,new E({comments:r,delimiter:f,newline:t,preview:10}).parse(e)),_=0;_<g.data.length;_++)i&&y(g.data[_])?p++:(d=g.data[_].length,c+=d,void 0===o?o=d:0<d&&(l+=Math.abs(d-o),o=d));0<g.data.length&&(c/=g.data.length-p),(void 0===a||l<=a)&&(void 0===h||h<c)&&1.99<c&&(a=l,s=f,h=c)}return{successful:!!(m.delimiter=s),bestDelimiter:s}})(e,m.newline,m.skipEmptyLines,m.comments,m.delimitersToGuess)).successful?m.delimiter=r.bestDelimiter:(a=!0,m.delimiter=v.DefaultDelimiter),p.meta.delimiter=m.delimiter),w(m));return m.preview&&m.header&&r.preview++,n=e,s=new E(r),p=s.parse(n,t,i),g(),l?{meta:{paused:!0}}:p||{meta:{paused:!1}}},this.paused=function(){return l},this.pause=function(){l=!0,s.abort(),n=U(m.chunk)?"":n.substring(s.getCharIndex())},this.resume=function(){i.streamer._halted?(l=!1,i.streamer.parseChunk(n,!0)):setTimeout(i.resume,3)},this.aborted=function(){return e},this.abort=function(){e=!0,s.abort(),p.meta.aborted=!0,U(m.complete)&&m.complete(p),n=""},this.guessLineEndings=function(e,t){e=e.substring(0,1048576);var t=new RegExp(P(t)+"([^]*?)"+P(t),"gm"),i=(e=e.replace(t,"")).split("\r"),t=e.split("\n"),e=1<t.length&&t[0].length<i[0].length;if(1===i.length||e)return"\n";for(var r=0,n=0;n<i.length;n++)"\n"===i[n][0]&&r++;return r>=i.length/2?"\r\n":"\r"}}function P(e){return e.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")}function E(C){var S=(C=C||{}).delimiter,O=C.newline,x=C.comments,I=C.step,A=C.preview,T=C.fastMode,D=null,L=!1,F=null==C.quoteChar?'"':C.quoteChar,j=F;if(void 0!==C.escapeChar&&(j=C.escapeChar),("string"!=typeof S||-1<v.BAD_DELIMITERS.indexOf(S))&&(S=","),x===S)throw new Error("Comment character same as delimiter");!0===x?x="#":("string"!=typeof x||-1<v.BAD_DELIMITERS.indexOf(x))&&(x=!1),"\n"!==O&&"\r"!==O&&"\r\n"!==O&&(O="\n");var z=0,M=!1;this.parse=function(i,t,r){if("string"!=typeof i)throw new Error("Input must be a string");var n=i.length,e=S.length,s=O.length,a=x.length,o=U(I),h=[],u=[],d=[],f=z=0;if(!i)return b();if(T||!1!==T&&-1===i.indexOf(F)){for(var l=i.split(O),c=0;c<l.length;c++){if(d=l[c],z+=d.length,c!==l.length-1)z+=O.length;else if(r)return b();if(!x||d.substring(0,a)!==x){if(o){if(h=[],k(d.split(S)),R(),M)return b()}else k(d.split(S));if(A&&A<=c)return h=h.slice(0,A),b(!0)}}return b()}for(var p=i.indexOf(S,z),g=i.indexOf(O,z),_=new RegExp(P(j)+P(F),"g"),m=i.indexOf(F,z);;)if(i[z]===F)for(m=z,z++;;){if(-1===(m=i.indexOf(F,m+1)))return r||u.push({type:"Quotes",code:"MissingQuotes",message:"Quoted field unterminated",row:h.length,index:z}),E();if(m===n-1)return E(i.substring(z,m).replace(_,F));if(F===j&&i[m+1]===j)m++;else if(F===j||0===m||i[m-1]!==j){-1!==p&&p<m+1&&(p=i.indexOf(S,m+1));var y=v(-1===(g=-1!==g&&g<m+1?i.indexOf(O,m+1):g)?p:Math.min(p,g));if(i.substr(m+1+y,e)===S){d.push(i.substring(z,m).replace(_,F)),i[z=m+1+y+e]!==F&&(m=i.indexOf(F,z)),p=i.indexOf(S,z),g=i.indexOf(O,z);break}y=v(g);if(i.substring(m+1+y,m+1+y+s)===O){if(d.push(i.substring(z,m).replace(_,F)),w(m+1+y+s),p=i.indexOf(S,z),m=i.indexOf(F,z),o&&(R(),M))return b();if(A&&h.length>=A)return b(!0);break}u.push({type:"Quotes",code:"InvalidQuotes",message:"Trailing quote on quoted field is malformed",row:h.length,index:z}),m++}}else if(x&&0===d.length&&i.substring(z,z+a)===x){if(-1===g)return b();z=g+s,g=i.indexOf(O,z),p=i.indexOf(S,z)}else if(-1!==p&&(p<g||-1===g))d.push(i.substring(z,p)),z=p+e,p=i.indexOf(S,z);else{if(-1===g)break;if(d.push(i.substring(z,g)),w(g+s),o&&(R(),M))return b();if(A&&h.length>=A)return b(!0)}return E();function k(e){h.push(e),f=z}function v(e){var t=0;return t=-1!==e&&(e=i.substring(m+1,e))&&""===e.trim()?e.length:t}function E(e){return r||(void 0===e&&(e=i.substring(z)),d.push(e),z=n,k(d),o&&R()),b()}function w(e){z=e,k(d),d=[],g=i.indexOf(O,z)}function b(e){if(C.header&&!t&&h.length&&!L){var s=h[0],a={},o=new Set(s);let n=!1;for(let r=0;r<s.length;r++){let i=s[r];if(a[i=U(C.transformHeader)?C.transformHeader(i,r):i]){let e,t=a[i];for(;e=i+"_"+t,t++,o.has(e););o.add(e),s[r]=e,a[i]++,n=!0,(D=null===D?{}:D)[e]=i}else a[i]=1,s[r]=i;o.add(i)}n&&console.warn("Duplicate headers found and renamed."),L=!0}return{data:h,errors:u,meta:{delimiter:S,linebreak:O,aborted:M,truncated:!!e,cursor:f+(t||0),renamedHeaders:D}}}function R(){I(b()),h=[],u=[]}},this.abort=function(){M=!0},this.getCharIndex=function(){return z}}function g(e){var t=e.data,i=o[t.workerId],r=!1;if(t.error)i.userError(t.error,t.file);else if(t.results&&t.results.data){var n={abort:function(){r=!0,_(t.workerId,{data:[],errors:[],meta:{aborted:!0}})},pause:m,resume:m};if(U(i.userStep)){for(var s=0;s<t.results.data.length&&(i.userStep({data:t.results.data[s],errors:t.results.errors,meta:t.results.meta},n),!r);s++);delete t.results}else U(i.userChunk)&&(i.userChunk(t.results,n,t.file),delete t.results)}t.finished&&!r&&_(t.workerId,t.results)}function _(e,t){var i=o[e];U(i.userComplete)&&i.userComplete(t),i.terminate(),delete o[e]}function m(){throw new Error("Not implemented.")}function w(e){if("object"!=typeof e||null===e)return e;var t,i=Array.isArray(e)?[]:{};for(t in e)i[t]=w(e[t]);return i}function y(e,t){return function(){e.apply(t,arguments)}}function U(e){return"function"==typeof e}return v.parse=function(e,t){var i=(t=t||{}).dynamicTyping||!1;U(i)&&(t.dynamicTypingFunction=i,i={});if(t.dynamicTyping=i,t.transform=!!U(t.transform)&&t.transform,!t.worker||!v.WORKERS_SUPPORTED)return i=null,v.NODE_STREAM_INPUT,"string"==typeof e?(e=(e=>65279!==e.charCodeAt(0)?e:e.slice(1))(e),i=new(t.download?f:c)(t)):!0===e.readable&&U(e.read)&&U(e.on)?i=new p(t):(n.File&&e instanceof File||e instanceof Object)&&(i=new l(t)),i.stream(e);(i=(()=>{var e;return!!v.WORKERS_SUPPORTED&&(e=(()=>{var e=n.URL||n.webkitURL||null,t=r.toString();return v.BLOB_URL||(v.BLOB_URL=e.createObjectURL(new Blob(["var global = (function() { if (typeof self !== 'undefined') { return self; } if (typeof window !== 'undefined') { return window; } if (typeof global !== 'undefined') { return global; } return {}; })(); global.IS_PAPA_WORKER=true; ","(",t,")();"],{type:"text/javascript"})))})(),(e=new n.Worker(e)).onmessage=g,e.id=h++,o[e.id]=e)})()).userStep=t.step,i.userChunk=t.chunk,i.userComplete=t.complete,i.userError=t.error,t.step=U(t.step),t.chunk=U(t.chunk),t.complete=U(t.complete),t.error=U(t.error),delete t.worker,i.postMessage({input:e,config:t,workerId:i.id})},v.unparse=function(e,t){var n=!1,_=!0,m=",",y="\r\n",s='"',a=s+s,i=!1,r=null,o=!1,h=((()=>{if("object"==typeof t){if("string"!=typeof t.delimiter||v.BAD_DELIMITERS.filter(function(e){return-1!==t.delimiter.indexOf(e)}).length||(m=t.delimiter),"boolean"!=typeof t.quotes&&"function"!=typeof t.quotes&&!Array.isArray(t.quotes)||(n=t.quotes),"boolean"!=typeof t.skipEmptyLines&&"string"!=typeof t.skipEmptyLines||(i=t.skipEmptyLines),"string"==typeof t.newline&&(y=t.newline),"string"==typeof t.quoteChar&&(s=t.quoteChar),"boolean"==typeof t.header&&(_=t.header),Array.isArray(t.columns)){if(0===t.columns.length)throw new Error("Option columns is empty");r=t.columns}void 0!==t.escapeChar&&(a=t.escapeChar+s),t.escapeFormulae instanceof RegExp?o=t.escapeFormulae:"boolean"==typeof t.escapeFormulae&&t.escapeFormulae&&(o=/^[=+\-@\t\r].*$/)}})(),new RegExp(P(s),"g"));"string"==typeof e&&(e=JSON.parse(e));if(Array.isArray(e)){if(!e.length||Array.isArray(e[0]))return u(null,e,i);if("object"==typeof e[0])return u(r||Object.keys(e[0]),e,i)}else if("object"==typeof e)return"string"==typeof e.data&&(e.data=JSON.parse(e.data)),Array.isArray(e.data)&&(e.fields||(e.fields=e.meta&&e.meta.fields||r),e.fields||(e.fields=Array.isArray(e.data[0])?e.fields:"object"==typeof e.data[0]?Object.keys(e.data[0]):[]),Array.isArray(e.data[0])||"object"==typeof e.data[0]||(e.data=[e.data])),u(e.fields||[],e.data||[],i);throw new Error("Unable to serialize unrecognized input");function u(e,t,i){var r="",n=("string"==typeof e&&(e=JSON.parse(e)),"string"==typeof t&&(t=JSON.parse(t)),Array.isArray(e)&&0<e.length),s=!Array.isArray(t[0]);if(n&&_){for(var a=0;a<e.length;a++)0<a&&(r+=m),r+=k(e[a],a);0<t.length&&(r+=y)}for(var o=0;o<t.length;o++){var h=(n?e:t[o]).length,u=!1,d=n?0===Object.keys(t[o]).length:0===t[o].length;if(i&&!n&&(u="greedy"===i?""===t[o].join("").trim():1===t[o].length&&0===t[o][0].length),"greedy"===i&&n){for(var f=[],l=0;l<h;l++){var c=s?e[l]:l;f.push(t[o][c])}u=""===f.join("").trim()}if(!u){for(var p=0;p<h;p++){0<p&&!d&&(r+=m);var g=n&&s?e[p]:p;r+=k(t[o][g],p)}o<t.length-1&&(!i||0<h&&!d)&&(r+=y)}}return r}function k(e,t){var i,r;return null==e?"":e.constructor===Date?JSON.stringify(e).slice(1,25):(r=!1,o&&"string"==typeof e&&o.test(e)&&(e="'"+e,r=!0),i=e.toString().replace(h,a),(r=r||!0===n||"function"==typeof n&&n(e,t)||Array.isArray(n)&&n[t]||((e,t)=>{for(var i=0;i<t.length;i++)if(-1<e.indexOf(t[i]))return!0;return!1})(i,v.BAD_DELIMITERS)||-1<i.indexOf(m)||" "===i.charAt(0)||" "===i.charAt(i.length-1))?s+i+s:i)}},v.RECORD_SEP=String.fromCharCode(30),v.UNIT_SEP=String.fromCharCode(31),v.BYTE_ORDER_MARK="\ufeff",v.BAD_DELIMITERS=["\r","\n",'"',v.BYTE_ORDER_MARK],v.WORKERS_SUPPORTED=!s&&!!n.Worker,v.NODE_STREAM_INPUT=1,v.LocalChunkSize=10485760,v.RemoteChunkSize=5242880,v.DefaultDelimiter=",",v.Parser=E,v.ParserHandle=i,v.NetworkStreamer=f,v.FileStreamer=l,v.StringStreamer=c,v.ReadableStreamStreamer=p,n.jQuery&&((d=n.jQuery).fn.parse=function(o){var i=o.config||{},h=[];return this.each(function(e){if(!("INPUT"===d(this).prop("tagName").toUpperCase()&&"file"===d(this).attr("type").toLowerCase()&&n.FileReader)||!this.files||0===this.files.length)return!0;for(var t=0;t<this.files.length;t++)h.push({file:this.files[t],inputElem:this,instanceConfig:d.extend({},i)})}),e(),this;function e(){if(0===h.length)U(o.complete)&&o.complete();else{var e,t,i,r,n=h[0];if(U(o.before)){var s=o.before(n.file,n.inputElem);if("object"==typeof s){if("abort"===s.action)return e="AbortError",t=n.file,i=n.inputElem,r=s.reason,void(U(o.error)&&o.error({name:e},t,i,r));if("skip"===s.action)return void u();"object"==typeof s.config&&(n.instanceConfig=d.extend(n.instanceConfig,s.config))}else if("skip"===s)return void u()}var a=n.instanceConfig.complete;n.instanceConfig.complete=function(e){U(a)&&a(e,n.file,n.inputElem),u()},v.parse(n.file,n.instanceConfig)}}function u(){h.splice(0,1),e()}}),a&&(n.onmessage=function(e){e=e.data;void 0===v.WORKER_ID&&e&&(v.WORKER_ID=e.workerId);"string"==typeof e.input?n.postMessage({workerId:v.WORKER_ID,results:v.parse(e.input,e.config),finished:!0}):(n.File&&e.input instanceof File||e.input instanceof Object)&&(e=v.parse(e.input,e.config))&&n.postMessage({workerId:v.WORKER_ID,results:e,finished:!0})}),(f.prototype=Object.create(u.prototype)).constructor=f,(l.prototype=Object.create(u.prototype)).constructor=l,(c.prototype=Object.create(c.prototype)).constructor=c,(p.prototype=Object.create(u.prototype)).constructor=p,v});
+</script>
+
+</head>
+<body>
+
+<h1>Scan Report <span>v1.0</span></h1>
+<p class="description">Upload barcode scan data or mobile audit CSVs to analyze scanning compliance and work order location metrics. Optionally upload a Master Gates CSV (with Scanned Location column) to map scan locations to gate names.</p>
+
+<div class="file-inputs">
+  <div class="file-group">
+    <h3>1a. Scan Data CSV</h3>
+    <p>Required columns: Work Order Id, Date Time, Location</p>
+    <input type="file" id="scan-input" accept=".csv,.txt">
+    <div id="scan-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>1b. Mobile Audit CSVs <span style="font-weight:normal;color:#888;">(alternative)</span></h3>
+    <p>Columns: Gate Number, Order No., Part No., Serial No. Filename must contain date (mobile-audit-YYYY-MM-DD.csv). Select multiple files.</p>
+    <input type="file" id="audit-input" accept=".csv,.txt" multiple>
+    <div id="audit-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>2. Master Gates CSV <span style="font-weight:normal;color:#888;">(optional)</span></h3>
+    <p>Must include "Scanned Location" column to map scan locations to Gate Names.</p>
+    <input type="file" id="gates-input" accept=".csv,.txt">
+    <div id="gates-status" class="status"></div>
+  </div>
+</div>
+
+<div class="action-bar">
+  <button id="run-btn" class="btn btn-primary" disabled onclick="analyze()">Analyze</button>
+  <button id="save-btn" class="btn btn-green" style="display:none" onclick="saveSnapshot()">&#128190; Save Snapshot</button>
+  <button id="print-btn" class="btn btn-slate" style="display:none" onclick="printPage()">Print / Export PDF</button>
+</div>
+
+<div id="print-timestamp" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;"></div>
+<div id="validation-panel"></div>
+<div id="output"></div>
+
+<script>
+/* ================================================================
+   Scan Report v1.0 — Application Logic
+   ================================================================ */
+
+// --- Globals ---
+var scanData = null;
+var auditRecords = null; // parsed audit records from mobile audit CSVs
+var masterGatesData = null;
+var locationMap = null; // Map: lowercase scanned location -> display name
+var dataSource = 'scan'; // 'scan' or 'audit'
+
+// --- Utilities ---
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function colIndex(headers, name) {
+  var n = name.toLowerCase().trim();
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i].toLowerCase().trim() === n) return i;
+  }
+  return -1;
+}
+
+function showStatus(id, msg, isError, isWarning) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (isError ? 'error' : isWarning ? 'warning' : 'loaded');
+}
+
+function checkReady() {
+  document.getElementById('run-btn').disabled = !(scanData || auditRecords);
+}
+
+// --- Date helpers ---
+function parseScanDateTime(s) {
+  var str = String(s).trim();
+  var parts = str.split(/\s+/);
+  var dateParts = parts[0].split('/');
+  var timeParts = (parts[1] || '0:0').split(':');
+  var mo = parseInt(dateParts[0], 10) - 1;
+  var da = parseInt(dateParts[1], 10);
+  var yr = parseInt(dateParts[2], 10);
+  var hr = parseInt(timeParts[0], 10) || 0;
+  var mn = parseInt(timeParts[1], 10) || 0;
+  return new Date(yr, mo, da, hr, mn);
+}
+
+function formatDateKey(d) {
+  var y = d.getFullYear();
+  var m = d.getMonth() + 1;
+  var da = d.getDate();
+  return y + '-' + (m < 10 ? '0' + m : m) + '-' + (da < 10 ? '0' + da : da);
+}
+
+function formatDateDisplay(s) {
+  // YYYY-MM-DD -> M/D/YYYY
+  var p = s.split('-');
+  return parseInt(p[1],10) + '/' + parseInt(p[2],10) + '/' + p[0];
+}
+
+function daysBetween(dateStr1, dateStr2) {
+  var d1 = new Date(dateStr1 + 'T00:00:00');
+  var d2 = new Date(dateStr2 + 'T00:00:00');
+  return Math.round((d2 - d1) / 86400000);
+}
+
+// --- 9/80 Schedule ---
+var OFF_FRIDAY_ANCHOR = new Date(2026, 2, 13); // March 13, 2026
+
+function isOffFriday(d) {
+  if (d.getDay() !== 5) return false;
+  var diffMs = d.getTime() - OFF_FRIDAY_ANCHOR.getTime();
+  var diffWeeks = Math.round(diffMs / (7 * 86400000));
+  return (((diffWeeks % 2) + 2) % 2) === 0; // handles negatives
+}
+
+function isWorkday(d) {
+  var dow = d.getDay();
+  if (dow === 0 || dow === 6) return false;
+  if (isOffFriday(d)) return false;
+  return true;
+}
+
+function getWorkdays(startStr, endStr) {
+  var days = [];
+  var d = new Date(startStr + 'T00:00:00');
+  var end = new Date(endStr + 'T00:00:00');
+  while (d <= end) {
+    if (isWorkday(d)) {
+      days.push(formatDateKey(d));
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+// --- Duration formatting ---
+function formatDuration(ms) {
+  if (ms <= 0) return '0h 0m';
+  var totalMin = Math.floor(ms / 60000);
+  var h = Math.floor(totalMin / 60);
+  var m = totalMin % 60;
+  return h + 'h ' + m + 'm';
+}
+
+function formatDays(n) {
+  if (n === 1) return '1 day';
+  return n + ' days';
+}
+
+// --- Location mapping ---
+function buildLocationMap(rows) {
+  var map = {};
+  if (!rows || rows.length < 2) return map;
+  var hdr = rows[0];
+  var scanLocIdx = colIndex(hdr, 'Scanned Location');
+  var gateNameIdx = colIndex(hdr, 'Gate Name');
+  if (scanLocIdx < 0 || gateNameIdx < 0) return map;
+  for (var i = 1; i < rows.length; i++) {
+    var scanLoc = (rows[i][scanLocIdx] || '').trim();
+    var gateName = (rows[i][gateNameIdx] || '').trim();
+    if (scanLoc && gateName) {
+      map[scanLoc.toLowerCase()] = gateName;
+    }
+  }
+  return map;
+}
+
+function mapLocation(rawLoc) {
+  if (!locationMap) return rawLoc;
+  var mapped = locationMap[rawLoc.toLowerCase()];
+  return mapped || rawLoc;
+}
+
+// --- Date extraction from filename ---
+function extractDateFromFilename(filename) {
+  // Match YYYY-MM-DD pattern anywhere in filename
+  var m = filename.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return null;
+  var yr = parseInt(m[1], 10);
+  var mo = parseInt(m[2], 10) - 1;
+  var da = parseInt(m[3], 10);
+  var d = new Date(yr, mo, da);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+// --- File loading ---
+document.getElementById('scan-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  // Clear audit data — scan and audit are mutually exclusive
+  auditRecords = null;
+  document.getElementById('audit-input').value = '';
+  document.getElementById('audit-status').textContent = '';
+  document.getElementById('audit-status').className = 'status';
+
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var result = Papa.parse(ev.target.result, { skipEmptyLines: true });
+      if (result.data.length < 2) { showStatus('scan-status', 'Error: file has no data rows', true); return; }
+      var hdr = result.data[0];
+      var reqCols = ['Work Order Id', 'Date Time', 'Location'];
+      var missing = [];
+      for (var i = 0; i < reqCols.length; i++) {
+        if (colIndex(hdr, reqCols[i]) === -1) missing.push(reqCols[i]);
+      }
+      if (missing.length > 0) {
+        showStatus('scan-status', 'Missing column(s): ' + missing.join(', '), true);
+        scanData = null; checkReady(); return;
+      }
+      scanData = result.data;
+      dataSource = 'scan';
+      showStatus('scan-status', 'Loaded ' + (result.data.length - 1) + ' rows from ' + file.name, false);
+      checkReady();
+    } catch (ex) {
+      showStatus('scan-status', 'Parse error: ' + ex.message, true);
+      scanData = null; checkReady();
+    }
+  };
+  reader.readAsText(file);
+});
+
+// --- Mobile Audit multi-file loading ---
+document.getElementById('audit-input').addEventListener('change', function(e) {
+  var files = e.target.files;
+  if (!files || files.length === 0) return;
+  // Clear scan data — scan and audit are mutually exclusive
+  scanData = null;
+  document.getElementById('scan-input').value = '';
+  document.getElementById('scan-status').textContent = '';
+  document.getElementById('scan-status').className = 'status';
+
+  var allRecords = [];
+  var filesProcessed = 0;
+  var fileErrors = [];
+  var totalFiles = files.length;
+
+  for (var f = 0; f < files.length; f++) {
+    (function(file) {
+      var dateFromName = extractDateFromFilename(file.name);
+      if (!dateFromName) {
+        fileErrors.push(file.name + ': no YYYY-MM-DD date found in filename');
+        filesProcessed++;
+        if (filesProcessed === totalFiles) finishAuditLoad(allRecords, fileErrors);
+        return;
+      }
+      var dateStr = formatDateKey(dateFromName);
+
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          var result = Papa.parse(ev.target.result, { skipEmptyLines: true });
+          if (result.data.length < 2) {
+            fileErrors.push(file.name + ': no data rows');
+            filesProcessed++;
+            if (filesProcessed === totalFiles) finishAuditLoad(allRecords, fileErrors);
+            return;
+          }
+          var hdr = result.data[0];
+          var gateIdx = colIndex(hdr, 'Gate Number');
+          var orderIdx = colIndex(hdr, 'Order No.');
+          if (orderIdx < 0) orderIdx = colIndex(hdr, 'Order No');
+          if (gateIdx < 0 || orderIdx < 0) {
+            fileErrors.push(file.name + ': missing Gate Number or Order No. column');
+            filesProcessed++;
+            if (filesProcessed === totalFiles) finishAuditLoad(allRecords, fileErrors);
+            return;
+          }
+          var seen = {};
+          for (var i = 1; i < result.data.length; i++) {
+            var gate = (result.data[i][gateIdx] || '').trim();
+            var order = (result.data[i][orderIdx] || '').trim();
+            if (!order) continue;
+            var key = order + '|' + dateStr;
+            if (seen[key]) continue;
+            seen[key] = true;
+            allRecords.push({
+              wo: order,
+              dateTime: dateFromName,
+              dateStr: dateStr,
+              location: gate
+            });
+          }
+        } catch (ex) {
+          fileErrors.push(file.name + ': ' + ex.message);
+        }
+        filesProcessed++;
+        if (filesProcessed === totalFiles) finishAuditLoad(allRecords, fileErrors);
+      };
+      reader.readAsText(file);
+    })(files[f]);
+  }
+});
+
+function finishAuditLoad(records, errors) {
+  if (errors.length > 0) {
+    showStatus('audit-status', errors.length + ' file error(s): ' + errors[0], true);
+  }
+  if (records.length === 0) {
+    showStatus('audit-status', 'No valid records found across uploaded files.', true);
+    auditRecords = null;
+    checkReady();
+    return;
+  }
+  records.sort(function(a, b) { return a.dateStr < b.dateStr ? -1 : a.dateStr > b.dateStr ? 1 : 0; });
+  auditRecords = records;
+  dataSource = 'audit';
+  var days = {};
+  for (var i = 0; i < records.length; i++) days[records[i].dateStr] = true;
+  var msg = 'Loaded ' + records.length + ' unique WO records across ' + Object.keys(days).length + ' day(s)';
+  if (errors.length > 0) msg += ' (' + errors.length + ' file error(s))';
+  showStatus('audit-status', msg, false, errors.length > 0);
+  checkReady();
+}
+
+document.getElementById('gates-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var result = Papa.parse(ev.target.result, { skipEmptyLines: true });
+      if (result.data.length < 2) { showStatus('gates-status', 'Error: file has no data rows', true); return; }
+      var hdr = result.data[0];
+      var scanLocIdx = colIndex(hdr, 'Scanned Location');
+      var gateNameIdx = colIndex(hdr, 'Gate Name');
+      if (scanLocIdx < 0) {
+        showStatus('gates-status', 'Warning: no "Scanned Location" column found. Location mapping disabled.', false, true);
+        masterGatesData = null; locationMap = null; return;
+      }
+      if (gateNameIdx < 0) {
+        showStatus('gates-status', 'Warning: no "Gate Name" column found. Location mapping disabled.', false, true);
+        masterGatesData = null; locationMap = null; return;
+      }
+      masterGatesData = result.data;
+      locationMap = buildLocationMap(result.data);
+      var mapCount = Object.keys(locationMap).length;
+      showStatus('gates-status', 'Loaded ' + mapCount + ' location mapping(s) from ' + file.name, false);
+    } catch (ex) {
+      showStatus('gates-status', 'Parse error: ' + ex.message, true);
+      masterGatesData = null; locationMap = null;
+    }
+  };
+  reader.readAsText(file);
+});
+
+// --- Main analysis ---
+function analyze() {
+  var warnings = [];
+  var errors = [];
+  var records = [];
+  var hasTimestamps = (dataSource === 'scan');
+
+  if (dataSource === 'audit' && auditRecords) {
+    // Audit records are already parsed and deduplicated
+    // Apply location mapping
+    for (var i = 0; i < auditRecords.length; i++) {
+      var r = auditRecords[i];
+      records.push({
+        wo: r.wo,
+        dateTime: r.dateTime,
+        dateStr: r.dateStr,
+        location: mapLocation(r.location)
+      });
+    }
+  } else if (scanData) {
+    var hdr = scanData[0];
+    var woIdx = colIndex(hdr, 'Work Order Id');
+    var dtIdx = colIndex(hdr, 'Date Time');
+    var locIdx = colIndex(hdr, 'Location');
+
+    // Parse, map locations, and deduplicate
+    var seen = {};
+    var parseErrors = 0;
+    for (var i = 1; i < scanData.length; i++) {
+      var wo = (scanData[i][woIdx] || '').trim();
+      var dtRaw = (scanData[i][dtIdx] || '').trim();
+      var locRaw = (scanData[i][locIdx] || '').trim();
+      if (!wo || !dtRaw) { parseErrors++; continue; }
+      var key = wo + '|' + dtRaw;
+      if (seen[key]) continue;
+      seen[key] = true;
+      var dt = parseScanDateTime(dtRaw);
+      if (isNaN(dt.getTime())) { parseErrors++; continue; }
+      records.push({
+        wo: wo,
+        dateTime: dt,
+        dateStr: formatDateKey(dt),
+        location: mapLocation(locRaw)
+      });
+    }
+    if (parseErrors > 0) {
+      warnings.push(parseErrors + ' row(s) skipped due to missing/invalid data.');
+    }
+    var totalRawRows = scanData.length - 1;
+    var deduped = records.length;
+    if (deduped < totalRawRows) {
+      warnings.push('Deduplicated ' + totalRawRows + ' raw rows down to ' + deduped + ' unique Work Order + Date Time records.');
+    }
+  }
+
+  records.sort(function(a, b) { return a.dateTime - b.dateTime; });
+
+  if (records.length === 0) {
+    errors.push('No valid scan records found after parsing.');
+    renderValidation(errors, warnings);
+    document.getElementById('output').innerHTML = '';
+    return;
+  }
+
+  // Step 2: Compute scan days and 9/80 calendar
+  var scanDaySet = {};
+  for (var i = 0; i < records.length; i++) {
+    scanDaySet[records[i].dateStr] = true;
+  }
+  var actualScanDays = Object.keys(scanDaySet).sort();
+  var firstScanDate = actualScanDays[0];
+  var today = formatDateKey(new Date());
+  var possibleWorkdays = getWorkdays(firstScanDate, today);
+
+  // Step 3: Build WOs-per-day map with locations (needed for calendar + metrics)
+  var wosPerDay = {};     // dateStr -> { wo: true }
+  var dayDetails = {};    // dateStr -> [ { wo, location } ] (deduplicated per WO)
+  for (var i = 0; i < records.length; i++) {
+    var ds = records[i].dateStr;
+    if (!wosPerDay[ds]) { wosPerDay[ds] = {}; dayDetails[ds] = []; }
+    if (!wosPerDay[ds][records[i].wo]) {
+      wosPerDay[ds][records[i].wo] = true;
+      dayDetails[ds].push({ wo: records[i].wo, location: records[i].location });
+    }
+  }
+
+  // Build per-WO location history (date + location, sorted by date)
+  var woHistory = {}; // wo -> [ { dateStr, location } ]
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    if (!woHistory[r.wo]) woHistory[r.wo] = {};
+    // Use last scan of the day for this WO (same dedup logic as stays)
+    if (!woHistory[r.wo][r.dateStr] || r.dateTime > woHistory[r.wo][r.dateStr].dateTime) {
+      woHistory[r.wo][r.dateStr] = { dateStr: r.dateStr, location: r.location, dateTime: r.dateTime };
+    }
+  }
+  // Convert to sorted arrays
+  for (var wo in woHistory) {
+    var entries = [];
+    for (var ds in woHistory[wo]) entries.push(woHistory[wo][ds]);
+    entries.sort(function(a, b) { return a.dateStr < b.dateStr ? -1 : 1; });
+    woHistory[wo] = entries;
+  }
+
+  // Step 4: Compute Scanning Metrics
+  var scanMetrics = computeScanMetrics(records, actualScanDays, possibleWorkdays, wosPerDay);
+
+  // Step 5: Compute stays and location metrics
+  var stays = computeStays(records, actualScanDays);
+  var locMetrics = computeLocationMetrics(stays, actualScanDays, today);
+
+  // Render
+  renderValidation(errors, warnings);
+  var html = '';
+  html += renderScanMetrics(scanMetrics, firstScanDate, today, wosPerDay, dayDetails, hasTimestamps);
+  html += renderLocationMetrics(locMetrics, woHistory);
+  html += renderWoHistoryTable(woHistory);
+  html += renderRawDataTable(records);
+  document.getElementById('output').innerHTML = html;
+  document.getElementById('print-btn').style.display = '';
+  document.getElementById('save-btn').style.display = '';
+}
+
+// --- Scanning Metrics computation ---
+function computeScanMetrics(records, actualScanDays, possibleWorkdays, wosPerDay) {
+  // Avg WOs per scan day
+  var dayCounts = [];
+  for (var ds in wosPerDay) {
+    dayCounts.push(Object.keys(wosPerDay[ds]).length);
+  }
+  var avgWOs = dayCounts.length > 0
+    ? Math.round(dayCounts.reduce(function(s, v) { return s + v; }, 0) / dayCounts.length)
+    : 0;
+
+  // Scan duration per day (first scan to last scan timestamp)
+  var dayTimes = {}; // dateStr -> { min: Date, max: Date }
+  for (var i = 0; i < records.length; i++) {
+    var ds = records[i].dateStr;
+    var dt = records[i].dateTime;
+    if (!dayTimes[ds]) {
+      dayTimes[ds] = { min: dt, max: dt };
+    } else {
+      if (dt < dayTimes[ds].min) dayTimes[ds].min = dt;
+      if (dt > dayTimes[ds].max) dayTimes[ds].max = dt;
+    }
+  }
+  var durations = [];
+  for (var ds in dayTimes) {
+    durations.push(dayTimes[ds].max - dayTimes[ds].min);
+  }
+  var minDuration = durations.length > 0 ? Math.min.apply(null, durations) : 0;
+  var maxDuration = durations.length > 0 ? Math.max.apply(null, durations) : 0;
+
+  return {
+    totalDaysScanned: actualScanDays.length,
+    possibleDays: possibleWorkdays.length,
+    avgWOs: avgWOs,
+    minDuration: minDuration,
+    maxDuration: maxDuration
+  };
+}
+
+// --- Stay detection ---
+// A stay only ends when the WO is positively scanned at a DIFFERENT location.
+// If the WO is simply absent from a scan day (not scanned anywhere), the stay
+// continues — erratic scanning should not break stays.
+function computeStays(records, actualScanDays) {
+  // Build per-WO timeline: for each WO, which location on each scan day?
+  // If WO scanned multiple times on same day at different locations, use latest timestamp
+  var woData = {}; // wo -> { dateStr -> { location, dateTime } }
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    if (!woData[r.wo]) woData[r.wo] = {};
+    var existing = woData[r.wo][r.dateStr];
+    if (!existing || r.dateTime > existing.dateTime) {
+      woData[r.wo][r.dateStr] = { location: r.location, dateTime: r.dateTime };
+    }
+  }
+
+  var allStays = [];
+
+  for (var wo in woData) {
+    var timeline = woData[wo];
+    // Get this WO's scan days sorted (only days this WO was actually scanned)
+    var woDays = Object.keys(timeline).sort();
+
+    var stayStart = woDays[0];
+    var stayEnd = woDays[0];
+    var stayLoc = timeline[woDays[0]].location;
+
+    for (var d = 1; d < woDays.length; d++) {
+      var curDay = woDays[d];
+      var curLoc = timeline[curDay].location;
+
+      if (curLoc === stayLoc) {
+        // Same location — extend the stay (even if WO was absent on intermediate days)
+        stayEnd = curDay;
+      } else {
+        // Location changed — end stay, start new one
+        allStays.push({ wo: wo, location: stayLoc, startDate: stayStart, endDate: stayEnd });
+        stayStart = curDay;
+        stayEnd = curDay;
+        stayLoc = curLoc;
+      }
+    }
+    // Close final stay
+    allStays.push({ wo: wo, location: stayLoc, startDate: stayStart, endDate: stayEnd });
+  }
+
+  return allStays;
+}
+
+// --- Location Metrics aggregation ---
+function computeLocationMetrics(stays, actualScanDays, today) {
+  var lastScanDay = actualScanDays[actualScanDays.length - 1];
+
+  // Determine "currently at" — WO's last stay endDate === lastScanDay
+  // Build per-WO last stay
+  var woLastStay = {}; // wo -> stay with latest endDate
+  for (var i = 0; i < stays.length; i++) {
+    var s = stays[i];
+    if (!woLastStay[s.wo] || s.endDate > woLastStay[s.wo].endDate) {
+      woLastStay[s.wo] = s;
+    }
+  }
+
+  // Mark stays as current
+  for (var i = 0; i < stays.length; i++) {
+    var s = stays[i];
+    var isLast = (woLastStay[s.wo] === s);
+    // Current if this is the WO's last stay AND endDate equals the last scan day
+    s.isCurrent = isLast && s.endDate === lastScanDay;
+    s.durationDays = daysBetween(s.startDate, s.endDate);
+    s.daysSinceStart = daysBetween(s.startDate, today);
+  }
+
+  // Group by location
+  var locData = {}; // location -> { stays: [], uniqueWOs: Set, currentWOs: [] }
+  for (var i = 0; i < stays.length; i++) {
+    var s = stays[i];
+    if (!locData[s.location]) {
+      locData[s.location] = { stays: [], uniqueWOs: {}, currentWOs: [] };
+    }
+    locData[s.location].stays.push(s);
+    locData[s.location].uniqueWOs[s.wo] = true;
+    if (s.isCurrent) {
+      locData[s.location].currentWOs.push(s);
+    }
+  }
+
+  // Compute aggregates per location
+  var result = [];
+  for (var loc in locData) {
+    var d = locData[loc];
+    var durations = d.stays.map(function(s) { return s.durationDays; });
+    var longestStay = Math.max.apply(null, durations);
+    var avgStay = durations.reduce(function(a, b) { return a + b; }, 0) / durations.length;
+    result.push({
+      location: loc,
+      totalUniqueWOs: Object.keys(d.uniqueWOs).length,
+      totalStays: d.stays.length,
+      longestStay: longestStay,
+      avgStay: Math.round(avgStay * 10) / 10,
+      currentCount: d.currentWOs.length,
+      currentWOs: d.currentWOs.sort(function(a, b) { return b.daysSinceStart - a.daysSinceStart; })
+    });
+  }
+
+  // Sort by total unique WOs descending
+  result.sort(function(a, b) { return b.totalUniqueWOs - a.totalUniqueWOs; });
+  return result;
+}
+
+// --- Rendering ---
+function renderValidation(errors, warnings) {
+  var html = '';
+  for (var i = 0; i < errors.length; i++) {
+    html += '<div class="val-error">' + esc(errors[i]) + '</div>';
+  }
+  for (var i = 0; i < warnings.length; i++) {
+    html += '<div class="val-warning">' + esc(warnings[i]) + '</div>';
+  }
+  document.getElementById('validation-panel').innerHTML = html;
+}
+
+function renderScanMetrics(m, firstDate, today, wosPerDay, dayDetails, hasTimestamps) {
+  var html = '<h2 class="section-heading">Scanning Metrics</h2>';
+
+  // KPI cards
+  html += '<div class="metrics-grid">';
+  html += '<div class="kpi-card"><div class="kpi-value">' + m.avgWOs + '</div><div class="kpi-label">Avg Unique WOs per Scan Day</div></div>';
+  if (hasTimestamps) {
+    html += '<div class="kpi-card"><div class="kpi-value">' + formatDuration(m.minDuration) + '</div><div class="kpi-label">Shortest Scan Duration</div></div>';
+    html += '<div class="kpi-card"><div class="kpi-value">' + formatDuration(m.maxDuration) + '</div><div class="kpi-label">Longest Scan Duration</div></div>';
+  }
+  html += '</div>';
+
+  // Calendar
+  html += renderCalendar(firstDate, today, wosPerDay, dayDetails);
+
+  return html;
+}
+
+function renderCalendar(firstDate, today, wosPerDay, dayDetails) {
+  // Find the Sunday on or before the first scan date
+  var first = new Date(firstDate + 'T00:00:00');
+  var calStart = new Date(first);
+  calStart.setDate(calStart.getDate() - calStart.getDay()); // back to Sunday
+
+  // Find the Saturday on or after today
+  var todayDate = new Date(today + 'T00:00:00');
+  var calEnd = new Date(todayDate);
+  calEnd.setDate(calEnd.getDate() + (6 - calEnd.getDay())); // forward to Saturday
+
+  var html = '<div class="scan-calendar">';
+  // Day-of-week headers
+  html += '<div class="cal-grid">';
+  var dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  for (var i = 0; i < 7; i++) {
+    html += '<div class="cal-hdr">' + dayNames[i] + '</div>';
+  }
+
+  // Calendar cells
+  var d = new Date(calStart);
+  while (d <= calEnd) {
+    var ds = formatDateKey(d);
+    var dow = d.getDay();
+    var isFuture = ds > today;
+    var isWeekend = (dow === 0 || dow === 6);
+    var isOff = isOffFriday(d);
+    var woCount = wosPerDay[ds] ? Object.keys(wosPerDay[ds]).length : 0;
+    var wasScanned = woCount > 0;
+
+    var cls = 'cal-day';
+    if (wasScanned) cls += ' has-tip';
+    if (isFuture) cls += ' future';
+    else if (isWeekend) cls += ' weekend';
+    else if (isOff) cls += ' off-friday';
+    else if (wasScanned) cls += ' scanned';
+    else cls += ' no-scan';
+
+    html += '<div class="' + cls + '">';
+    html += '<div class="day-num">' + d.getDate() + '</div>';
+    if (!isFuture && !isWeekend) {
+      if (wasScanned) {
+        html += '<div class="day-count">' + woCount + '</div>';
+        html += '<div class="day-label">items scanned</div>';
+        // Tooltip: list of WO + location
+        var items = dayDetails[ds] || [];
+        items.sort(function(a, b) { return a.wo < b.wo ? -1 : 1; });
+        html += '<div class="tip">';
+        for (var t = 0; t < items.length; t++) {
+          html += '<div class="tip-line"><span class="tip-wo">' + esc(items[t].wo) + '</span><span class="tip-loc">' + esc(items[t].location) + '</span></div>';
+        }
+        html += '</div>';
+      } else if (!isOff) {
+        html += '<div class="day-count zero">--</div>';
+      }
+    }
+    html += '</div>';
+    d.setDate(d.getDate() + 1);
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function renderLocationMetrics(locMetrics, woHistory) {
+  if (locMetrics.length === 0) return '<p>No location data to display.</p>';
+
+  var html = '<h2 class="section-heading">Location Metrics</h2>';
+
+  // Summary table
+  html += '<div class="loc-table-wrap"><table class="loc-table">';
+  html += '<thead><tr><th>Location</th><th class="num">Unique WOs</th><th class="num">Longest Stay</th><th class="num">Avg Stay</th><th>Currently There</th></tr></thead>';
+  html += '<tbody>';
+  for (var i = 0; i < locMetrics.length; i++) {
+    var lm = locMetrics[i];
+    html += '<tr>';
+    html += '<td>' + esc(lm.location) + '</td>';
+    html += '<td class="num">' + lm.totalUniqueWOs + '</td>';
+    html += '<td class="num">' + formatDays(lm.longestStay) + '</td>';
+    html += '<td class="num">' + lm.avgStay + ' days</td>';
+    html += '<td>';
+    if (lm.currentCount > 0) {
+      html += '<div class="current-cards">';
+      for (var j = 0; j < lm.currentWOs.length; j++) {
+        var cw = lm.currentWOs[j];
+        var hist = woHistory[cw.wo] || [];
+        html += '<div class="wo-card has-tip"><span class="wo-id">' + esc(cw.wo) + '</span><span class="wo-days">' + formatDays(cw.daysSinceStart) + '</span>';
+        // Tooltip: location history
+        html += '<div class="tip">';
+        for (var h = 0; h < hist.length; h++) {
+          html += '<div class="tip-line"><span class="tip-date">' + esc(formatDateDisplay(hist[h].dateStr)) + '</span><span class="tip-loc">' + esc(hist[h].location) + '</span></div>';
+        }
+        html += '</div></div>';
+      }
+      html += '</div>';
+    } else {
+      html += '--';
+    }
+    html += '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+
+  return html;
+}
+
+function renderWoHistoryTable(woHistory) {
+  var wos = Object.keys(woHistory).sort();
+  if (wos.length === 0) return '';
+
+  var html = '<h2 class="section-heading">Work Order Location History</h2>';
+  html += '<div class="loc-table-wrap"><table class="loc-table">';
+  html += '<thead><tr><th>Work Order</th><th>Location History</th></tr></thead>';
+  html += '<tbody>';
+  for (var i = 0; i < wos.length; i++) {
+    var wo = wos[i];
+    var hist = woHistory[wo];
+    html += '<tr><td style="vertical-align:top">' + esc(wo) + '</td><td style="white-space:normal">';
+    for (var h = 0; h < hist.length; h++) {
+      if (h > 0) html += '<br>';
+      html += '<span style="color:#64748b;display:inline-block;min-width:80px;">' + esc(formatDateDisplay(hist[h].dateStr)) + '</span> ';
+      html += esc(hist[h].location);
+    }
+    html += '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderRawDataTable(records) {
+  if (records.length === 0) return '';
+
+  // Sort by date, then location, then WO
+  var sorted = records.slice().sort(function(a, b) {
+    if (a.dateStr !== b.dateStr) return a.dateStr < b.dateStr ? -1 : 1;
+    if (a.location !== b.location) return a.location < b.location ? -1 : 1;
+    return a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : 0;
+  });
+
+  // Deduplicate: one row per WO + date (use last location if multiple)
+  var seen = {};
+  var deduped = [];
+  for (var i = 0; i < sorted.length; i++) {
+    var key = sorted[i].wo + '|' + sorted[i].dateStr;
+    if (!seen[key]) {
+      seen[key] = true;
+      deduped.push(sorted[i]);
+    }
+  }
+
+  var html = '<h2 class="section-heading">Scan Data</h2>';
+  html += '<div class="loc-table-wrap" style="max-height:500px;overflow-y:auto"><table class="loc-table">';
+  html += '<thead><tr><th>Date</th><th>Location</th><th>Work Order</th></tr></thead>';
+  html += '<tbody>';
+  for (var i = 0; i < deduped.length; i++) {
+    var r = deduped[i];
+    html += '<tr><td>' + esc(formatDateDisplay(r.dateStr)) + '</td><td>' + esc(r.location) + '</td><td>' + esc(r.wo) + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function saveSnapshot() {
+  var outputHtml = document.getElementById('output').innerHTML;
+  var css = document.querySelector('style').textContent;
+
+  var now = new Date();
+  var dateStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  var timeStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+
+  var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n';
+  html += '<meta charset="UTF-8">\n';
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
+  html += '<title>Scan Report Snapshot - ' + dateStr + '</title>\n';
+  html += '<style>\n' + css + '\n</style>\n';
+  html += '</head>\n<body>\n';
+  html += '<h1>Scan Report <span style="font-size:0.6em;color:#666;">(Snapshot)</span></h1>\n';
+  html += '<p style="font-size:0.85rem;color:#555;margin-bottom:1rem;">Snapshot taken: ' + timeStr + '</p>\n';
+  html += '<button onclick="document.getElementById(\'pts\').style.display=\'block\';document.getElementById(\'pts\').textContent=\'Printed: \'+new Date().toLocaleString();window.print();" class="btn btn-slate" style="padding:10px 24px;font-size:1rem;cursor:pointer;border:none;border-radius:4px;color:#fff;background:#334155;">Print / Export PDF</button>\n';
+  html += '<div id="pts" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;"></div>\n';
+  html += outputHtml + '\n';
+  html += '</body>\n</html>';
+
+  // Sanitize: replace < in JSON-like content to prevent script injection
+  // (no scripts in snapshot, but belt-and-suspenders)
+
+  var blob = new Blob([html], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'scan-report-snapshot-' + dateStr + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function printPage() {
+  var ts = document.getElementById('print-timestamp');
+  ts.style.display = 'block';
+  ts.textContent = 'Printed: ' + new Date().toLocaleString();
+  window.print();
+}
+</script>
+</body>
+</html>

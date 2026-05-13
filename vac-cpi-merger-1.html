@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>VAC/CPI History Merger</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 1.5rem; background: #f5f5f5; color: #222; }
+  h1 { margin-bottom: 0.3rem; }
+  h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
+  .description { color: #555; margin-bottom: 1.5rem; font-size: 0.9rem; max-width: 900px; line-height: 1.4; }
+
+  .input-section { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .file-group { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; flex: 1 1 300px; min-width: 280px; }
+  .file-group h3 { margin-bottom: 0.4rem; font-size: 0.95rem; }
+  .file-group p { font-size: 0.82rem; color: #666; margin-bottom: 0.5rem; line-height: 1.35; }
+  .status { font-size: 0.85rem; margin-top: 0.5rem; }
+  .status.loaded { color: #16a34a; }
+  .status.error { color: #dc2626; }
+  .status.warn { color: #b45309; }
+
+  .action-bar { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+  .btn { padding: 8px 20px; border: none; border-radius: 4px; font-weight: bold; font-size: 0.9rem; cursor: pointer; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-green { background: #16a34a; color: #fff; }
+  .btn-green:hover:not(:disabled) { background: #15803d; }
+
+  .file-list { margin-top: 0.5rem; }
+  .file-row { display: flex; align-items: center; gap: 0.6rem; padding: 4px 0; border-bottom: 1px solid #eee; font-size: 0.82rem; }
+  .file-row:last-child { border-bottom: none; }
+  .file-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-row .rows { color: #888; min-width: 80px; text-align: right; }
+  .file-row .remove { color: #dc2626; cursor: pointer; background: none; border: none; padding: 2px 6px; font-size: 0.78rem; }
+  .file-row .remove:hover { text-decoration: underline; }
+
+  .stats { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; display: none; }
+  .stats h3 { margin-bottom: 0.5rem; font-size: 0.95rem; }
+  .stat-row { font-size: 0.85rem; color: #555; margin-bottom: 0.2rem; }
+  .stat-row strong { color: #222; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: bold; margin-right: 4px; }
+  .chip-vac { background: #dbeafe; color: #1e40af; }
+  .chip-bench { background: #dcfce7; color: #166534; }
+  .chip-report { background: #fef3c7; color: #92400e; }
+
+  .preview { display: none; background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem; }
+  .preview h3 { margin-bottom: 0.5rem; font-size: 0.95rem; }
+  .preview-wrap { max-height: 500px; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; }
+  .preview-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .preview-table th { background: #f1f5f9; border: 1px solid #ccc; padding: 5px 8px; text-align: left; font-weight: bold; position: sticky; top: 0; cursor: pointer; user-select: none; }
+  .preview-table th:hover { background: #e2e8f0; }
+  .preview-table th .sort-ind { color: #888; font-size: 0.75em; margin-left: 4px; }
+  .preview-table td { border: 1px solid #ddd; padding: 4px 8px; }
+  .preview-table tr:nth-child(even) { background: #fafafa; }
+  .preview-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .warn-list { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 8px 14px; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; display: none; }
+  .warn-list ul { margin-left: 1.2rem; margin-top: 0.3rem; }
+</style>
+</head>
+<body>
+
+<h1>VAC/CPI History Merger <span>v1.0</span></h1>
+<p class="description">
+  Consolidates VAC and CPI history from up to three source types into one file ready to upload as the Gate Tracker's VAC Tracker Log.
+  Dedup priority: <strong>VAC Tracker Log &gt; Bench Cost CSV &gt; EVM Manager Reports</strong> — first source wins on a same-day same-WO collision.
+  Output schema: <code>Date, WO, Part #, VAC, CPI</code>. All processing is client-side — no data leaves the browser.
+</p>
+
+<div class="input-section">
+  <div class="file-group">
+    <h3>1. VAC Tracker Log <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
+    <p>Previously exported <code>vac-tracker-log-*.csv</code> from the Gate Tracker. Accepts 3-col, 5-col, or 14-col variants.</p>
+    <input type="file" id="vac-input" accept=".csv">
+    <div id="vac-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>2. Bench Cost Performance CSV <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
+    <p>Comma-delimited file with columns <code>Date, Order, Part #, Earned Hours, Actual Hours, CPI, VAC</code> (plus any others — extras ignored).</p>
+    <input type="file" id="bench-input" accept=".csv">
+    <div id="bench-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>3. EVM Manager Reports <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional, multiple)</span></h3>
+    <p>One or more saved <code>evm-report-*.html</code> files. Extracts each report's "P File Data As Of" date plus all Bench Cost Performance Summary rows.</p>
+    <input type="file" id="report-input" accept=".html" multiple>
+    <div id="report-status" class="status"></div>
+    <div id="report-list" class="file-list"></div>
+  </div>
+</div>
+
+<div class="action-bar">
+  <button class="btn btn-primary" id="process-btn" disabled>Process &amp; Merge</button>
+  <button class="btn btn-green" id="download-btn" disabled>Download Combined CSV</button>
+  <span id="count-label" style="font-size:0.85rem; color:#555;"></span>
+</div>
+
+<div id="warn-list" class="warn-list"></div>
+
+<div id="stats" class="stats">
+  <h3>Merge Summary</h3>
+  <div id="stats-body"></div>
+</div>
+
+<div id="preview" class="preview">
+  <h3>Preview <span style="font-size:0.8em;color:#888;font-weight:normal;">(click column headers to sort)</span></h3>
+  <div class="preview-wrap">
+    <table class="preview-table" id="preview-table">
+      <thead>
+        <tr>
+          <th data-col="date">Date <span class="sort-ind">&uarr;</span></th>
+          <th data-col="wo">WO <span class="sort-ind"></span></th>
+          <th data-col="partNo">Part # <span class="sort-ind"></span></th>
+          <th data-col="vac">VAC <span class="sort-ind"></span></th>
+          <th data-col="cpi">CPI <span class="sort-ind"></span></th>
+          <th data-col="source">Source <span class="sort-ind"></span></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ---- Utilities ----
+function esc(s) {
+  return String(s || '').replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s) { var v = String(s || '').trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+
+// Same parser as gate-tracker-30.html — auto-detects tab vs comma, handles quoted fields, CR/LF.
+function parseCSV(text) {
+  var firstLine = text.split(/\r?\n/)[0] || '';
+  var tabCount = (firstLine.match(/\t/g) || []).length;
+  var commaCount = (firstLine.match(/,/g) || []).length;
+  var delim = (tabCount > commaCount) ? '\t' : ',';
+  var result = [];
+  var current = '';
+  var inQuotes = false;
+  var row = [];
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === delim) { row.push(csvField(current)); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(csvField(current)); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(csvField(current));
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+// BOM- and whitespace-tolerant header lookup.
+function colIndex(headers, name) {
+  function norm(s) { return String(s || '').replace(/^\uFEFF/, '').replace(/\s+/g, ' ').toLowerCase().trim(); }
+  var n = norm(name);
+  for (var i = 0; i < headers.length; i++) {
+    if (norm(headers[i]) === n) return i;
+  }
+  return -1;
+}
+
+// Lookup a column by trying multiple alias names; return first match or -1.
+function colIndexAny(headers, names) {
+  for (var i = 0; i < names.length; i++) {
+    var idx = colIndex(headers, names[i]);
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+// Parse an M/D/YYYY date string -> Date object, or null on failure.
+function parseMdy(s) {
+  var m = String(s || '').trim().match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return null;
+  return new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]));
+}
+
+function fmtMdy(d) {
+  return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+}
+
+// ---- State ----
+var state = {
+  vacRows: [],    // [{ date, wo, partNo, vac, cpi, source: 'vac' }]
+  benchRows: [],  // [{ ..., source: 'bench' }]
+  reportRows: [], // [{ ..., source: 'report' }]
+  reportFiles: [], // [{ name, dateStr, rowCount, warning }]
+  merged: [],
+  sortCol: 'date',
+  sortAsc: true,
+  warnings: []
+};
+
+// ---- File parsers ----
+
+// VAC Tracker Log CSV -> tuples
+function parseVacLog(text) {
+  var data = parseCSV(text);
+  if (data.length < 2) return { rows: [], warning: 'VAC log has no data rows.' };
+  var headers = data[0];
+  var dIdx = colIndex(headers, 'Date');
+  var wIdx = colIndex(headers, 'WO');
+  var vIdx = colIndex(headers, 'VAC');
+  var cIdx = colIndex(headers, 'CPI');
+  var pIdx = colIndexAny(headers, ['Part #', 'Part No', 'Part Number']);
+  if (dIdx < 0 || wIdx < 0 || vIdx < 0) {
+    return { rows: [], warning: 'VAC log missing required column(s): ' + (dIdx < 0 ? 'Date ' : '') + (wIdx < 0 ? 'WO ' : '') + (vIdx < 0 ? 'VAC' : '') };
+  }
+  var rows = [];
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    var wo = (r[wIdx] || '').trim();
+    var d = parseMdy(r[dIdx] || '');
+    var vac = parseFloat(r[vIdx]);
+    if (!wo || !d || !isFinite(vac)) continue;
+    var cpi = null;
+    if (cIdx >= 0) {
+      var cv = parseFloat(r[cIdx]);
+      if (isFinite(cv)) cpi = cv;
+    }
+    var partNo = pIdx >= 0 ? (r[pIdx] || '').trim() : '';
+    rows.push({ date: d, wo: wo, partNo: partNo, vac: vac, cpi: cpi, source: 'vac' });
+  }
+  return { rows: rows };
+}
+
+// Bench Cost Performance CSV -> tuples
+function parseBenchCost(text) {
+  var data = parseCSV(text);
+  if (data.length < 2) return { rows: [], warning: 'Bench Cost CSV has no data rows.' };
+  var headers = data[0];
+  var dIdx = colIndex(headers, 'Date');
+  var oIdx = colIndexAny(headers, ['Order', 'WO', 'Work Order']);
+  var pIdx = colIndexAny(headers, ['Part #', 'Part No', 'Part Number']);
+  var cIdx = colIndex(headers, 'CPI');
+  var vIdx = colIndex(headers, 'VAC');
+  if (dIdx < 0 || oIdx < 0) {
+    return { rows: [], warning: 'Bench Cost CSV missing required column(s): ' + (dIdx < 0 ? 'Date ' : '') + (oIdx < 0 ? 'Order/WO' : '') };
+  }
+  if (vIdx < 0 && cIdx < 0) {
+    return { rows: [], warning: 'Bench Cost CSV has neither VAC nor CPI column — nothing to merge.' };
+  }
+  var rows = [];
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    var wo = (r[oIdx] || '').trim();
+    var d = parseMdy(r[dIdx] || '');
+    if (!wo || !d) continue;
+    var vac = vIdx >= 0 ? parseFloat(r[vIdx]) : NaN;
+    var cpi = cIdx >= 0 ? parseFloat(r[cIdx]) : NaN;
+    if (!isFinite(vac) && !isFinite(cpi)) continue; // skip rows with neither
+    var partNo = pIdx >= 0 ? (r[pIdx] || '').trim() : '';
+    rows.push({
+      date: d, wo: wo, partNo: partNo,
+      vac: isFinite(vac) ? vac : null,
+      cpi: isFinite(cpi) ? cpi : null,
+      source: 'bench'
+    });
+  }
+  return { rows: rows };
+}
+
+// EVM Manager Report HTML -> tuples. Structure (from saveEvmReport):
+//   "<p>P File Data As Of: M/D/YYYY</p>" — canonical date
+//   Bench Cost Performance Summary section contains <details> per program, each with
+//   an inner div per part: <h4>PartNo — PartName</h4> + <table> with one row per WO.
+//   Table header order: Work Order, S/N, CPI, % Comp, Actual Hrs, Prog EAC, ETC, Prod EAC, VAC, [ΔVAC].
+function parseEvmReport(html, fileName) {
+  var doc = new DOMParser().parseFromString(html, 'text/html');
+  var bodyText = doc.body ? doc.body.textContent : '';
+  var dm = bodyText.match(/P File Data As Of:\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
+  var reportDate = dm ? parseMdy(dm[1]) : null;
+  if (!reportDate) return { rows: [], warning: 'Could not find "P File Data As Of:" date in ' + fileName };
+
+  // Locate the Bench Cost Performance Summary heading and work from there to find its container.
+  var headings = doc.querySelectorAll('h2');
+  var summaryHead = null;
+  for (var hi = 0; hi < headings.length; hi++) {
+    if ((headings[hi].textContent || '').indexOf('Bench Cost Performance Summary') !== -1) {
+      summaryHead = headings[hi];
+      break;
+    }
+  }
+  if (!summaryHead) return { rows: [], warning: 'No "Bench Cost Performance Summary" section in ' + fileName };
+  var summaryRoot = summaryHead.parentElement;
+  if (!summaryRoot) return { rows: [], warning: 'Unexpected DOM shape around summary heading in ' + fileName };
+
+  var rows = [];
+  // Each per-part table sits inside a div with an <h4> Part # header, inside a <details>/<div> program wrapper.
+  var tables = summaryRoot.querySelectorAll('table');
+  for (var ti = 0; ti < tables.length; ti++) {
+    var tbl = tables[ti];
+    // Find enclosing part container's <h4> (walk up to nearest element with an <h4> child).
+    var partNo = '';
+    var cur = tbl.parentElement;
+    while (cur && cur !== summaryRoot) {
+      var h4 = cur.querySelector(':scope > h4');
+      if (h4) {
+        var txt = (h4.textContent || '').trim();
+        // "PartNo — PartName" or "PartNo"
+        var dashIdx = txt.indexOf('—');
+        if (dashIdx < 0) dashIdx = txt.indexOf('-'); // fallback
+        partNo = (dashIdx >= 0 ? txt.substring(0, dashIdx) : txt).trim();
+        break;
+      }
+      cur = cur.parentElement;
+    }
+    // Resolve column indices by header row text.
+    var headerRow = tbl.querySelector('thead tr');
+    if (!headerRow) continue;
+    var hCells = headerRow.querySelectorAll('th');
+    var idx = { wo: -1, cpi: -1, vac: -1 };
+    for (var hc = 0; hc < hCells.length; hc++) {
+      var ht = (hCells[hc].textContent || '').trim().toLowerCase();
+      if (ht === 'work order' || ht === 'wo') idx.wo = hc;
+      else if (ht === 'cpi') idx.cpi = hc;
+      else if (ht === 'vac') idx.vac = hc;
+    }
+    if (idx.wo < 0 || (idx.vac < 0 && idx.cpi < 0)) continue;
+    var bodyRows = tbl.querySelectorAll('tbody tr');
+    for (var br = 0; br < bodyRows.length; br++) {
+      var cells = bodyRows[br].querySelectorAll('td');
+      if (cells.length <= idx.wo) continue;
+      var wo = (cells[idx.wo].textContent || '').trim();
+      if (!wo) continue;
+      var vacTxt = idx.vac >= 0 ? (cells[idx.vac].textContent || '').trim() : '';
+      var cpiTxt = idx.cpi >= 0 ? (cells[idx.cpi].textContent || '').trim() : '';
+      // VAC format in reports: "+12h" or "-5h" — strip non-numeric except sign and dot
+      var vacNum = parseFloat(vacTxt.replace(/[^0-9.\-]/g, ''));
+      var cpiNum = parseFloat(cpiTxt);
+      if (!isFinite(vacNum) && !isFinite(cpiNum)) continue;
+      rows.push({
+        date: reportDate,
+        wo: wo,
+        partNo: partNo,
+        vac: isFinite(vacNum) ? vacNum : null,
+        cpi: isFinite(cpiNum) ? cpiNum : null,
+        source: 'report'
+      });
+    }
+  }
+  return { rows: rows, dateStr: fmtMdy(reportDate) };
+}
+
+// ---- Merge (priority: vac > bench > report; first wins on (date|wo) collision) ----
+function mergeAll() {
+  var seen = {};
+  var out = [];
+  function absorb(rows) {
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var key = fmtMdy(r.date) + '|' + r.wo;
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push(r);
+    }
+  }
+  absorb(state.vacRows);
+  absorb(state.benchRows);
+  absorb(state.reportRows);
+  return out;
+}
+
+// ---- UI wiring ----
+function setStatus(id, msg, cls) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function updateButtons() {
+  var hasAny = state.vacRows.length + state.benchRows.length + state.reportRows.length > 0;
+  document.getElementById('process-btn').disabled = !hasAny;
+  document.getElementById('download-btn').disabled = state.merged.length === 0;
+}
+
+document.getElementById('vac-input').addEventListener('change', function(e) {
+  var f = e.target.files[0];
+  if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function(ev) {
+    var res = parseVacLog(ev.target.result);
+    state.vacRows = res.rows;
+    if (res.warning) setStatus('vac-status', res.warning, 'error');
+    else setStatus('vac-status', 'Loaded ' + res.rows.length + ' rows', 'loaded');
+    updateButtons();
+  };
+  rd.readAsText(f);
+});
+
+document.getElementById('bench-input').addEventListener('change', function(e) {
+  var f = e.target.files[0];
+  if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function(ev) {
+    var res = parseBenchCost(ev.target.result);
+    state.benchRows = res.rows;
+    if (res.warning) setStatus('bench-status', res.warning, 'error');
+    else setStatus('bench-status', 'Loaded ' + res.rows.length + ' rows', 'loaded');
+    updateButtons();
+  };
+  rd.readAsText(f);
+});
+
+document.getElementById('report-input').addEventListener('change', function(e) {
+  var files = Array.from(e.target.files);
+  if (!files.length) return;
+  state.reportRows = [];
+  state.reportFiles = [];
+  var pending = files.length;
+  files.forEach(function(f) {
+    var rd = new FileReader();
+    rd.onload = function(ev) {
+      var res = parseEvmReport(ev.target.result, f.name);
+      state.reportFiles.push({ name: f.name, rowCount: res.rows.length, dateStr: res.dateStr || '—', warning: res.warning || null });
+      for (var i = 0; i < res.rows.length; i++) state.reportRows.push(res.rows[i]);
+      pending--;
+      if (pending === 0) {
+        renderReportList();
+        var total = state.reportRows.length;
+        var nWarn = state.reportFiles.filter(function(x){ return x.warning; }).length;
+        if (nWarn > 0) setStatus('report-status', 'Loaded ' + total + ' rows from ' + files.length + ' files (' + nWarn + ' with warnings)', 'warn');
+        else setStatus('report-status', 'Loaded ' + total + ' rows from ' + files.length + ' files', 'loaded');
+        updateButtons();
+      }
+    };
+    rd.readAsText(f);
+  });
+});
+
+function renderReportList() {
+  var el = document.getElementById('report-list');
+  el.innerHTML = '';
+  state.reportFiles.forEach(function(f) {
+    var row = document.createElement('div');
+    row.className = 'file-row';
+    var label = esc(f.name) + (f.dateStr ? ' <span style="color:#666;">(' + esc(f.dateStr) + ')</span>' : '');
+    if (f.warning) label += ' <span style="color:#dc2626;">&#x26a0;</span>';
+    row.innerHTML = '<span class="name">' + label + '</span><span class="rows">' + f.rowCount + ' rows</span>';
+    el.appendChild(row);
+  });
+}
+
+document.getElementById('process-btn').addEventListener('click', function() {
+  state.merged = mergeAll();
+  state.warnings = state.reportFiles.filter(function(x){ return x.warning; }).map(function(x){ return x.warning; });
+  renderStats();
+  renderWarnings();
+  renderPreview();
+  updateButtons();
+});
+
+function renderStats() {
+  var el = document.getElementById('stats');
+  var body = document.getElementById('stats-body');
+  el.style.display = 'block';
+  var bySource = { vac: 0, bench: 0, report: 0 };
+  for (var i = 0; i < state.merged.length; i++) bySource[state.merged[i].source]++;
+  body.innerHTML =
+    '<div class="stat-row"><strong>' + state.merged.length + '</strong> rows merged total</div>' +
+    '<div class="stat-row"><span class="chip chip-vac">vac</span>' + bySource.vac + ' from VAC Tracker Log (input: ' + state.vacRows.length + ')</div>' +
+    '<div class="stat-row"><span class="chip chip-bench">bench</span>' + bySource.bench + ' from Bench Cost CSV (input: ' + state.benchRows.length + ', ' + (state.benchRows.length - bySource.bench) + ' deduped)</div>' +
+    '<div class="stat-row"><span class="chip chip-report">report</span>' + bySource.report + ' from EVM Reports (input: ' + state.reportRows.length + ', ' + (state.reportRows.length - bySource.report) + ' deduped)</div>';
+  document.getElementById('count-label').textContent = state.merged.length + ' rows ready';
+}
+
+function renderWarnings() {
+  var el = document.getElementById('warn-list');
+  if (!state.warnings.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<strong>Warnings:</strong><ul>' + state.warnings.map(function(w){ return '<li>' + esc(w) + '</li>'; }).join('') + '</ul>';
+}
+
+function renderPreview() {
+  var el = document.getElementById('preview');
+  el.style.display = 'block';
+  var sorted = state.merged.slice();
+  var col = state.sortCol, asc = state.sortAsc;
+  sorted.sort(function(a, b) {
+    var va = col === 'date' ? a.date.getTime() : a[col];
+    var vb = col === 'date' ? b.date.getTime() : b[col];
+    if (va === null || va === undefined) va = '';
+    if (vb === null || vb === undefined) vb = '';
+    if (va < vb) return asc ? -1 : 1;
+    if (va > vb) return asc ? 1 : -1;
+    return 0;
+  });
+  var tbody = document.querySelector('#preview-table tbody');
+  tbody.innerHTML = '';
+  var limit = Math.min(sorted.length, 500);
+  for (var i = 0; i < limit; i++) {
+    var r = sorted[i];
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + esc(fmtMdy(r.date)) + '</td>' +
+      '<td>' + esc(r.wo) + '</td>' +
+      '<td>' + esc(r.partNo || '') + '</td>' +
+      '<td class="num">' + (r.vac === null || r.vac === undefined ? '' : r.vac.toFixed(2)) + '</td>' +
+      '<td class="num">' + (r.cpi === null || r.cpi === undefined ? '' : r.cpi.toFixed(3)) + '</td>' +
+      '<td><span class="chip chip-' + r.source + '">' + r.source + '</span></td>';
+    tbody.appendChild(tr);
+  }
+  if (sorted.length > limit) {
+    var tr2 = document.createElement('tr');
+    tr2.innerHTML = '<td colspan="6" style="text-align:center;color:#888;font-style:italic;">… ' + (sorted.length - limit) + ' more rows (first ' + limit + ' shown)</td>';
+    tbody.appendChild(tr2);
+  }
+  // Update sort indicators
+  document.querySelectorAll('#preview-table thead th').forEach(function(th) {
+    var ind = th.querySelector('.sort-ind');
+    if (th.dataset.col === state.sortCol) ind.innerHTML = state.sortAsc ? '&uarr;' : '&darr;';
+    else ind.innerHTML = '';
+  });
+}
+
+document.querySelectorAll('#preview-table thead th').forEach(function(th) {
+  th.addEventListener('click', function() {
+    var col = th.dataset.col;
+    if (state.sortCol === col) state.sortAsc = !state.sortAsc;
+    else { state.sortCol = col; state.sortAsc = true; }
+    renderPreview();
+  });
+});
+
+document.getElementById('download-btn').addEventListener('click', function() {
+  if (!state.merged.length) return;
+  // Sort for export: date asc, WO asc (stable)
+  var rows = state.merged.slice().sort(function(a, b) {
+    if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+    return a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : 0;
+  });
+  var lines = ['Date,WO,Part #,VAC,CPI'];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    lines.push([
+      fmtMdy(r.date),
+      r.wo,
+      r.partNo || '',
+      (r.vac === null || r.vac === undefined) ? '' : (+r.vac).toFixed(2),
+      (r.cpi === null || r.cpi === undefined) ? '' : (+r.cpi).toFixed(3)
+    ].join(','));
+  }
+  var csv = lines.join('\n');
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  var now = new Date();
+  a.download = 'vac-cpi-history-' + now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+
+</body>
+</html>
