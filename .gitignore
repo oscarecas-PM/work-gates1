@@ -6,3 +6,6 @@ node_modules/
 
 # Test inputs / sample data — local-only, not source of truth
 dummy-files/
+
+# PRD PDF export — derivative of PRD-GateTracker.html, too large to track in-tree
+PRD-GateTracker.pdf
