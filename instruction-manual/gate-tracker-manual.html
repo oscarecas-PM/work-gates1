@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gate Tracker — Instruction Manual</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: #1a1a2e;
+    background: #f8f9fa;
+    line-height: 1.7;
+  }
+
+  /* Page container */
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #fff;
+    box-shadow: 0 0 20px rgba(0,0,0,0.08);
+  }
+
+  /* Cover / header */
+  .cover {
+    background: linear-gradient(135deg, #1e3a5f 0%, #334155 100%);
+    color: #fff;
+    padding: 3rem 3rem 2.5rem;
+    border-bottom: 4px solid #2563eb;
+  }
+  .cover h1 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 0.3rem;
+  }
+  .cover .subtitle {
+    font-size: 1.1rem;
+    color: #94a3b8;
+    font-weight: 400;
+  }
+  .cover .meta {
+    margin-top: 1.5rem;
+    font-size: 0.85rem;
+    color: #94a3b8;
+  }
+
+  /* Content area */
+  .content {
+    padding: 2.5rem 3rem 3rem;
+  }
+
+  /* Table of Contents */
+  .toc {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 2.5rem;
+  }
+  .toc h2 {
+    font-size: 1.2rem;
+    color: #334155;
+    margin-bottom: 0.75rem;
+    border: none;
+    padding: 0;
+  }
+  .toc ol {
+    list-style: none;
+    counter-reset: toc-counter;
+    padding-left: 0;
+  }
+  .toc > ol > li {
+    counter-increment: toc-counter;
+    margin-bottom: 0.35rem;
+  }
+  .toc > ol > li::before {
+    content: counter(toc-counter) ".";
+    font-weight: 600;
+    color: #2563eb;
+    margin-right: 0.5rem;
+    display: inline-block;
+    min-width: 1.5rem;
+  }
+  .toc a {
+    color: #1e3a5f;
+    text-decoration: none;
+    font-size: 0.95rem;
+  }
+  .toc a:hover {
+    color: #2563eb;
+    text-decoration: underline;
+  }
+  .toc .toc-sub {
+    padding-left: 2rem;
+    margin-top: 0.2rem;
+  }
+  .toc .toc-sub li {
+    margin-bottom: 0.2rem;
+    font-size: 0.9rem;
+  }
+  .toc .toc-sub li::before {
+    content: none;
+  }
+
+  /* Section headings */
+  h2 {
+    font-size: 1.5rem;
+    color: #1e3a5f;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 0.4rem;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+  }
+  h2:first-of-type {
+    margin-top: 0;
+  }
+  h3 {
+    font-size: 1.15rem;
+    color: #334155;
+    margin-top: 1.5rem;
+    margin-bottom: 0.6rem;
+  }
+  h4 {
+    font-size: 1rem;
+    color: #475569;
+    margin-top: 1rem;
+    margin-bottom: 0.4rem;
+  }
+
+  /* Paragraphs and lists */
+  p {
+    margin-bottom: 0.8rem;
+  }
+  ul, ol {
+    margin-bottom: 0.8rem;
+    padding-left: 1.5rem;
+  }
+  li {
+    margin-bottom: 0.35rem;
+  }
+
+  /* Bold file names / labels */
+  .file-label {
+    font-weight: 600;
+    color: #1e3a5f;
+  }
+
+  /* Column lists (for CSV schemas) */
+  .col-list {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 0.6rem 1rem;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: #334155;
+    margin-bottom: 0.8rem;
+    line-height: 1.6;
+  }
+
+  /* Screenshot placeholders */
+  .screenshot {
+    background: #f1f5f9;
+    border: 2px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    margin: 1.2rem 0;
+    color: #64748b;
+    font-size: 0.9rem;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .screenshot .icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    opacity: 0.5;
+  }
+  .screenshot .caption {
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 0.3rem;
+  }
+  .screenshot .desc {
+    font-size: 0.82rem;
+    color: #94a3b8;
+    max-width: 500px;
+  }
+
+  /* Info / note boxes */
+  .note-box {
+    background: #eff6ff;
+    border-left: 4px solid #2563eb;
+    padding: 0.8rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 0.9rem;
+  }
+  .note-box .note-title {
+    font-weight: 700;
+    color: #1e40af;
+    margin-bottom: 0.2rem;
+  }
+  .warn-box {
+    background: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    padding: 0.8rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 0.9rem;
+  }
+  .warn-box .note-title {
+    font-weight: 700;
+    color: #b45309;
+    margin-bottom: 0.2rem;
+  }
+
+  .tip-box {
+    background: #eff6ff;
+    border-left: 4px solid #2563eb;
+    padding: 0.8rem 1rem;
+    margin: 1rem 0;
+    border-radius: 0 4px 4px 0;
+    font-size: 0.9rem;
+  }
+  .tip-box .note-title {
+    font-weight: 700;
+    color: #1d4ed8;
+    margin-bottom: 0.2rem;
+  }
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .data-table th, .data-table td {
+    border: 1px solid #cbd5e1;
+    padding: 4px 10px;
+    text-align: left;
+  }
+  .data-table th {
+    background: #f1f5f9;
+    font-weight: 600;
+    color: #334155;
+  }
+  .data-table tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  /* Placeholder page (section 3) */
+  .placeholder-page {
+    border: 3px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 3rem 2rem;
+    text-align: center;
+    margin: 1.2rem 0;
+    background: #fafbfc;
+    min-height: 250px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .placeholder-page .ph-icon {
+    font-size: 3rem;
+    opacity: 0.3;
+    margin-bottom: 1rem;
+  }
+  .placeholder-page h3 {
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+  }
+  .placeholder-page p {
+    color: #94a3b8;
+    font-size: 0.9rem;
+    max-width: 500px;
+  }
+
+  /* Key-value definition style */
+  .def-grid {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 0.3rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+  }
+  .def-grid dt {
+    font-weight: 600;
+    color: #334155;
+  }
+  .def-grid dd {
+    color: #475569;
+  }
+
+  /* Color swatches */
+  .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 4px;
+    border: 1px solid rgba(0,0,0,0.15);
+  }
+
+  /* Steps */
+  .steps {
+    counter-reset: step-counter;
+    list-style: none;
+    padding-left: 0;
+  }
+  .steps li {
+    counter-increment: step-counter;
+    padding-left: 2.2rem;
+    position: relative;
+    margin-bottom: 0.6rem;
+  }
+  .steps li::before {
+    content: counter(step-counter);
+    position: absolute;
+    left: 0;
+    top: 0.1rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    background: #2563eb;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Table for troubleshooting */
+  table.trouble {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  table.trouble th {
+    background: #334155;
+    color: #fff;
+    padding: 0.6rem 1rem;
+    text-align: left;
+    font-weight: 600;
+  }
+  table.trouble td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  table.trouble tr:last-child td {
+    border-bottom: none;
+  }
+  table.trouble tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  /* Footer */
+  .footer {
+    background: #f1f5f9;
+    border-top: 1px solid #e2e8f0;
+    padding: 1.5rem 3rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: #94a3b8;
+  }
+
+  /* Print styles */
+  @media print {
+    body { background: #fff; }
+    .page { box-shadow: none; max-width: 100%; }
+    .cover { break-after: page; }
+    h2 { break-after: avoid; }
+    .screenshot, .placeholder-page { break-inside: avoid; }
+    .toc { break-after: page; }
+  }
+
+  /* Page break helper */
+  .page-break {
+    break-before: page;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ============================================ -->
+<!-- COVER -->
+<!-- ============================================ -->
+<div class="cover">
+  <h1>Gate Tracker</h1>
+  <div class="subtitle">Instruction Manual</div>
+  <div class="meta">
+    Version 1.0 &nbsp;&bull;&nbsp; Last Updated: March 15, 2026
+  </div>
+</div>
+
+<div class="content">
+
+<!-- ============================================ -->
+<!-- TABLE OF CONTENTS -->
+<!-- ============================================ -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#sec-overview">Overview</a></li>
+    <li><a href="#sec-getting-started">Getting Started</a>
+      <ul class="toc-sub">
+        <li><a href="#sec-required-files">2.1 Required Files</a></li>
+        <li><a href="#sec-loading-files">2.2 Loading Files</a></li>
+      </ul>
+    </li>
+    <li><a href="#sec-daily-upload">Daily Upload Process</a></li>
+    <li><a href="#sec-gate-view">Gate View</a>
+      <ul class="toc-sub">
+        <li><a href="#sec-split-location">4.1 Split Location Warnings</a></li>
+      </ul>
+    </li>
+    <li><a href="#sec-detail-view">Detail View</a></li>
+    <li><a href="#sec-filters">Filters</a></li>
+    <li><a href="#sec-mobile-audit">Mobile Audit</a>
+      <ul class="toc-sub">
+        <li><a href="#sec-generating-audit">7.1 Generating the Mobile Audit</a></li>
+        <li><a href="#sec-conducting-audit">7.2 Conducting an Audit</a></li>
+        <li><a href="#sec-uploading-results">7.3 Uploading Audit Results</a></li>
+      </ul>
+    </li>
+    <li><a href="#sec-unmapped">Unmapped Operations</a></li>
+    <li><a href="#sec-exporting">Exporting</a>
+      <ul class="toc-sub">
+        <li><a href="#sec-print-pdf">9.1 Print / PDF Export</a></li>
+        <li><a href="#sec-save-snapshot">9.2 Save Snapshot</a></li>
+      </ul>
+    </li>
+    <li><a href="#sec-troubleshooting">Troubleshooting</a></li>
+  </ol>
+</div>
+
+<!-- ============================================ -->
+<!-- 1. OVERVIEW -->
+<!-- ============================================ -->
+<h2 id="sec-overview">1. Overview</h2>
+
+<p>Gate Tracker is a visual factory tool that shows where manufacturing work orders currently sit in a gate sequence. In a physical shop, <strong>gates</strong> correspond to racks or stations where hardware resides as it moves through its manufacturing operations. Gate Tracker provides a clear, at-a-glance view of which rack each piece of hardware belongs on and where it is in its overall process flow.</p>
+
+<h4>Key Concepts</h4>
+<dl class="def-grid">
+  <dt>Gate</dt>
+  <dd>A numbered station or rack in the manufacturing flow. Work orders move from gate to gate as operations are completed.</dd>
+
+  <dt>Work Order</dt>
+  <dd>A manufacturing order tracked through the MES system, identified by an Order Number (e.g., "000123456789").</dd>
+
+  <dt>Decoder Ring</dt>
+  <dd>A mapping file that tells the tool which MES operations belong to which gates. Created and maintained manually (or using the Decoder Ring Builder companion tool).</dd>
+
+  <dt>Program</dt>
+  <dd>The program a part number belongs to (e.g., "P-Program", "N-Program"). Used for color coding and filtering.</dd>
+
+  <dt>Part Number</dt>
+  <dd>The specific part being manufactured. Each part number has its own set of operations defined in the Decoder Ring.</dd>
+</dl>
+
+<div class="note-box">
+  <div class="note-title">Note</div>
+  Gate Tracker runs entirely in your browser. No data leaves your machine &mdash; all processing is done client-side. Nothing is stored between sessions; you must reload your files each time.
+</div>
+
+<!-- ============================================ -->
+<!-- 2. GETTING STARTED -->
+<!-- ============================================ -->
+<h2 id="sec-getting-started">2. Getting Started</h2>
+
+<h3 id="sec-required-files">2.1 Required Files</h3>
+
+<p>Gate Tracker accepts up to four CSV files. The first two are required; the last two are optional.</p>
+
+<h4><span class="file-label">1. Gate Decoder Ring CSV</span> (required)</h4>
+<p>Maps each part number's MES operations to numbered gates. This file is created and maintained manually or using the Decoder Ring Builder tool.</p>
+<div class="col-list">Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier</div>
+<ul>
+  <li><strong>Part No.</strong> &mdash; The part number this mapping applies to</li>
+  <li><strong>Gate Number</strong> &mdash; The gate (rack) number where this operation's hardware should reside</li>
+  <li><strong>Gate Name</strong> &mdash; A descriptive name for the gate</li>
+  <li><strong>Oper No.</strong> &mdash; The MES operation number (bare format, e.g., "50" not "0050")</li>
+  <li><strong>Modifier</strong> &mdash; Set to "ignore" to skip this operation during gate placement</li>
+</ul>
+
+<h4><span class="file-label">2. Daily Upload CSV</span> (required)</h4>
+<p>A snapshot from the MES system containing all active work order operations. Typically contains approximately 7,500 rows. The new data source exports this as a <strong>tab-delimited</strong> file (with a .csv extension). Gate Tracker auto-detects the delimiter.</p>
+<div class="col-list">Order No, Operation No, Operation title, Operation Status, Part Number, Program, Serial Numbers, Hold Status, Avg. DaysCurrentOper, Work Department, ...</div>
+<ul>
+  <li>The file contains approximately 42 columns total; Gate Tracker uses the 10 listed above</li>
+  <li><strong>Operation Status</strong> values include: ACTIVE, IN QUEUE, PENDING, COMPLETE</li>
+  <li><strong>Hold Status</strong> &mdash; If populated, indicates the order is on hold</li>
+</ul>
+
+<h4><span class="file-label">3. Gate Technicians CSV</span> (optional)</h4>
+<p>Maps technician names to gates. When loaded, technician names appear in Gate View headers.</p>
+<div class="col-list">Gate Number, Gate Name, Tech Name, Priority</div>
+<ul>
+  <li><strong>Priority</strong> &mdash; Controls display order of technicians within each gate header (lower number = listed first)</li>
+</ul>
+
+<div class="tip-box">
+  <div class="note-title">Creating the Gate Technicians File</div>
+  <p>This file must be created manually. Open a spreadsheet (Excel, Google Sheets, etc.) and create four columns: <strong>Gate Number</strong>, <strong>Gate Name</strong>, <strong>Tech Name</strong>, and <strong>Priority</strong>. Add one row per technician-gate assignment. If a gate has multiple technicians, add a separate row for each with a different priority number (1 = primary, 2 = secondary, etc.).</p>
+  <p style="margin-top: 0.5rem;">Example:</p>
+  <table class="data-table" style="margin-top: 0.5rem; font-size: 0.85rem;">
+    <thead><tr><th>Gate Number</th><th>Gate Name</th><th>Tech Name</th><th>Priority</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Receiving</td><td>Mike Johnson</td><td>1</td></tr>
+      <tr><td>2</td><td>CNC Machining</td><td>Sarah Chen</td><td>1</td></tr>
+      <tr><td>2</td><td>CNC Machining</td><td>Tom Rivera</td><td>2</td></tr>
+      <tr><td>3</td><td>Deburr / QA</td><td>John Smith</td><td>1</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top: 0.5rem;">Save as a <strong>.csv</strong> file (comma-delimited). The gate numbers and names should match those used in your Decoder Ring.</p>
+</div>
+
+<h4><span class="file-label">4. Mobile Audit CSV</span> (optional)</h4>
+<p>Output from the Mobile Audit tool (see <a href="#sec-mobile-audit">Section 7</a>). When loaded, this file drives the Gate View placement &mdash; cards appear in the gates where hardware was physically scanned.</p>
+<div class="col-list">Gate Number, Order No., Part No., Serial No., Technician</div>
+
+<div class="warn-box">
+  <div class="note-title">Important</div>
+  Without a Mobile Audit CSV, the Gate View will show a placeholder message instead of gate sections. The audit file is what tells the tool where hardware physically is.
+</div>
+
+<h3 id="sec-loading-files">2.2 Loading Files</h3>
+
+<div class="screenshot">
+  <div class="icon">&#128196;</div>
+  <div class="caption">Screenshot: File Input Area</div>
+  <div class="desc">The top of the Gate Tracker page showing four file input boxes labeled 1 through 4, each with column descriptions and a file chooser button.</div>
+</div>
+
+<ol class="steps">
+  <li>Open <code>gate-tracker-21.html</code> in Chrome or Edge.</li>
+  <li>In the <strong>"1. Gate Decoder Ring"</strong> box, click the file chooser and select your Decoder Ring CSV. A green status message will confirm the number of rows loaded (e.g., "Loaded 45 rows").</li>
+  <li>In the <strong>"2. Daily Upload"</strong> box, load the daily MES export file. Verify the row count matches expectations (typically around 7,500 rows).</li>
+  <li>(Optional) Load the <strong>Gate Technicians</strong> file and <strong>Mobile Audit CSV</strong> in boxes 3 and 4.</li>
+  <li>The <strong>"Include Unmapped Operations"</strong> checkbox is checked by default. Uncheck it to skip orders whose part numbers are not in the Decoder Ring.</li>
+  <li>Click the blue <strong>Process</strong> button. The button enables once both required files are loaded.</li>
+</ol>
+
+<p>After processing, several additional buttons appear:</p>
+<ul>
+  <li><strong>Print / Export PDF</strong> &mdash; Opens the browser print dialog</li>
+  <li><strong>Save Snapshot</strong> &mdash; Downloads a self-contained interactive HTML file</li>
+  <li><strong>Generate Mobile Audit</strong> &mdash; Creates a mobile-friendly audit tool</li>
+</ul>
+<p>Navigation links ("Jump to Detail View" and "Jump to Unmapped Operations") also appear below the buttons for quick scrolling.</p>
+
+
+<!-- ============================================ -->
+<!-- 3. DAILY UPLOAD PROCESS -->
+<!-- ============================================ -->
+<h2 id="sec-daily-upload">3. Daily Upload Process</h2>
+
+<div class="placeholder-page">
+  <div class="ph-icon">&#128203;</div>
+  <h3>Section Pending</h3>
+  <p>This section will be completed with internal system links and screenshots for the daily upload procedure. Contact your system administrator for the daily upload procedure from the MES data source.</p>
+  <p style="margin-top: 1rem; font-size: 0.82rem; color: #b0b8c4;">Placeholder &mdash; to be filled in with environment-specific details including: data source URL, export steps, file naming conventions, and upload schedule.</p>
+</div>
+
+
+<!-- ============================================ -->
+<!-- 4. GATE VIEW -->
+<!-- ============================================ -->
+<h2 id="sec-gate-view">4. Gate View</h2>
+
+<p>The Gate View is the primary display of Gate Tracker. It shows work order cards organized into gate sections based on where hardware was physically scanned during the most recent mobile audit.</p>
+
+<div class="screenshot">
+  <div class="icon">&#128200;</div>
+  <div class="caption">Screenshot: Gate View</div>
+  <div class="desc">The Gate View showing multiple gate sections (Hold, Gate 1, Gate 2, etc.) with colored work order cards inside each section. Gate headers display the gate number, name, and assigned technicians.</div>
+</div>
+
+<h4>Gate Sections</h4>
+<p>Gates appear in this order from top to bottom:</p>
+<ol>
+  <li><strong>Hold</strong> (red header) &mdash; Orders with a hold status</li>
+  <li><strong>Numbered gates</strong> in ascending order (dark header) &mdash; Each shows the gate number, gate name, and assigned technicians</li>
+  <li><strong>"Not found on a rack"</strong> (amber header, collapsible) &mdash; Active orders that were not scanned during the audit</li>
+</ol>
+
+<h4>Card Anatomy</h4>
+<p>Each card in the Gate View represents one work order and displays:</p>
+<ul>
+  <li><strong>Order Number</strong> (bold, top line)</li>
+  <li><strong>Part Number</strong> with part name</li>
+  <li><strong>Serial Number(s)</strong> if available</li>
+  <li><strong>Hold Status</strong> (red text, if applicable)</li>
+  <li><strong>Avg days</strong> at current operation (bottom of card)</li>
+  <li><strong>Technician assignment</strong> ("with [Tech Name]") when a specific tech was recorded</li>
+</ul>
+
+<h4>Color Coding</h4>
+<p>Cards are colored by <strong>program</strong>. The color is determined by the first letter of the program name:</p>
+<ul>
+  <li>Programs starting with <strong>P</strong> &mdash; Blue tones</li>
+  <li>Programs starting with <strong>N</strong> &mdash; Purple tones</li>
+  <li>Other programs &mdash; Assigned from a consistent color palette</li>
+</ul>
+
+<h4>Border Labels</h4>
+<p>Some cards have colored borders and labels indicating special conditions:</p>
+<ul>
+  <li><span class="swatch" style="background:#dc2626;"></span> <strong>Red border + "DR Operations"</strong> &mdash; The order has active operations in the 7000&ndash;7999 range (Decoder Ring operations). This takes priority over the QA label.</li>
+  <li><span class="swatch" style="background:#3b82f6;"></span> <strong>Blue border + "QA Operations"</strong> &mdash; The order has active or in-queue operations in a QA work department (ending in "_QA"). Only shown when there is no DR Operations label.</li>
+  <li><span class="swatch" style="background:#f59e0b;"></span> <strong>Amber "Missing from daily upload"</strong> &mdash; The order was scanned in the audit but does not appear in the daily upload data.</li>
+</ul>
+
+<h4>"Not Found on a Rack" Section</h4>
+
+<div class="screenshot">
+  <div class="icon">&#128269;</div>
+  <div class="caption">Screenshot: "Not Found on a Rack" Section (Expanded)</div>
+  <div class="desc">The amber-colored collapsible section expanded to show work order cards for orders that are active in the daily upload but were not scanned during the mobile audit. A triangle icon indicates the expand/collapse state.</div>
+</div>
+
+<p>This section collects all active work orders that were <em>not</em> scanned during the mobile audit. It is <strong>collapsed by default</strong> &mdash; click the amber header bar to expand or collapse it. The triangle icon indicates the current state.</p>
+
+<p>Cards in this section are sorted by: Program, then DR operations first, then Part Number, then Order Number.</p>
+
+<div class="note-box">
+  <div class="note-title">Tip</div>
+  If an order appears in "Not found on a rack," it may have been missed during the audit, or the hardware may have been moved. Check the physical location and include it in the next audit.
+</div>
+
+
+<h3 id="sec-split-location">4.1 Split Location Warnings</h3>
+
+<div class="screenshot">
+  <div class="icon">&#9888;</div>
+  <div class="caption">Screenshot: Multi-Gate Warning Labels</div>
+  <div class="desc">Close-up of work order cards showing orange warning labels reading "&#9888; Also on Gate X" when the same work order appears on multiple gates simultaneously.</div>
+</div>
+
+<p>When the same work order number is scanned at <strong>more than one gate</strong> during an audit, both cards display an orange warning label:</p>
+
+<p style="text-align:center;margin:1rem 0;">
+  <span style="display:inline-block; font-size:0.85rem; color:#c2410c; font-weight:bold; background:#fff7ed; border:1px solid #fb923c; border-radius:3px; padding:3px 10px;">&#9888; Also on Gate 5</span>
+</p>
+
+<p>This warning means the work order's hardware is split across multiple physical locations &mdash; some parts are on one rack and others are on a different rack.</p>
+
+<div class="warn-box">
+  <div class="note-title">Action Required</div>
+  When you see a split location warning, notify the manufacturing engineer so the hardware can be reunited at the correct gate. Split hardware can cause delays and process errors.
+</div>
+
+
+<!-- ============================================ -->
+<!-- 5. DETAIL VIEW -->
+<!-- ============================================ -->
+<h2 id="sec-detail-view">5. Detail View</h2>
+
+<div class="screenshot">
+  <div class="icon">&#128202;</div>
+  <div class="caption">Screenshot: Detail View</div>
+  <div class="desc">The Detail View showing work orders organized by Program then Part Number. Each order displays a horizontal gate progress bar with colored operation chips showing the status of each operation across its gate sequence.</div>
+</div>
+
+<p>The Detail View provides a detailed, per-order breakdown of gate progress. To access it, click the <strong>"Show Detail View"</strong> button below the Gate View.</p>
+
+<h4>Layout</h4>
+<p>Orders are grouped hierarchically:</p>
+<ol>
+  <li><strong>Program</strong> (top-level heading)</li>
+  <li><strong>Part Number</strong> (dark blue header bar showing part number and name)</li>
+  <li><strong>Work Orders</strong> (individual rows with gate progress bars)</li>
+</ol>
+
+<p>Each order row has two sections:</p>
+<ul>
+  <li><strong>Left panel</strong> (grey) &mdash; Order number, hold status, and a "Top" link to jump back to the page header</li>
+  <li><strong>Right panel</strong> &mdash; A horizontal bar divided into gate columns, each containing operation chips</li>
+</ul>
+
+<h4>Operation Chip Colors</h4>
+<p>Each operation appears as a small colored chip within its gate column. The color indicates the operation's status and work department:</p>
+<ul>
+  <li><span class="swatch" style="background:#ca8a04;"></span> <strong>Yellow (mustard)</strong> &mdash; IN QUEUE</li>
+  <li><span class="swatch" style="background:#2563eb;"></span> <strong>Blue</strong> &mdash; ACTIVE in a QA work department (*_QA)</li>
+  <li><span class="swatch" style="background:#16a34a;"></span> <strong>Green</strong> &mdash; ACTIVE in SMART work department</li>
+  <li><span class="swatch" style="background:#db2777;"></span> <strong>Pink</strong> &mdash; ACTIVE in any other work department</li>
+  <li><span class="swatch" style="background:#e5e7eb;"></span> <strong>Grey</strong> &mdash; COMPLETE or other inactive status</li>
+  <li><span class="swatch" style="background:#e5e7eb; opacity:0.6;"></span> <strong>Grey (faded, 60% opacity)</strong> &mdash; PENDING operations (not yet released)</li>
+</ul>
+
+<p>Hovering over a chip shows a tooltip with the operation number, title, status, work department, and average days at current operation. Operations with an OPER STOP condition show a red border on their chip and include the stop information in the tooltip.</p>
+
+<div class="note-box">
+  <div class="note-title">Note</div>
+  PENDING operations appear in the Detail View at reduced opacity to show the complete process flow, but they do not affect the Gate View or sorting calculations.
+</div>
+
+<p>Clicking a card in the Gate View highlights the corresponding order row in the Detail View (blue outline) and scrolls to it.</p>
+
+
+<!-- ============================================ -->
+<!-- 6. FILTERS -->
+<!-- ============================================ -->
+<h2 id="sec-filters">6. Filters</h2>
+
+<div class="screenshot">
+  <div class="icon">&#128204;</div>
+  <div class="caption">Screenshot: Filter Chips</div>
+  <div class="desc">The filter bar area showing Program filter chips (blue when selected, white when deselected) and Part Number filter chips below them. A "Show All" button appears at the start of the Program row.</div>
+</div>
+
+<p>Gate Tracker provides two levels of filtering: <strong>Program</strong> and <strong>Part Number</strong>. Each view (Gate View, Detail View, and Unmapped Operations) has its own <strong>independent</strong> set of filters &mdash; changing filters in one view does not affect the others.</p>
+
+<h4>Program Filter</h4>
+<ul>
+  <li>Each program appears as a chip. Click to toggle it on (blue) or off (white).</li>
+  <li>The <strong>"Show All"</strong> button selects all program chips at once.</li>
+  <li>Program is the <strong>master filter</strong>: when a program is deselected, all its part numbers are hidden regardless of the Part Number filter state.</li>
+</ul>
+
+<h4>Part Number Filter (3-State)</h4>
+<p>Part Number chips have three states, cycled by clicking:</p>
+<ol>
+  <li><strong>Off</strong> (faded, low opacity) &mdash; This part number is hidden from the view</li>
+  <li><strong>On</strong> (dark blue, solid) &mdash; This part number is shown along with all other "On" parts</li>
+  <li><strong>Isolated</strong> (dark blue with bright blue outline, bold text) &mdash; <em>Only</em> this part number is shown; all others are hidden</li>
+</ol>
+
+<div class="note-box">
+  <div class="note-title">Tip</div>
+  Use the Isolated state when you want to focus on a single part number. Click the chip a third time to return it to the Off state and show all parts again.
+</div>
+
+
+<!-- ============================================ -->
+<!-- 7. MOBILE AUDIT -->
+<!-- ============================================ -->
+<h2 id="sec-mobile-audit">7. Mobile Audit</h2>
+
+<p>The Mobile Audit feature generates a self-contained HTML file that can be used on a phone (iPhone with Edge, or any mobile browser) to walk the shop floor and record which work orders are at each gate.</p>
+
+<h3 id="sec-generating-audit">7.1 Generating the Mobile Audit</h3>
+
+<ol class="steps">
+  <li>Load and process your files in Gate Tracker as usual (at minimum, the Decoder Ring and Daily Upload).</li>
+  <li>Click the yellow <strong>"Generate Mobile Audit"</strong> button.</li>
+  <li>A file named <code>gate-audit-YYYY-MM-DD.html</code> will download automatically.</li>
+  <li>Email the file to yourself or transfer it to your mobile device.</li>
+  <li>Open the file in your mobile browser (Edge recommended on iPhone).</li>
+</ol>
+
+<h3 id="sec-conducting-audit">7.2 Conducting an Audit</h3>
+
+<ol class="steps">
+  <li>Open the audit HTML file on your mobile device.</li>
+  <li>Tap a <strong>gate button</strong> to select which gate you are auditing.</li>
+  <li>Optionally select a <strong>technician</strong> name for that gate.</li>
+  <li>For each work order on the rack, search by the <strong>last 4 digits</strong> of the order number (all orders typically share the same first 4&ndash;5 digits).</li>
+  <li>Tap the matching order to add it to the audit list.</li>
+  <li>If an order shows <strong>"Already on [Gate]"</strong>, it was scanned at another gate. You can still add it &mdash; this creates a multi-gate situation that Gate Tracker will flag.</li>
+  <li>For orders not found in the system, use the <strong>manual entry</strong> form to type the order number, with optional Part Number and Serial Number.</li>
+  <li>Repeat for each gate on the floor.</li>
+  <li>When finished, tap <strong>"Copy to Clipboard"</strong> to copy the audit CSV data.</li>
+  <li>Open Outlook and paste the CSV data into a message body or a text file attachment.</li>
+</ol>
+
+<div class="note-box">
+  <div class="note-title">Note</div>
+  The audit tool does not use mailto links because iPhone defaults to Apple Mail. Copy the results to clipboard and paste into Outlook manually.
+</div>
+
+<h3 id="sec-uploading-results">7.3 Uploading Audit Results</h3>
+
+<ol class="steps">
+  <li>On your desktop, paste the clipboard contents from the mobile audit into a new text file and save it with a <code>.csv</code> extension.</li>
+  <li>In Gate Tracker, load this file using the <strong>"4. Mobile Audit CSV"</strong> input.</li>
+  <li>Click <strong>Process</strong> (or re-process if files were already loaded) to generate the Gate View based on the audit data.</li>
+</ol>
+
+<p>The CSV format is: <code>Gate Number, Order No., Part No., Serial No., Technician</code></p>
+
+
+<!-- ============================================ -->
+<!-- 8. UNMAPPED OPERATIONS -->
+<!-- ============================================ -->
+<h2 id="sec-unmapped">8. Unmapped Operations</h2>
+
+<p>Work orders whose part numbers do <em>not</em> appear in the Gate Decoder Ring are collected in the <strong>Unmapped Operations</strong> section. This section appears below the Detail View.</p>
+
+<p>To view it, click the <strong>"Show Unmapped Operations"</strong> button. The section has its own:</p>
+<ul>
+  <li><strong>Program filter</strong> &mdash; Independent from the Gate View and Detail View program filters</li>
+  <li><strong>Part Number filter</strong> &mdash; Independent 3-state filter, same behavior as the Detail View part number filter</li>
+</ul>
+
+<p>Unmapped orders are displayed in the same format as the Detail View but without gate columns (since there is no decoder ring mapping for them).</p>
+
+<div class="note-box">
+  <div class="note-title">Tip</div>
+  If you see part numbers appearing in the Unmapped section that should be mapped to gates, create or update the Decoder Ring for those parts using the Decoder Ring Builder tool, then re-process.
+</div>
+
+<p>To exclude unmapped operations entirely, uncheck the <strong>"Include Unmapped Operations"</strong> checkbox before clicking Process.</p>
+
+
+<!-- ============================================ -->
+<!-- 9. EXPORTING -->
+<!-- ============================================ -->
+<h2 id="sec-exporting">9. Exporting</h2>
+
+<h3 id="sec-print-pdf">9.1 Print / PDF Export</h3>
+
+<ol class="steps">
+  <li>Click the <strong>"Print / Export PDF"</strong> button (dark grey).</li>
+  <li>The browser's print dialog will open. The page is automatically formatted for printing:
+    <ul>
+      <li>File input controls and buttons are hidden</li>
+      <li>All sections (Detail View, Unmapped Operations) are expanded and visible</li>
+      <li>A timestamp is printed at the top of the page</li>
+      <li>Page breaks are inserted to avoid splitting gate sections or order cards</li>
+    </ul>
+  </li>
+  <li>Select your printer or "Save as PDF" and click Print.</li>
+</ol>
+
+<h3 id="sec-save-snapshot">9.2 Save Snapshot</h3>
+
+<ol class="steps">
+  <li>Click the green <strong>"Save Snapshot"</strong> button.</li>
+  <li>A self-contained HTML file will download. This file includes:
+    <ul>
+      <li>All processed data embedded directly in the file</li>
+      <li>Full interactivity: filters, Detail View toggle, card selection all work</li>
+      <li>A <strong>"Proprietary &mdash; Internal Use Only"</strong> banner at the top</li>
+    </ul>
+  </li>
+  <li>Share the snapshot via email or save to a shared drive. Recipients can open it in any browser without needing the original CSV files.</li>
+</ol>
+
+<div class="warn-box">
+  <div class="note-title">Important</div>
+  Snapshots contain proprietary manufacturing data. Follow your organization's data handling policies when sharing or storing snapshot files.
+</div>
+
+
+<!-- ============================================ -->
+<!-- 10. TROUBLESHOOTING -->
+<!-- ============================================ -->
+<h2 id="sec-troubleshooting">10. Troubleshooting</h2>
+
+<table class="trouble">
+  <tr>
+    <th style="width:40%;">Symptom</th>
+    <th>Solution</th>
+  </tr>
+  <tr>
+    <td><strong>"File has no data rows"</strong> error after loading a file</td>
+    <td>Verify the file has a header row and at least one data row. Check that the file is not empty and is in CSV format (comma or tab-delimited).</td>
+  </tr>
+  <tr>
+    <td>Gate View shows a placeholder message instead of gate sections</td>
+    <td>A Mobile Audit CSV must be loaded for the Gate View to display gate sections. Load an audit file in input box #4 and re-process.</td>
+  </tr>
+  <tr>
+    <td>Orders missing from the mobile audit search</td>
+    <td>Check if the order was already added to another gate &mdash; it will show a warning but can still be added. Also verify the order appears in the Daily Upload file.</td>
+  </tr>
+  <tr>
+    <td>Cards showing as amber "Missing from daily upload"</td>
+    <td>The order was scanned during the audit but does not appear in the current daily upload data. This may mean the order was completed, canceled, or the daily upload is out of date.</td>
+  </tr>
+  <tr>
+    <td>Process button is disabled (greyed out)</td>
+    <td>Both the Gate Decoder Ring (file #1) and Daily Upload (file #2) must be loaded before processing. Check that both show green "Loaded X rows" status messages.</td>
+  </tr>
+  <tr>
+    <td>Part numbers appearing in Unmapped instead of Detail View</td>
+    <td>The part number is not in the Decoder Ring file. Add it to the Decoder Ring using the Decoder Ring Builder tool and re-process.</td>
+  </tr>
+  <tr>
+    <td>Daily Upload file loads but Process produces no results</td>
+    <td>The new data source exports <strong>tab-delimited</strong> files. Gate Tracker auto-detects the delimiter, but ensure the file was not re-saved in a different format. Also verify column headers match expected names (e.g., "Order No" not "Order No.").</td>
+  </tr>
+  <tr>
+    <td>Row count warning after loading Daily Upload</td>
+    <td>A warning appears if the file exceeds 8,000 rows. This is informational only &mdash; the file will still process. If the count seems unexpectedly high, verify you have the correct file.</td>
+  </tr>
+  <tr>
+    <td>Split location warnings on cards</td>
+    <td>The same work order was scanned at multiple gates during the audit. Notify the manufacturing engineer to reunite the hardware at the correct gate.</td>
+  </tr>
+  <tr>
+    <td>Technician names not showing in gate headers</td>
+    <td>Load the Gate Technicians CSV (file #3) before clicking Process. Verify the file has the correct columns: Gate Number, Gate Name, Tech Name, Priority.</td>
+  </tr>
+</table>
+
+</div><!-- end .content -->
+
+<!-- ============================================ -->
+<!-- FOOTER -->
+<!-- ============================================ -->
+<div class="footer">
+  <p>Gate Tracker &mdash; Instruction Manual &nbsp;&bull;&nbsp; Version 1.0</p>
+  <p>Last Updated: March 15, 2026</p>
+  <p style="margin-top:0.5rem;">Proprietary &mdash; Internal Use Only</p>
+</div>
+
+</div><!-- end .page -->
+</body>
+</html>
