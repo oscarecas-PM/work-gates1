@@ -27,7 +27,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
 <p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
-<p class="version">Version 1.2 | April 16, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.3 | May 13, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
@@ -113,7 +113,8 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-10</span> "Data starts from" filter: Month/Year dropdowns. Default: January 2025. All data before the selected month is excluded from all tables and charts.</p>
 <p><span class="req">F-11</span> "Hide last month" toggle: Checkbox, checked by default. Removes the last month in the dataset from all views (incomplete month data).</p>
 <p><span class="req">F-12</span> Program filter chips: Clickable chips for each program found in bundle + EV Details data. Blue = included, grey strikethrough = excluded. Deselecting a program removes its work orders everywhere (bundled, unbundled, summary, CSV export).</p>
-<p><span class="req">F-13</span> Filters take effect when "Apply" is clicked (for start date/year) or immediately on toggle (hide last month, program chips).</p>
+<p><span class="req">F-12a</span> (v1.3) <strong>Select All / Deselect All</strong> bulk chips render at the start of the program chip bar (bold). <em>Select All</em> highlights when every program is on; <em>Deselect All</em> highlights when every program is off. Clicking either toggles the entire chip set; clicking any individual chip continues to toggle that one program. All chip clicks (individual or bulk) apply immediately &mdash; no Apply click required for program filtering.</p>
+<p><span class="req">F-13</span> Filters take effect when "Apply" is clicked (for start date/year) or immediately on toggle (hide last month, program chips, Select/Deselect All).</p>
 
 <h3>6.3 Summary Section</h3>
 <p><span class="req">F-20</span> Summary section at top of output, titled "Total Earned Hours Per Month".</p>
@@ -236,12 +237,21 @@ li { margin: 0.3rem 0; }
 </div>
 <p style="font-size:0.9rem;color:#666;">No open bugs at this time.</p>
 
-<h2>10. Open Questions</h2>
+<h2>10. Resolved Design Questions</h2>
 <ol>
-  <li>Should regions persist across Apply/filter changes, or reset? (Currently they reset on every renderAll.)</li>
-  <li>Should the unbundled CSV export include monthly hours columns in addition to the bundle-definition format?</li>
-  <li>Should there be a "select all / deselect all" button for program chips?</li>
+  <li><strong>Regions reset on every Apply (v1.3 decision):</strong> Averaging regions are intentionally per-render. Persisting them across filter changes would create ambiguous behavior when month bounds shift (region indices reference month positions, not month keys). Kept as-is.</li>
+  <li><strong>Unbundled CSV stays in bundle-definition format (v1.3 decision):</strong> The unbundled CSV is a burndown list — work orders that should be added to a bundle. The output format matches the Bundle Definition CSV intentionally so it can be opened, edited (assign a BundleName), and re-imported. Monthly-hours columns would be informational only and aren't useful to the burndown workflow.</li>
+  <li><strong>Select All / Deselect All chips (v1.3 ADDED, F-12a):</strong> Two bold chips at the start of the program filter bar. Each click of any program chip or bulk chip immediately re-renders (no separate Apply click required for program filtering).</li>
 </ol>
+
+<h2>11. Changelog (v1.3 &mdash; May 13, 2026)</h2>
+<ul>
+  <li><strong>F-12a (NEW):</strong> Program filter chip bar now begins with bold <em>Select All</em> and <em>Deselect All</em> bulk chips. Clicking any chip applies immediately &mdash; the user no longer needs to click <em>Apply</em> after toggling a program. Apply remains the trigger for start-date and (when checked manually) hide-last-month changes affecting axes.</li>
+  <li><strong>EV Details dedup visibility (v1.3):</strong> When multiple EV Details files are uploaded, the count of duplicate Order Nos skipped (first-occurrence wins) is now surfaced both inline in the EV file status line at upload time and as a warning row in the validation panel after Analyze. The first 10 duplicate Order Nos are shown as examples.</li>
+  <li><strong>Documentation: snapshot Chart.js reconstruction:</strong> A block comment was added above <code>saveSnapshot()</code> documenting how the snapshot serializes chart configs and inlines the reconstruction logic. No behavior change &mdash; intended as a maintenance aid for future Chart.js upgrades or plugin edits.</li>
+  <li><strong>Version label hygiene:</strong> Implementation <code>&lt;h1&gt;</code> bumped from v1.1 to v1.3 to match the PRD. (v1.2 features — Bundle Velocity export — were already implemented but the label was stale.)</li>
+  <li><strong>Deferred:</strong> Per-dataset <code>hidden</code> toggling on chip clicks as a perf optimization. Investigation showed the prior code did not even trigger <code>renderAll()</code> on chip clicks (chips were inert until Apply), so the "visibly laggy" concern was speculative. The v1.3 immediate-apply path uses full <code>renderAll()</code>; if real-data lag emerges, optimize via in-place <code>chart.update()</code> instead of destroying chart instances.</li>
+</ul>
 
 </body>
 </html>

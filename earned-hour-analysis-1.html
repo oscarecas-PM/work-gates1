@@ -143,7 +143,7 @@ License: MIT
 </head>
 <body>
 
-<h1>Earned Hour Analysis <span>v1.1</span></h1>
+<h1>Earned Hour Analysis <span>v1.3</span></h1>
 <p class="description">Upload hours earned and bundle definition CSVs, then click Analyze to view aggregated earned hours by work order, grouped by bundle, with trend charts.</p>
 
 <div class="file-inputs">
@@ -221,7 +221,7 @@ License: MIT
 
 <script>
 /* ================================================================
-   Earned Hour Analysis v1.1 — Application Logic
+   Earned Hour Analysis v1.3 — Application Logic
    ================================================================ */
 
 // --- Globals ---
@@ -234,6 +234,8 @@ var lastOrphanWOs = null;
 var lastHoursMap = null;
 var evDetailsData = null; // optional EV Details CSV
 var evDetailsMap = {};    // orderNo -> {network, partNo, planTitle, program}
+var evDedupCount = 0;     // Count of duplicate Order Nos skipped across all EV Details files (informational; first-occurrence wins)
+var evDuplicateOrders = []; // Sample list of deduplicated WOs (first 20) for the validation panel
 var lastFilteredOrphans = [];
 var allPrograms = [];
 var deselectedPrograms = new Set();
@@ -361,6 +363,8 @@ document.getElementById('ev-input').addEventListener('change', function(e) {
   if (!files || files.length === 0) return;
   evDetailsMap = {};
   evDetailsData = null;
+  evDedupCount = 0;
+  evDuplicateOrders = [];
   var totalRows = 0, filesDone = 0, errors = [];
   for (var f = 0; f < files.length; f++) {
     (function(file) {
@@ -378,7 +382,13 @@ document.getElementById('ev-input').addEventListener('change', function(e) {
               for (var r = 1; r < result.data.length; r++) {
                 var row = result.data[r];
                 var orderNo = (row[iOrder] || '').trim();
-                if (!orderNo || evDetailsMap[orderNo]) continue; // skip empty + dedup
+                if (!orderNo) continue; // skip empty
+                if (evDetailsMap[orderNo]) {
+                  // Duplicate Order No across files (or within one file). First occurrence wins.
+                  evDedupCount++;
+                  if (evDuplicateOrders.length < 20) evDuplicateOrders.push(orderNo);
+                  continue;
+                }
                 evDetailsMap[orderNo] = {
                   network: iNetwork >= 0 ? (row[iNetwork] || '').trim() : '',
                   partNo: iPartNo >= 0 ? (row[iPartNo] || '').trim() : '',
@@ -394,7 +404,11 @@ document.getElementById('ev-input').addEventListener('change', function(e) {
         filesDone++;
         if (filesDone === files.length) {
           if (errors.length > 0) showStatus('ev-status', errors.join('; '), false, true);
-          else showStatus('ev-status', 'Loaded ' + files.length + ' file(s): ' + Object.keys(evDetailsMap).length + ' unique WOs (from ' + totalRows + ' rows)', false);
+          else {
+            var msg = 'Loaded ' + files.length + ' file(s): ' + Object.keys(evDetailsMap).length + ' unique WOs (from ' + totalRows + ' rows)';
+            if (evDedupCount > 0) msg += '; ' + evDedupCount + ' duplicate Order No(s) skipped — first-occurrence wins';
+            showStatus('ev-status', msg, false);
+          }
         }
       };
       reader.readAsText(file);
@@ -1022,6 +1036,15 @@ function toggleUnbundled() {
 function renderValidation(valResult, aggWarnings) {
   var panel = document.getElementById('validation-panel'); var html = '';
   var allW = aggWarnings.concat(valResult.warnings);
+  // v1.2: surface silent EV Details dedup so the user knows N duplicates were skipped (first-occurrence wins).
+  if (evDedupCount > 0) {
+    var sampleStr = '';
+    if (evDuplicateOrders.length > 0) {
+      var shown = evDuplicateOrders.slice(0, 10);
+      sampleStr = ' Examples: ' + shown.join(', ') + (evDedupCount > shown.length ? ', … (+' + (evDedupCount - shown.length) + ' more)' : '');
+    }
+    allW.push('EV Details: ' + evDedupCount + ' duplicate Order No(s) skipped across uploaded files (first occurrence kept).' + sampleStr);
+  }
   for (var i = 0; i < valResult.errors.length; i++) html += '<div class="val-error"><strong>Error:</strong> ' + valResult.errors[i] + '</div>';
   for (var j = 0; j < allW.length; j++) html += '<div class="val-warning"><strong>Warning:</strong> ' + esc(allW[j]) + '</div>';
   panel.innerHTML = html ? '<div class="val-panel">' + html + '</div>' : '';
@@ -1122,7 +1145,13 @@ function initFilters() {
 
 function renderProgramChips() {
   var container = document.getElementById('program-chips');
+  // v1.2: bookend the chip list with Select All / Deselect All affordances. Bold styling to
+  // distinguish from program chips. "Select All" is highlighted when every program is on.
+  var allOn = (deselectedPrograms.size === 0);
+  var allOff = (allPrograms.length > 0 && deselectedPrograms.size === allPrograms.length);
   var html = '';
+  html += '<span class="prog-chip prog-chip-bulk ' + (allOn ? 'on' : 'off') + '" style="font-weight:bold;" onclick="selectAllPrograms()">Select All</span>';
+  html += '<span class="prog-chip prog-chip-bulk ' + (allOff ? 'on' : 'off') + '" style="font-weight:bold;" onclick="deselectAllPrograms()">Deselect All</span>';
   for (var i = 0; i < allPrograms.length; i++) {
     var p = allPrograms[i], on = !deselectedPrograms.has(p);
     html += '<span class="prog-chip ' + (on ? 'on' : 'off') + '" onclick="toggleProgram(\'' + esc(p).replace(/'/g, "\\'") + '\')">' + esc(p) + '</span>';
@@ -1134,6 +1163,32 @@ function toggleProgram(prog) {
   if (deselectedPrograms.has(prog)) deselectedPrograms.delete(prog);
   else deselectedPrograms.add(prog);
   renderProgramChips();
+  // v1.2: chip clicks now apply immediately. Previously toggling a chip only restyled the chip
+  // and required clicking "Apply" to see the effect.
+  //
+  // FUTURE: if applyFilters() proves laggy at production scale (many bundles, many programs),
+  // optimize via per-dataset hidden toggling: avoid destroying chart instances on chip toggle,
+  // mutate chart.data in place via chart.update(), and recompute aggregate Bundle Total /
+  // Grand Total datasets from visible inputs. Per-bundle datasets are keyed by root part #,
+  // not program, so the dataset.hidden mapping isn't clean — datasets would need to be
+  // recomputed regardless. The win would be in skipping new Chart() instantiation overhead.
+  // Not worth the refactor until lag is actually observed.
+  if (lastBundles) applyFilters();
+}
+
+function selectAllPrograms() {
+  // v1.2: F-12 affordance — restore all programs to "on" in one click.
+  deselectedPrograms.clear();
+  renderProgramChips();
+  if (lastBundles) applyFilters();
+}
+
+function deselectAllPrograms() {
+  // v1.2: F-12 affordance — turn every program "off" in one click. Filters out all data;
+  // the Summary / bundle / unbundled sections render empty until at least one chip is reselected.
+  for (var i = 0; i < allPrograms.length; i++) deselectedPrograms.add(allPrograms[i]);
+  renderProgramChips();
+  if (lastBundles) applyFilters();
 }
 
 function isProgramAllowed(prog) {
@@ -1171,6 +1226,47 @@ function printPage() {
 document.getElementById('print-btn').addEventListener('click', printPage);
 
 // --- Save Snapshot ---
+//
+// SNAPSHOT CHART.JS RECONSTRUCTION — design notes
+// -----------------------------------------------
+// The snapshot file is a self-contained HTML page that preserves full interactivity (legend
+// toggle with total recalc, box-zoom, region add/remove, takeaway display) without any
+// network access. The strategy:
+//
+//   1. SOURCE-side (this function):
+//      a. Walk every Chart.js instance in `chartInstances`. For each, serialize its labels,
+//         datasets (label + data + visual style), title, regions, and any takeaway text into
+//         a plain `chartConfigs[]` JSON. Datasets are deep-cloned via .slice() and explicit
+//         property pluck so functions/closures don't leak into JSON (which would break
+//         JSON.stringify or, worse, escape into the output as eval-able code).
+//      b. Scrape the embedded Chart.js source out of the page's <script> tags (any <script>
+//         that mentions "Chart.js" and is > 10 KB is assumed to be the library).
+//      c. Detach all live <canvas> elements from `output` BEFORE capturing innerHTML — they're
+//         re-inserted into the live page right after. This is important: Chart.js draws on
+//         a live canvas; serializing innerHTML captures it as an empty <canvas>, which is
+//         what the snapshot needs (a blank canvas to reattach to).
+//      d. Hide region controls + takeaway inputs + filter bar in the captured innerHTML so
+//         the snapshot doesn't carry source-side controls. The live page restores them.
+//      e. Emit an HTML document that bundles: CSS, banner, timestamp, captured innerHTML,
+//         the Chart.js source, the serialized chartConfigs JSON, and a bootstrap <script>
+//         that on-load walks the configs, recreates each Chart.js instance into its canvas
+//         (matched by `containerId`), re-attaches the regionPlugin + boxZoomPlugin + legend
+//         toggle handler, and rebuilds region controls + takeaway captions if non-empty.
+//
+//   2. SINK-side (the snapshot HTML):
+//      The bootstrap script (built as a series of `h += '...'` lines below) recreates the
+//      chartRegionState dict, the totalLabel-aware legend handler, and the region/zoom
+//      plugins INLINE — verbatim function bodies copied from the live page. This is
+//      brittle if a future Chart.js upgrade or plugin change happens; the bootstrap text
+//      and the live page would drift unless both are touched together.
+//
+// IF YOU EDIT THIS FUNCTION:
+//   - Keep `chartConfigs` JSON-stringifiable. No closures, no functions, no DOM references.
+//   - If you change `legendToggleHandler`, `regionPlugin`, `excludedNotePlugin`, or
+//     `boxZoomPlugin`, also update their inlined copies below so old snapshots and new
+//     snapshots stay consistent.
+//   - The snapshot reads its data from inline JSON, NOT from any uploaded CSV — once saved,
+//     the snapshot is fully detached from the source CSVs and the live tool.
 function saveSnapshot() {
   var css = document.querySelector('style').textContent;
   var now = new Date();
