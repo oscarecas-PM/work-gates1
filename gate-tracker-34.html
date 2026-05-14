@@ -886,6 +886,111 @@ function colIndex(headers, name) {
   return -1;
 }
 
+// --- Sibling-part helpers (F-186) ---
+// Two parts are siblings if they share the same root part number (substring before the last '-'),
+// the same trimmed part name, and the same program. Single-member groups render exactly as before
+// (no '-x' notation, original partNo used everywhere).
+function getRootPartNo(pn) {
+  var s = String(pn || '').trim();
+  var i = s.lastIndexOf('-');
+  // No dash, or leading dash (would yield empty root) → return the whole string so the part is its
+  // own group of one. Trailing dash is allowed: root is everything before, suffix is empty.
+  if (i <= 0) return s;
+  return s.substring(0, i);
+}
+function getDashSuffix(pn) {
+  var s = String(pn || '').trim();
+  var i = s.lastIndexOf('-');
+  if (i < 0) return '';
+  return s.substring(i + 1);
+}
+// Build sibling-group index from current globals. Caller must ensure allPartNos, partNamesGlobal,
+// partToPrograms, and evmPartHasHours are all populated. Returns { groups, partToGroupId }.
+function buildSiblingGroups() {
+  var groups = {};         // gid -> { rootPN, name, program, members:[pn] }
+  var partToGroupId = {};  // pn -> gid
+  for (var i = 0; i < allPartNos.length; i++) {
+    var pn = allPartNos[i];
+    if (!evmPartHasHours[pn]) {
+      // Degenerate singleton — gid is the partNo itself. Lets chip/section logic always find a key.
+      partToGroupId[pn] = pn;
+      groups[pn] = { rootPN: pn, name: (partNamesGlobal[pn] || ''), program: '', members: [pn] };
+      continue;
+    }
+    var root = getRootPartNo(pn);
+    var name = (partNamesGlobal[pn] || '').trim();
+    var progs = partToPrograms[pn] ? Array.from(partToPrograms[pn]) : [''];
+    for (var pi = 0; pi < progs.length; pi++) {
+      var gid = root + '||' + progs[pi] + '||' + name;
+      if (!groups[gid]) {
+        groups[gid] = { rootPN: root, name: name, program: progs[pi], members: [] };
+      }
+      // Avoid duplicate member if a part somehow lands in the same gid twice.
+      if (groups[gid].members.indexOf(pn) === -1) groups[gid].members.push(pn);
+    }
+    partToGroupId[pn] = root + '||' + progs[0] + '||' + name;
+  }
+  // Sort members of each group by dash-suffix (numeric where possible, else lex).
+  Object.keys(groups).forEach(function(gid) {
+    groups[gid].members.sort(function(a, b) {
+      var aa = getDashSuffix(a), bb = getDashSuffix(b);
+      var an = parseFloat(aa), bn = parseFloat(bb);
+      var aIsNum = isFinite(an) && String(an) === aa;
+      var bIsNum = isFinite(bn) && String(bn) === bb;
+      if (aIsNum && bIsNum) return an - bn;
+      if (aIsNum) return -1;
+      if (bIsNum) return 1;
+      return aa < bb ? -1 : aa > bb ? 1 : 0;
+    });
+  });
+  return { groups: groups, partToGroupId: partToGroupId };
+}
+function isMultiMemberGroup(gid) {
+  return !!(siblingGroups[gid] && siblingGroups[gid].members.length >= 2);
+}
+// Resolve programs for a filter key. Key may be a real partNo or a gid.
+function getProgramsForKey(key) {
+  var out = new Set();
+  if (siblingGroups[key]) {
+    var members = siblingGroups[key].members;
+    for (var i = 0; i < members.length; i++) {
+      if (partToPrograms[members[i]]) {
+        partToPrograms[members[i]].forEach(function(p) { out.add(p); });
+      }
+    }
+    return out;
+  }
+  if (partToPrograms[key]) {
+    partToPrograms[key].forEach(function(p) { out.add(p); });
+  }
+  return out;
+}
+// Does this filter key (real partNo or gid) have any evmPartHasHours member?
+function keyHasHours(key) {
+  if (evmPartHasHours[key]) return true;
+  if (siblingGroups[key]) {
+    return siblingGroups[key].members.some(function(m) { return !!evmPartHasHours[m]; });
+  }
+  return false;
+}
+// Anchor for BCPS box — root part number for multi-member groups, partNo for singletons.
+function bcpsAnchorFor(key) {
+  if (siblingGroups[key] && siblingGroups[key].members.length >= 2) {
+    return siblingGroups[key].rootPN;
+  }
+  return key;
+}
+// Heading text: "D123456-x (-1, -11, -14 included) — Part Name" for groups, "<partNo> — <name>" for singletons.
+function siblingHeadingText(key) {
+  var g = siblingGroups[key];
+  if (g && g.members.length >= 2) {
+    var dashes = g.members.map(function(m) { return '-' + getDashSuffix(m); }).join(', ');
+    return g.rootPN + '-x (' + dashes + ' included)' + (g.name ? ' — ' + g.name : '');
+  }
+  var pName = partNamesGlobal[key] || '';
+  return key + (pName ? ' — ' + pName : '');
+}
+
 // --- Globals for filters ---
 let allPrograms = [];
 let selectedPrograms = new Set();
@@ -894,6 +999,8 @@ let selectedPartNo = null; // null = show all
 let selectedGvOrders = new Set();
 
 let partToPrograms = {};    // { partNo: Set<program> } — built in process()
+let siblingGroups = {};     // gid -> { rootPN, name, program, members:[pn] } — built in process()
+let partToGroupId = {};     // pn -> gid — built in process()
 let priorityOrders = new Set(); // Feature 7: priority work order numbers
 let partNamesGlobal = {};  // partNo -> name, for search
 var masterGateSetGlobal = new Set(); // for snapshot comment injection
@@ -1018,6 +1125,8 @@ function selectAllPrograms() {
 }
 
 function selectPartNo(pn) {
+  // F-186: pn may be a real partNo (singleton) or a gid (multi-member sibling group). The 3-state
+  // logic below uses getProgramsForKey() so the key resolves to a Set of programs uniformly.
   // Clear search when clicking a part chip directly
   var searchInput = document.getElementById('part-search-input');
   if (searchInput && searchInput.value) {
@@ -1027,17 +1136,16 @@ function selectPartNo(pn) {
   var dropdown = document.getElementById('part-search-dropdown');
   if (dropdown) dropdown.style.display = 'none';
   // Determine if chip is Off (no parent program visible)
+  var _progsForPn = getProgramsForKey(pn);
   var isOff = true;
-  if (partToPrograms[pn]) {
-    for (var pgm of partToPrograms[pn]) {
+  if (_progsForPn.size > 0) {
+    for (var pgm of _progsForPn) {
       if (selectedPrograms.has(pgm)) { isOff = false; break; }
     }
   }
   if (isOff) {
     // Off chip: enable parent program(s), then isolate
-    if (partToPrograms[pn]) {
-      partToPrograms[pn].forEach(function(pgm) { selectedPrograms.add(pgm); });
-    }
+    _progsForPn.forEach(function(pgm) { selectedPrograms.add(pgm); });
     selectedPartNo = pn;
   } else if (selectedPartNo === pn) {
     // Isolated chip: de-isolate
@@ -1059,14 +1167,14 @@ function applyFilters() {
   document.querySelectorAll('#detail-view .filter-chip[data-pgm]').forEach(c => {
     c.classList.toggle('selected', selectedPrograms.has(c.dataset.pgm));
   });
-  // Part No. chips — 3-state: off / on / isolated
+  // Part No. chips — 3-state: off / on / isolated. F-186: data-pn may be a partNo or a gid;
+  // getProgramsForKey() handles both uniformly.
   document.querySelectorAll('#detail-view .filter-chip[data-pn]').forEach(c => {
     var pn = c.dataset.pn;
+    var _progs = getProgramsForKey(pn);
     var hasVisibleProgram = false;
-    if (partToPrograms[pn]) {
-      for (var pgm of partToPrograms[pn]) {
-        if (selectedPrograms.has(pgm)) { hasVisibleProgram = true; break; }
-      }
+    for (var pgm of _progs) {
+      if (selectedPrograms.has(pgm)) { hasVisibleProgram = true; break; }
     }
     c.classList.remove('selected', 'pn-off', 'pn-isolated');
     if (!hasVisibleProgram) {
@@ -1174,12 +1282,22 @@ function searchParts() {
     return;
   }
 
-  // Find matching part numbers
+  // Find matching part numbers. F-186: dataset.partno may be a gid for multi-member sibling
+  // groups; match against the rootPN and ALL member partNos as well as the group's part name.
   var matches = [];
   document.querySelectorAll('#output .part-section').forEach(function(s) {
     var pn = s.dataset.partno || '';
-    var pName = (partNamesGlobal[pn] || '').toLowerCase();
-    var isMatch = pn.toLowerCase().indexOf(query) >= 0 || pName.indexOf(query) >= 0;
+    var grp = siblingGroups[pn];
+    var nameLc = '';
+    var candidates = [pn.toLowerCase()];
+    if (grp) {
+      nameLc = (grp.name || '').toLowerCase();
+      candidates.push((grp.rootPN || '').toLowerCase());
+      for (var _gmi = 0; _gmi < grp.members.length; _gmi++) candidates.push(grp.members[_gmi].toLowerCase());
+    } else {
+      nameLc = (partNamesGlobal[pn] || '').toLowerCase();
+    }
+    var isMatch = candidates.some(function(c) { return c && c.indexOf(query) >= 0; }) || (nameLc && nameLc.indexOf(query) >= 0);
     // Also check program visibility
     var progSection = s.closest('.program-section');
     var progVisible = progSection && selectedPrograms.has(progSection.dataset.program);
@@ -1214,8 +1332,16 @@ function searchParts() {
     var dHtml = '';
     for (var i = 0; i < matches.length; i++) {
       var pn = matches[i];
-      var pName = partNamesGlobal[pn] || '';
-      dHtml += '<div class="search-dropdown-item" data-pn="' + esc(pn) + '">' + esc(pn) + (pName ? ' — ' + esc(pName) : '') + '</div>';
+      // F-186: use sibling heading text when pn is a gid; otherwise the original partNo — name form.
+      var _itemLabel;
+      var _grpForItem = siblingGroups[pn];
+      if (_grpForItem && _grpForItem.members.length >= 2) {
+        _itemLabel = _grpForItem.rootPN + '-x' + (_grpForItem.name ? ' — ' + _grpForItem.name : '');
+      } else {
+        var pName = partNamesGlobal[pn] || '';
+        _itemLabel = pn + (pName ? ' — ' + pName : '');
+      }
+      dHtml += '<div class="search-dropdown-item" data-pn="' + esc(pn) + '">' + esc(_itemLabel) + '</div>';
     }
     dropdown.innerHTML = dHtml;
     dropdown.style.display = 'block';
@@ -1918,6 +2044,13 @@ function process() {
   selectedPartNo = null;
   partNamesGlobal = partNames; // Feature 3: store for search
 
+  // F-186: Build sibling-group index now that allPartNos, partNamesGlobal, partToPrograms, and
+  // evmPartHasHours are all populated. Downstream consumers (chip render, Detail View loop, plot
+  // construction, BCPS, EVM-report embedding) read siblingGroups + partToGroupId.
+  var _sibBuild = buildSiblingGroups();
+  siblingGroups = _sibBuild.groups;
+  partToGroupId = _sibBuild.partToGroupId;
+
   // Feature 5: Pre-parse history log for days-at-gate in detail view
   historyByOrderGlobal = null;
   todayForAgingGlobal = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
@@ -1961,13 +2094,29 @@ function process() {
     pnAllBtn.addEventListener('click', showAllParts);
     pnFilterChips.appendChild(pnAllBtn);
 
-    for (const pn of allPartNos) {
-      const chip = document.createElement('span');
+    // F-186: one chip per sibling group. Multi-member groups show "<rootPN>-x — <name>" with
+    // data-pn set to the gid (the group identity). Singletons (the common case) render exactly
+    // as before — text is "<partNo> — <name>" and data-pn is the partNo.
+    var _chipKeys = Object.keys(siblingGroups).sort(function(a, b) {
+      var ga = siblingGroups[a], gb = siblingGroups[b];
+      var ra = ga.rootPN || a, rb = gb.rootPN || b;
+      return ra < rb ? -1 : ra > rb ? 1 : (a < b ? -1 : a > b ? 1 : 0);
+    });
+    for (var _ck = 0; _ck < _chipKeys.length; _ck++) {
+      var _gid = _chipKeys[_ck];
+      var _g = siblingGroups[_gid];
+      var _isMulti = _g.members.length >= 2;
+      var _chipPn = _isMulti ? _gid : _g.members[0];
+      var _chipLabel = _isMulti
+        ? (_g.rootPN + '-x' + (_g.name ? ' — ' + _g.name : ''))
+        : (_chipPn + (partNames[_chipPn] ? ' — ' + partNames[_chipPn] : ''));
+      var chip = document.createElement('span');
       chip.className = 'filter-chip pn-chip';
-      const pName = partNames[pn];
-      chip.textContent = pn + (pName ? ' — ' + pName : '');
-      chip.dataset.pn = pn;
-      chip.addEventListener('click', function() { selectPartNo(pn); });
+      chip.textContent = _chipLabel;
+      chip.dataset.pn = _chipPn;
+      (function(_keyCapture) {
+        chip.addEventListener('click', function() { selectPartNo(_keyCapture); });
+      })(_chipPn);
       pnFilterChips.appendChild(chip);
     }
   }
@@ -2276,23 +2425,73 @@ function process() {
 
     const partsInProg = Object.keys(byProg[program]).sort();
 
-    for (const partNo of partsInProg) {
+    // F-186: dedupe by sibling-group id within this program so a multi-member group emits one
+    // .part-section that interleaves its members' WO cards. Singleton groups behave unchanged.
+    const _emittedGidsInProg = new Set();
+    for (const _partNoOuter of partsInProg) {
+      const _gid = partToGroupId[_partNoOuter] || _partNoOuter;
+      if (_emittedGidsInProg.has(_gid)) continue;
+      _emittedGidsInProg.add(_gid);
+
+      const _grp = siblingGroups[_gid];
+      const _isMulti = !!(_grp && _grp.members.length >= 2);
+      // Members present in THIS program (intersect group members with the current program's parts).
+      const _memberPartNos = _isMulti
+        ? _grp.members.filter(function(m) { return byProg[program][m]; })
+        : [_partNoOuter];
+      // partNo used as the section's canonical identity. For multi-member groups it's the gid
+      // (so the chip data-pn === section data-partno match works). For singletons it's the real partNo.
+      const partNo = _isMulti ? _gid : _partNoOuter;
+
       const section = document.createElement('div');
       section.className = 'part-section';
       section.dataset.partno = partNo;
 
       const partHeader = document.createElement('div');
       partHeader.className = 'part-header';
-      const pName = partNames[partNo];
-      partHeader.textContent = partNo + (pName ? ' \u2014 ' + pName : '');
+      if (_isMulti) {
+        partHeader.textContent = siblingHeadingText(_gid);
+      } else {
+        const pName = partNames[partNo];
+        partHeader.textContent = partNo + (pName ? ' \u2014 ' + pName : '');
+      }
       section.appendChild(partHeader);
 
-      const gates = gatesByPart[partNo] || [];
-      const sortedOrderNos = Object.keys(byProg[program][partNo]).sort();
-      const closedOrderNos = (closedWosByPart[partNo] || []).slice().sort();
+      // Build the interleaved {wo, partNo} list across all members so cards sort by WO number,
+      // not by member then WO. Each WO keeps its own real partNo for gate / EVM / hold lookups.
+      const _woList = [];
+      for (var _mi = 0; _mi < _memberPartNos.length; _mi++) {
+        var _mp = _memberPartNos[_mi];
+        var _woKeys = Object.keys(byProg[program][_mp] || {});
+        for (var _wki = 0; _wki < _woKeys.length; _wki++) {
+          _woList.push({ wo: _woKeys[_wki], partNo: _mp });
+        }
+      }
+      _woList.sort(function(a, b) { return a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : 0; });
+      const sortedOrderNos = _woList.map(function(x) { return x.wo; });
+      // Closed WOs are unioned across members. Track each closed WO's source partNo so the plot
+      // legend can suffix with the right dash-number.
+      const closedOrderNos = [];
+      const _closedWoToPartNo = {};
+      for (var _cmi = 0; _cmi < _memberPartNos.length; _cmi++) {
+        var _cmp = _memberPartNos[_cmi];
+        var _cwArr = closedWosByPart[_cmp] || [];
+        for (var _cwii = 0; _cwii < _cwArr.length; _cwii++) {
+          closedOrderNos.push(_cwArr[_cwii]);
+          _closedWoToPartNo[_cwArr[_cwii]] = _cmp;
+        }
+      }
+      closedOrderNos.sort();
+      // Per-WO partNo map used inside the WO loop (so each card looks up gates / gateLookup /
+      // evmPartHasHours against its own actual partNo, not the group id).
+      const _woToPartNo = {};
+      for (var _wlni = 0; _wlni < _woList.length; _wlni++) _woToPartNo[_woList[_wlni].wo] = _woList[_wlni].partNo;
 
       for (const orderNo of sortedOrderNos) {
-        const rows = byProg[program][partNo][orderNo];
+        // F-186: resolve the WO's actual partNo and use it for all per-part lookups in the card body.
+        const _woPartNo = _woToPartNo[orderNo];
+        const gates = gatesByPart[_woPartNo] || [];
+        const rows = byProg[program][_woPartNo][orderNo];
 
         const operInfo = {};
         for (const r of rows) {
@@ -2307,7 +2506,7 @@ function process() {
         const drOps = [];
         const otherUndefined = [];
         for (const nOp of activeOpers) {
-          if (!gateLookup[partNo + '|||' + nOp]) {
+          if (!gateLookup[_woPartNo + '|||' + nOp]) {
             const raw = operInfo[nOp].rawOperNo;
             const num = parseFloat(nOp) || 0;
             if (num >= 7000 && num <= 7999) {
@@ -2353,7 +2552,7 @@ function process() {
         let evmHtml = '';
         var evmData = evmResults[orderNo];
         if (evmData) {
-          if (!evmPartHasHours[partNo]) {
+          if (!evmPartHasHours[_woPartNo]) {
             // Part not in decoder ring — show message instead of misleading EVM data
             evmHtml += '<div class="evm-row" style="color:#92400e;background:#fef3c7;border-bottom-color:#f59e0b;font-style:italic;">Add this P/N to the Gate Decoder file to see EVM data</div>';
           } else {
@@ -2478,13 +2677,23 @@ function process() {
         section.appendChild(card);
       }
 
-      // VAC Trend Plot for this part number (after all order cards)
-      if (hasPeabody && evmPartHasHours[partNo] && vacLogData && vacLogData.length > 1) {
+      // VAC Trend Plot for this part / sibling group (after all order cards)
+      // F-186: For multi-member groups, the plot covers all member WOs (active + closed unioned
+      // above). The title shows the group heading; the anchor uses the root part number.
+      var _anyMemberHasHours = _memberPartNos.some(function(m) { return !!evmPartHasHours[m]; });
+      if (hasPeabody && _anyMemberHasHours && vacLogData && vacLogData.length > 1) {
         var plotContainer = document.createElement('div');
         plotContainer.className = 'vac-plot-container';
-        var plotPartName = partNames[partNo] || '';
-        // Plot title is a link — jumps to this part's row in the Bench Cost Performance Summary (bcps-<partNo> anchor is emitted further below).
-        plotContainer.innerHTML = '<div class="vac-plot-title"><a href="#bcps-' + esc(partNo) + '" style="color:inherit;text-decoration:none;" title="Jump to Bench Cost Performance Summary for this part">VAC for ' + esc(program) + ' ' + esc(partNo) + (plotPartName ? ' ' + esc(plotPartName) : '') + '</a></div>';
+        var _plotAnchor = bcpsAnchorFor(partNo);
+        var _plotTitleText;
+        if (_isMulti) {
+          // siblingHeadingText already includes the part name; prepend "VAC for <program>".
+          _plotTitleText = 'VAC for ' + program + ' ' + siblingHeadingText(_gid);
+        } else {
+          var plotPartName = partNames[partNo] || '';
+          _plotTitleText = 'VAC for ' + program + ' ' + partNo + (plotPartName ? ' ' + plotPartName : '');
+        }
+        plotContainer.innerHTML = '<div class="vac-plot-title"><a href="#bcps-' + esc(_plotAnchor) + '" style="color:inherit;text-decoration:none;" title="Jump to Bench Cost Performance Summary for this part">' + esc(_plotTitleText) + '</a></div>';
         // Calculate Program EAC for this part number.
         var avgEacSum = 0, avgEacCount = 0;
         for (var ewo of sortedOrderNos) {
@@ -2526,8 +2735,25 @@ function process() {
         plotContainer.appendChild(noteRow);
         section.appendChild(plotContainer);
 
+        // F-186: build seriesExtras dash-suffix labels for multi-member groups so each legend
+        // entry shows "(-N)" before the percent. Active WOs get their dash from evmResults' partNo;
+        // closed WOs get it from _closedWoToPartNo (built when unioning closed WOs above).
+        var _seriesExtras = null;
+        if (_isMulti) {
+          _seriesExtras = {};
+          for (var _seai = 0; _seai < sortedOrderNos.length; _seai++) {
+            var _seaWo = sortedOrderNos[_seai];
+            var _seaPn = _woToPartNo[_seaWo] || (evmResults[_seaWo] && evmResults[_seaWo].partNo);
+            if (_seaPn) _seriesExtras[_seaWo] = '-' + getDashSuffix(_seaPn);
+          }
+          for (var _seci = 0; _seci < closedOrderNos.length; _seci++) {
+            var _secWo = closedOrderNos[_seci];
+            var _secPn = _closedWoToPartNo[_secWo];
+            if (_secPn) _seriesExtras[_secWo] = '-' + getDashSuffix(_secPn);
+          }
+        }
         // Render VAC trend plot on canvas
-        renderVacPlot(canvas, partNo, sortedOrderNos, vacHistory, evmResults, peabodyDate, closedOrderNos);
+        renderVacPlot(canvas, partNo, sortedOrderNos, vacHistory, evmResults, peabodyDate, closedOrderNos, _seriesExtras);
       }
 
       progSection.appendChild(section);
@@ -2547,6 +2773,48 @@ function process() {
     .filter(function(p) { return !_activePartNos.has(p); })
     .sort();
   if (_deliveredParts.length) {
+    // F-186: in the delivered branch, group all-closed siblings by their gid. Note: at this point
+    // an all-closed part has no entries in byProg (no active WOs), so its gid may not exist in
+    // siblingGroups (which is keyed on parts with evmPartHasHours within a program). Fall back to
+    // a "delivered-only" pseudo-group keyed by (rootPN + '||' + name) so siblings still combine
+    // here. Singletons keep the original partNo-keyed behavior.
+    function _deliveredGroupKey(pn) {
+      // Prefer the canonical gid if available (some delivered parts may still be in evmPartHasHours
+      // even if no active WO this run, e.g., part had hours last week but all WOs just shipped).
+      if (partToGroupId[pn] && siblingGroups[partToGroupId[pn]] && siblingGroups[partToGroupId[pn]].members.length >= 2) {
+        return partToGroupId[pn];
+      }
+      // Synthetic key — namespace it so it can't collide with a real gid.
+      var name = (partNamesGlobal[pn] || '').trim();
+      return 'DELIVERED||' + getRootPartNo(pn) + '||' + name;
+    }
+    var _deliveredGroups = {};   // key -> { rootPN, name, members:[pn] }
+    for (var _dpi = 0; _dpi < _deliveredParts.length; _dpi++) {
+      var _ddpn = _deliveredParts[_dpi];
+      var _dkey = _deliveredGroupKey(_ddpn);
+      if (!_deliveredGroups[_dkey]) {
+        var _existing = siblingGroups[_dkey];
+        _deliveredGroups[_dkey] = _existing
+          ? { rootPN: _existing.rootPN, name: _existing.name, members: [] }
+          : { rootPN: getRootPartNo(_ddpn), name: (partNamesGlobal[_ddpn] || '').trim(), members: [] };
+      }
+      if (_deliveredGroups[_dkey].members.indexOf(_ddpn) === -1) {
+        _deliveredGroups[_dkey].members.push(_ddpn);
+      }
+    }
+    Object.keys(_deliveredGroups).forEach(function(k) {
+      _deliveredGroups[k].members.sort(function(a, b) {
+        var aa = getDashSuffix(a), bb = getDashSuffix(b);
+        var an = parseFloat(aa), bn = parseFloat(bb);
+        var aIsNum = isFinite(an) && String(an) === aa;
+        var bIsNum = isFinite(bn) && String(bn) === bb;
+        if (aIsNum && bIsNum) return an - bn;
+        if (aIsNum) return -1;
+        if (bIsNum) return 1;
+        return aa < bb ? -1 : aa > bb ? 1 : 0;
+      });
+    });
+
     // Helper: does this delivered part have any real CPI or VAC variance across its history?
     // If every VAC value is the same AND every CPI value is the same (or all null), skip the plot entirely.
     function _deliveredHasVariance(partWos) {
@@ -2575,13 +2843,29 @@ function process() {
     const _delProgHeader = document.createElement('summary');
     _delProgHeader.className = 'program-header';
     _delProgHeader.style.cursor = 'pointer';
-    // Count how many parts will actually render a plot (after variance filter) for the header.
+    // F-186: variance-filter at the group level. One plot per delivered group; a skipped flat
+    // group counts as one hidden entry. Also pre-bundle each render item with its closed-WO union
+    // and a wo->partNo map for legend dash suffixes.
     var _renderedDeliveredCount = 0;
     var _skippedFlatCount = 0;
-    var _deliveredRenderList = [];
-    for (const _dpn of _deliveredParts) {
-      if (_deliveredHasVariance(closedWosByPart[_dpn])) {
-        _deliveredRenderList.push(_dpn);
+    var _deliveredRenderList = [];  // [{ key, group, closedWos, closedWoToPartNo }]
+    var _dkeys = Object.keys(_deliveredGroups).sort();
+    for (var _dki = 0; _dki < _dkeys.length; _dki++) {
+      var _dkRender = _dkeys[_dki];
+      var _dgRender = _deliveredGroups[_dkRender];
+      var _dgClosedWos = [];
+      var _dgClosedWoToPn = {};
+      for (var _dmi = 0; _dmi < _dgRender.members.length; _dmi++) {
+        var _dgMp = _dgRender.members[_dmi];
+        var _dgArr = closedWosByPart[_dgMp] || [];
+        for (var _dgci = 0; _dgci < _dgArr.length; _dgci++) {
+          _dgClosedWos.push(_dgArr[_dgci]);
+          _dgClosedWoToPn[_dgArr[_dgci]] = _dgMp;
+        }
+      }
+      _dgClosedWos.sort();
+      if (_deliveredHasVariance(_dgClosedWos)) {
+        _deliveredRenderList.push({ key: _dkRender, group: _dgRender, closedWos: _dgClosedWos, closedWoToPartNo: _dgClosedWoToPn });
         _renderedDeliveredCount++;
       } else {
         _skippedFlatCount++;
@@ -2591,20 +2875,33 @@ function process() {
       + (_skippedFlatCount ? ' (' + _skippedFlatCount + ' hidden: no CPI/VAC change in history)' : '');
     _delProgSection.appendChild(_delProgHeader);
 
-    for (const _dpn of _deliveredRenderList) {
+    for (var _drli = 0; _drli < _deliveredRenderList.length; _drli++) {
+      var _drItem = _deliveredRenderList[_drli];
+      var _drGroup = _drItem.group;
+      var _drIsMulti = _drGroup.members.length >= 2;
+      var _drSectionKey = _drIsMulti ? _drItem.key : _drGroup.members[0];
+      var _drHeading;
+      if (_drIsMulti) {
+        var _drDashes = _drGroup.members.map(function(m) { return '-' + getDashSuffix(m); }).join(', ');
+        _drHeading = _drGroup.rootPN + '-x (' + _drDashes + ' included)' + (_drGroup.name ? ' \u2014 ' + _drGroup.name : '');
+      } else {
+        var _drDpnSingle = _drGroup.members[0];
+        var _drDpnName = partNames[_drDpnSingle] || _drGroup.name || '';
+        _drHeading = _drDpnSingle + (_drDpnName ? ' \u2014 ' + _drDpnName : '');
+      }
+
       const _dSection = document.createElement('div');
       _dSection.className = 'part-section';
-      _dSection.dataset.partno = _dpn;
+      _dSection.dataset.partno = _drSectionKey;
       const _dPartHeader = document.createElement('div');
       _dPartHeader.className = 'part-header';
-      const _dPName = partNames[_dpn] || '';
-      _dPartHeader.textContent = _dpn + (_dPName ? ' \u2014 ' + _dPName : '');
+      _dPartHeader.textContent = _drHeading;
       _dSection.appendChild(_dPartHeader);
 
       // Plot-only: no gate-bar, no WO cards, no EVM row
       const _dPlotContainer = document.createElement('div');
       _dPlotContainer.className = 'vac-plot-container';
-      _dPlotContainer.innerHTML = '<div class="vac-plot-title">VAC for ' + esc(_dpn) + (_dPName ? ' ' + esc(_dPName) : '') + '</div>'
+      _dPlotContainer.innerHTML = '<div class="vac-plot-title">VAC for ' + esc(_drHeading) + '</div>'
         + '<div class="vac-plot-subtitle">All WOs delivered / no active production</div>';
       const _dCanvasWrap = document.createElement('div');
       _dCanvasWrap.className = 'vac-plot-canvas-wrap';
@@ -2631,7 +2928,17 @@ function process() {
       _dSection.appendChild(_dPlotContainer);
       _delProgSection.appendChild(_dSection);
 
-      renderVacPlot(_dCanvas, _dpn, [], vacHistory, evmResults, peabodyDate, closedWosByPart[_dpn].slice().sort());
+      // seriesExtras for the closed legend entries (delivered groups never have active WOs).
+      var _drSeriesExtras = null;
+      if (_drIsMulti) {
+        _drSeriesExtras = {};
+        for (var _drsei = 0; _drsei < _drItem.closedWos.length; _drsei++) {
+          var _drsewo = _drItem.closedWos[_drsei];
+          var _drsepn = _drItem.closedWoToPartNo[_drsewo];
+          if (_drsepn) _drSeriesExtras[_drsewo] = '-' + getDashSuffix(_drsepn);
+        }
+      }
+      renderVacPlot(_dCanvas, _drSectionKey, [], vacHistory, evmResults, peabodyDate, _drItem.closedWos, _drSeriesExtras);
     }
     output.appendChild(_delProgSection);
   }
@@ -3514,8 +3821,12 @@ function isOperHold(val) {
 //   - Tooltip on hover, legend-group toggle on click, drag-to-zoom, dbl-click/reset-button to clear zoom.
 //   - "Avg CPI" → "CPI" label when exactly one series contributes (#4).
 //   - Legend shows "(NN%)" after each WO/SN label; 100% for closed WOs which are considered delivered (#7).
-function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabodyDate, closedOrderNos) {
+function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabodyDate, closedOrderNos, seriesExtras) {
   closedOrderNos = closedOrderNos || [];
+  // F-186: seriesExtras is an optional map of { wo: '-N' } supplying the dash-number suffix that
+  // gets baked into the legend's pctLabel. Caller pre-computes this for multi-member sibling groups;
+  // singletons / older snapshot replays pass nothing and behave exactly as before.
+  seriesExtras = seriesExtras || {};
   var ctx = canvas.getContext('2d');
   var W = canvas.width, H = canvas.height;
   var PAD_L = 60, PAD_R = 200, PAD_T = 20, PAD_B = 50;
@@ -3575,7 +3886,11 @@ function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabody
     if (peabodyDate && evm.cpi != null && isFinite(evm.cpi)) {
       woCpiSamples.push({ t: peabodyDate.getTime(), cpi: evm.cpi });
     }
-    series.push({ wo: wo, label: label, points: points, color: lineColors[i % lineColors.length], closed: false, pctLabel: pctLbl, cpiSamples: woCpiSamples });
+    // F-186: prepend the dash-suffix to pctLabel when seriesExtras[wo] is provided. The legend
+    // renderer wraps pctLabel in parens, so '(-1, 45%)' is the natural output for a sibling member.
+    var _extraActive = seriesExtras[wo] || '';
+    var _pctActive = _extraActive ? (pctLbl ? (_extraActive + ', ' + pctLbl) : _extraActive) : pctLbl;
+    series.push({ wo: wo, label: label, points: points, color: lineColors[i % lineColors.length], closed: false, pctLabel: _pctActive, cpiSamples: woCpiSamples });
   }
   // Closed series — dimmed; points from vacHistory only (no peabodyDate, no evmResults dependency).
   for (var ci = 0; ci < closedOrderNos.length; ci++) {
@@ -3594,7 +3909,10 @@ function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabody
     // Offset color index into the palette after active WOs so transitions look stable.
     var cColorIdx = (orderNos.length + ci) % lineColors.length;
     // Delivered WOs are considered 100% complete for the legend % display (#7).
-    series.push({ wo: cwo, label: cLabel, points: cPoints, color: lineColors[cColorIdx], closed: true, pctLabel: '100%', cpiSamples: cClosedCpi });
+    // F-186: dash-suffix prepended to pctLabel for sibling-group plots.
+    var _extraClosed = seriesExtras[cwo] || '';
+    var _pctClosed = _extraClosed ? (_extraClosed + ', 100%') : '100%';
+    series.push({ wo: cwo, label: cLabel, points: cPoints, color: lineColors[cColorIdx], closed: true, pctLabel: _pctClosed, cpiSamples: cClosedCpi });
   }
 
   // Filter series by hiddenGroups (#8: toggle active/closed groups)
@@ -4613,33 +4931,68 @@ function saveEvmReport() {
     var lpcCanvas = livePlotContainers[lpc].querySelector('canvas');
     var lpcPartSection = livePlotContainers[lpc].closest('.part-section');
     if (!lpcCanvas || !lpcPartSection) continue;
-    var lpcPartNo = lpcPartSection.dataset.partno;
-    if (!lpcPartNo) continue;
-    if (!evmPartHasHours[lpcPartNo] && !closedWosByPart[lpcPartNo]) continue;
-    // Active WOs for this part = those present in evmResults whose partNo matches.
+    var lpcKey = lpcPartSection.dataset.partno;
+    if (!lpcKey) continue;
+    // F-186: resolve gid or singleton; member set drives partNo matching downstream.
+    var _lpcGrp = siblingGroups[lpcKey];
+    var _lpcMembers = (_lpcGrp && _lpcGrp.members.length >= 2) ? _lpcGrp.members.slice() : [lpcKey];
+    var _lpcMemberSet = {};
+    for (var _lmi = 0; _lmi < _lpcMembers.length; _lmi++) _lpcMemberSet[_lpcMembers[_lmi]] = true;
+    var _lpcAnyHours = _lpcMembers.some(function(m) { return !!evmPartHasHours[m]; });
+    var _lpcAnyClosed = _lpcMembers.some(function(m) { return closedWosByPart[m] && closedWosByPart[m].length > 0; });
+    if (!_lpcAnyHours && !_lpcAnyClosed) continue;
+    // Active WOs = those in evmResults whose partNo is in the member set.
     var lpcOrderNos = [];
+    var _lpcWoToPn = {};
     for (var _rwo in evmResults) {
-      if (evmResults[_rwo].partNo === lpcPartNo) {
+      if (_lpcMemberSet[evmResults[_rwo].partNo]) {
         lpcOrderNos.push(_rwo);
         usedWos[_rwo] = true;
+        _lpcWoToPn[_rwo] = evmResults[_rwo].partNo;
       }
     }
     lpcOrderNos.sort();
-    // Closed WOs for this part (delivered history)
-    var lpcClosedOrderNos = (closedWosByPart[lpcPartNo] || []).slice().sort();
+    // Closed WOs unioned across members.
+    var lpcClosedOrderNos = [];
+    var _lpcClosedToPn = {};
+    for (var _lcmi = 0; _lcmi < _lpcMembers.length; _lcmi++) {
+      var _lcmp = _lpcMembers[_lcmi];
+      var _lcArr = closedWosByPart[_lcmp] || [];
+      for (var _lcj = 0; _lcj < _lcArr.length; _lcj++) {
+        lpcClosedOrderNos.push(_lcArr[_lcj]);
+        _lpcClosedToPn[_lcArr[_lcj]] = _lcmp;
+      }
+    }
+    lpcClosedOrderNos.sort();
     for (var _cwi = 0; _cwi < lpcClosedOrderNos.length; _cwi++) usedWos[lpcClosedOrderNos[_cwi]] = true;
     var lpcTitleEl = livePlotContainers[lpc].querySelector('.vac-plot-title');
     var lpcSubtitleEl = livePlotContainers[lpc].querySelector('.vac-plot-subtitle');
     var lpcNoteInput = livePlotContainers[lpc].querySelector('.vac-plot-note-input');
     // Determine program: use the first active WO's, or the synthetic "(Delivered)" bucket.
     var lpcProgram = lpcOrderNos.length > 0 ? (evmResults[lpcOrderNos[0]].program || 'Unknown') : '(Delivered \u2014 No Active WOs)';
-    plotRegistry[lpcPartNo] = {
+    // F-186: pre-compute seriesExtras for the embed (only meaningful for multi-member groups).
+    var _lpcSeriesExtras = null;
+    if (_lpcGrp && _lpcGrp.members.length >= 2) {
+      _lpcSeriesExtras = {};
+      for (var _lse1 = 0; _lse1 < lpcOrderNos.length; _lse1++) {
+        var _wo1 = lpcOrderNos[_lse1];
+        var _pn1 = _lpcWoToPn[_wo1];
+        if (_pn1) _lpcSeriesExtras[_wo1] = '-' + getDashSuffix(_pn1);
+      }
+      for (var _lse2 = 0; _lse2 < lpcClosedOrderNos.length; _lse2++) {
+        var _wo2 = lpcClosedOrderNos[_lse2];
+        var _pn2 = _lpcClosedToPn[_wo2];
+        if (_pn2) _lpcSeriesExtras[_wo2] = '-' + getDashSuffix(_pn2);
+      }
+    }
+    plotRegistry[lpcKey] = {
       orderNos: lpcOrderNos,
       closedOrderNos: lpcClosedOrderNos,
       title: lpcTitleEl ? lpcTitleEl.textContent : '',
       subtitle: lpcSubtitleEl ? lpcSubtitleEl.textContent : '',
       note: lpcNoteInput ? (lpcNoteInput.value || '').trim() : '',
-      program: lpcProgram
+      program: lpcProgram,
+      seriesExtras: _lpcSeriesExtras
     };
   }
 
@@ -4668,11 +5021,13 @@ function saveEvmReport() {
       html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(600px,1fr));gap:16px;margin-top:8px;">\n';
       for (var ppli = 0; ppli < pprogPlots.length; ppli++) {
         var pp = pprogPlots[ppli];
-        var _hasBcps = !!evmPartHasHours[pp.partNo];
+        // F-186: keyHasHours handles both real partNos and gids (any-member-has-hours).
+        var _hasBcps = keyHasHours(pp.partNo);
         html += '<div class="vac-plot-container">\n';
         if (pp.meta.title) {
           if (_hasBcps) {
-            html += '<div class="vac-plot-title"><a href="#bcps-' + esc(pp.partNo) + '" style="color:inherit;text-decoration:none;" title="Jump to Bench Cost Performance Summary for this part">' + esc(pp.meta.title) + '</a></div>\n';
+            // F-186: anchor target uses rootPN for multi-member groups, partNo for singletons.
+            html += '<div class="vac-plot-title"><a href="#bcps-' + esc(bcpsAnchorFor(pp.partNo)) + '" style="color:inherit;text-decoration:none;" title="Jump to Bench Cost Performance Summary for this part">' + esc(pp.meta.title) + '</a></div>\n';
           } else {
             html += '<div class="vac-plot-title">' + esc(pp.meta.title) + '</div>\n';
           }
@@ -4704,13 +5059,15 @@ function saveEvmReport() {
   }
 
   // === Bench Cost Performance Summary ===
-  // Group evmResults by program → partNo
+  // F-186: Group evmResults by program → sibling-group-id. WOs whose part belongs to a multi-member
+  // group all roll into one box; singletons keep their original per-partNo box.
   var summaryByProg = {};
   for (var swo in evmResults) {
     var sevm = evmResults[swo];
+    var _sKey = partToGroupId[sevm.partNo] || sevm.partNo;
     if (!summaryByProg[sevm.program]) summaryByProg[sevm.program] = {};
-    if (!summaryByProg[sevm.program][sevm.partNo]) summaryByProg[sevm.program][sevm.partNo] = [];
-    summaryByProg[sevm.program][sevm.partNo].push({ wo: swo, evm: sevm });
+    if (!summaryByProg[sevm.program][_sKey]) summaryByProg[sevm.program][_sKey] = [];
+    summaryByProg[sevm.program][_sKey].push({ wo: swo, evm: sevm });
   }
   var sortedProgs = Object.keys(summaryByProg).sort();
 
@@ -4720,7 +5077,14 @@ function saveEvmReport() {
   for (var spi = 0; spi < sortedProgs.length; spi++) {
     var sprog = sortedProgs[spi];
     var partsInProg = summaryByProg[sprog];
-    var sortedParts = Object.keys(partsInProg).sort().filter(function(p) { return evmPartHasHours[p]; });
+    // Filter to keys with at least one EVM-eligible member; sort by display label (rootPN for
+    // groups, partNo for singletons) so the box ordering stays human-readable.
+    var sortedParts = Object.keys(partsInProg).filter(function(p) { return keyHasHours(p); });
+    sortedParts.sort(function(a, b) {
+      var aLbl = (siblingGroups[a] && siblingGroups[a].members.length >= 2) ? siblingGroups[a].rootPN : a;
+      var bLbl = (siblingGroups[b] && siblingGroups[b].members.length >= 2) ? siblingGroups[b].rootPN : b;
+      return aLbl < bLbl ? -1 : aLbl > bLbl ? 1 : 0;
+    });
     if (sortedParts.length === 0) continue; // skip programs with no mapped parts
 
     html += '<details open style="border:1px solid #94a3b8;border-radius:4px;padding:12px;margin-bottom:12px;">\n';
@@ -4728,15 +5092,24 @@ function saveEvmReport() {
 
     for (var spni = 0; spni < sortedParts.length; spni++) {
       var spn = sortedParts[spni];
-      // Skip parts not in decoder ring entirely
-      if (!evmPartHasHours[spn]) continue;
+      // keyHasHours already filtered; this is the loop variable.
+      var _spnGrp = siblingGroups[spn];
+      var _spnIsMulti = !!(_spnGrp && _spnGrp.members.length >= 2);
 
       var woList = partsInProg[spn];
       woList.sort(function(a, b) { return a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : 0; });
-      var partName = partNamesGlobal[spn] || '';
+      var _spnAnchor = bcpsAnchorFor(spn);
+      var _spnHeadingText;
+      if (_spnIsMulti) {
+        var _spnDashes = _spnGrp.members.map(function(m) { return '-' + getDashSuffix(m); }).join(', ');
+        _spnHeadingText = _spnGrp.rootPN + '-x (' + _spnDashes + ' included)' + (_spnGrp.name ? ' — ' + _spnGrp.name : '');
+      } else {
+        var partName = partNamesGlobal[spn] || '';
+        _spnHeadingText = spn + (partName ? ' — ' + partName : '');
+      }
 
-      html += '<div id="bcps-' + esc(spn) + '" style="border:1px solid #cbd5e1;border-radius:4px;padding:10px;margin-bottom:8px;margin-left:12px;scroll-margin-top:12px;">\n';
-      html += '<h4 style="margin:0 0 6px 0;font-size:0.9rem;color:#475569;">' + esc(spn) + (partName ? ' — ' + esc(partName) : '') + '</h4>\n';
+      html += '<div id="bcps-' + esc(_spnAnchor) + '" style="border:1px solid #cbd5e1;border-radius:4px;padding:10px;margin-bottom:8px;margin-left:12px;scroll-margin-top:12px;">\n';
+      html += '<h4 style="margin:0 0 6px 0;font-size:0.9rem;color:#475569;">' + esc(_spnHeadingText) + '</h4>\n';
 
       html += '<table style="width:100%;border-collapse:collapse;font-size:0.8rem;">\n';
       html += '<thead><tr style="background:#f1f5f9;border-bottom:2px solid #94a3b8;">';
@@ -4942,11 +5315,12 @@ function saveEvmReport() {
   var tempDiv = document.createElement('div');
   tempDiv.innerHTML = detailViewHtml;
 
-  // Remove part sections that don't have EVM data
+  // Remove part sections that don't have EVM data. F-186: data-partno may be a gid; keyHasHours
+  // resolves to "any member has hours" for gids and to the direct lookup for real partNos.
   var partSections = tempDiv.querySelectorAll('.part-section');
   for (var ps = 0; ps < partSections.length; ps++) {
     var pno = partSections[ps].dataset.partno;
-    if (!evmPartHasHours[pno]) {
+    if (!keyHasHours(pno)) {
       partSections[ps].remove();
     }
   }
@@ -5033,7 +5407,7 @@ function saveEvmReport() {
   html += '    var info = __plotRegistry[c.dataset.partno];\n';
   html += '    if (!info) continue;\n';
   html += '    try {\n';
-  html += '      renderVacPlot(c, c.dataset.partno, info.orderNos, vacHistory, evmResults, peabodyDate, info.closedOrderNos);\n';
+  html += '      renderVacPlot(c, c.dataset.partno, info.orderNos, vacHistory, evmResults, peabodyDate, info.closedOrderNos, info.seriesExtras || null);\n';
   html += '    } catch(err) { console.warn("plot render failed for", c.dataset.partno, err); }\n';
   html += '  }\n';
   html += '})();\n\n';
