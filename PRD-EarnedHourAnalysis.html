@@ -27,7 +27,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
 <p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
-<p class="version">Version 1.5 | May 14, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.7 | May 14, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
@@ -100,7 +100,7 @@ li { margin: 0.3rem 0; }
 <p>Multiple files can be uploaded at once. Duplicate work orders (by Order No) are deduplicated; first occurrence wins.</p>
 
 <h3>5.4 VAC Tracker Log CSV (optional, v1.4)</h3>
-<p>Exported directly from Gate Tracker via the &quot;Export VAC Tracker Log&quot; button. Provides per-work-order CPI samples over time, enabling the summary and per-bundle charts to overlay an earned-hours-weighted average CPI line. Optional &mdash; charts render exactly as in v1.3 when this input is absent.</p>
+<p>Exported directly from Gate Tracker via the &quot;Export VAC Tracker Log&quot; button. Provides per-work-order CPI samples over time, enabling the summary and per-bundle charts to overlay a true-aggregate CPI line (&Sigma; EarnedHrs &divide; &Sigma; ActualHrs across in-scope WOs). Optional &mdash; charts render exactly as in v1.3 when this input is absent.</p>
 <table>
   <tr><th>Column</th><th>Type</th><th>Notes</th></tr>
   <tr><td>Date</td><td>String</td><td>M/D/YYYY (matches Gate Tracker's <code>exportVacLog()</code> output)</td></tr>
@@ -215,11 +215,11 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-107</span> Member WO metadata sourced from the Bundle Definition CSV. Program is inferred per-bundle from the first member WO that carries a Program value.</p>
 <p><span class="req">F-108</span> Lookback and exclude-current-month controls dynamically update the period info label showing the actual month range and count.</p>
 
-<h3>6.11 CPI Overlay (v1.4)</h3>
-<p><em>Productivity charts answer &quot;are we earning more hours over time?&quot; but not &quot;are we more efficient per technician-hour?&quot;. CPI = Earned Value / Actual Cost (in hours). When the VAC Tracker Log is uploaded, EHA overlays an earned-hours-weighted average CPI line on the summary and per-bundle charts so managers can read productivity and efficiency together without the planned-vs-actual distraction.</em></p>
+<h3>6.11 CPI Overlay (v1.4, formula revised v1.7)</h3>
+<p><em>Productivity charts answer &quot;are we earning more hours over time?&quot; but not &quot;are we more efficient per technician-hour?&quot;. CPI = Earned Value / Actual Cost (in hours). When the VAC Tracker Log is uploaded, EHA overlays a true-aggregate CPI line on the summary and per-bundle charts so managers can read productivity and efficiency together without the planned-vs-actual distraction. (v1.4 shipped this as an earned-hours-weighted average; v1.7 switched to &Sigma; earned / &Sigma; actual after real-data review &mdash; see &sect;10.)</em></p>
 <p><span class="req">F-120</span> When the VAC Tracker Log is loaded (Section 5.4), each chart that already plots earned hours is augmented with a CPI overlay line drawn against a secondary y-axis (right side). When the VAC log is absent, charts render identically to v1.3 (no overlay, no secondary axis).</p>
 <p><span class="req">F-121</span> <strong>Per-WO CPI lookup &mdash; carry-forward.</strong> For each work order and target month <em>m</em>, CPI<sub>wo,m</sub> = the CPI of the latest VAC log sample for that WO whose <code>Date</code> is on or before the last day of month <em>m</em>. If no such sample exists, the WO contributes nothing to that month's overlay. Carry-forward is correct because the VAC log's CPI is cumulative through the snapshot date.</p>
-<p><span class="req">F-122</span> <strong>Monthly aggregation &mdash; earned-hours-weighted average.</strong> For a set of in-scope WOs (lab-wide on the summary chart, bundle-scoped on each bundle chart), the overlay's value at month <em>m</em> is &Sigma;(CPI<sub>wo,m</sub> &times; EarnedHrs<sub>wo,m</sub>) &divide; &Sigma; EarnedHrs<sub>wo,m</sub>. WOs with no earned hours that month or no qualifying CPI sample are excluded from both numerator and denominator. Months with zero denominator render as Chart.js gaps (no point drawn).</p>
+<p><span class="req">F-122</span> (v1.7) <strong>Monthly aggregation &mdash; true aggregate CPI.</strong> For a set of in-scope WOs (lab-wide on the summary chart, bundle-scoped on each bundle chart), the overlay's value at month <em>m</em> is &Sigma; EarnedHrs<sub>wo,m</sub> &divide; &Sigma; ActualHrs<sub>wo,m</sub>, where ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>. WOs with no earned hours that month, no qualifying CPI sample, or non-positive CPI are excluded from both sums. Months with zero total actual hours render as Chart.js gaps (no point drawn). This number reconciles exactly with the Earned Hours / Actual Hours pair shown in the marker tooltip.</p>
 <p><span class="req">F-123</span> <strong>Dynamic recompute on chip toggle.</strong> Program filter chip changes (including Select All / Deselect All) trigger a full re-render via <code>applyFilters()</code>, which rebuilds the CPI overlay from the still-selected WOs in the same code path as v1.3 earned-hours recomputation. No separate Apply click is needed.</p>
 <p><span class="req">F-124</span> <strong>Dynamic recompute on legend toggle.</strong> When a user toggles a bundle line (summary chart) or root-part line (bundle chart) off via the chart legend, the overlay recomputes from only the still-visible datasets' contributing WOs. The CPI dataset itself is excluded from the Grand Total / Bundle Total recompute path so its values (near 1.0) never pollute the hours total.</p>
 <p><span class="req">F-125</span> If the loaded VAC log contains no qualifying samples for any in-scope WO at any month in the chart's range, the overlay is skipped (no secondary axis added, no orphan line drawn).</p>
@@ -234,6 +234,18 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-131</span> Grand Total / Bundle Total legend clicks and CPI dataset legend clicks use the standard Chart.js visibility toggle and do NOT advance the cycle. Toggling the total line off via legend still recomputes nothing about the cycle; toggling the CPI line off hides the overlay without affecting cycle state.</p>
 <p><span class="req">F-132</span> Re-running Analyze, changing the start-date filter, or toggling a program chip destroys + rebuilds all chart instances, naturally resetting cycle state to 0 on every dataset.</p>
 <p><span class="req">F-133</span> The cycle handler is inlined into snapshot HTML so saved snapshots retain the same interactive behavior.</p>
+
+<h3>6.13 CPI Tooltip Augmentation (v1.6)</h3>
+<p><em>Plotting CPI answers the efficiency question, but the natural follow-up from the production floor is &quot;OK, but how many hours did we charge?&quot;. The CPI marker tooltip now answers both at once.</em></p>
+<p><span class="req">F-134</span> When the CPI dataset is part of a tooltip&apos;s items (i.e. the user hovers a CPI X marker or, in index mode, a month with CPI data), the tooltip is augmented with two additional lines below the CPI value:
+  <br>&nbsp;&nbsp;<code>  Earned Hours: X.X</code>
+  <br>&nbsp;&nbsp;<code>  Actual Hours: Y.Y</code></p>
+<p><span class="req">F-135</span> Both sums are computed from the work orders contributed by the currently-visible (non-hidden, non-total, non-CPI) datasets:
+  <br>&nbsp;&nbsp;<strong>Earned Hours</strong> = &Sigma; EarnedHrs<sub>wo, m</sub>
+  <br>&nbsp;&nbsp;<strong>Actual Hours</strong> = &Sigma; (EarnedHrs<sub>wo, m</sub> &divide; CPI<sub>wo, m</sub>) &mdash; the literal sum of each WO&apos;s implied actual hours from its own CPI snapshot. WOs without a qualifying CPI sample or with zero earned hours that month are excluded from both sums.</p>
+<p><span class="req">F-136</span> (v1.7) The Actual Hours total and the displayed CPI value reconcile exactly: <code>CPI<sub>m</sub> = EarnedHours<sub>m</sub> &divide; ActualHours<sub>m</sub></code> by construction (within rounding to 3 decimal places). The earlier v1.6 caveat about a weighted-vs-aggregate gap is obsolete &mdash; v1.7 swapped the aggregation method specifically to remove that gap.</p>
+<p><span class="req">F-137</span> When the user hovers the CPI item in the chart legend, an HTML tooltip is positioned near the cursor describing the aggregation: &quot;Each month: &Sigma; EarnedHrs<sub>wo,m</sub> &divide; &Sigma; ActualHrs<sub>wo,m</sub>&quot; with a follow-on note that ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>, plus the carry-forward and exclusion rules. The tooltip is hidden when the user leaves the legend item.</p>
+<p><span class="req">F-138</span> Both tooltip augmentations are inlined into snapshot HTML. The tooltip&apos;s earned + actual numbers are precomputed at snapshot save time (consistent with the snapshot-as-frozen-view semantics already established for the CPI line itself); legend toggle / cycle interactions in the snapshot do not recompute them.</p>
 
 <h2>7. Visual & UI Requirements</h2>
 <p><span class="req">V-01</span> Navy/gray color palette: #1e3a5f (headings), #334155 (table headers), #2563eb (primary buttons), #f5f5f5 (background).</p>
@@ -254,11 +266,13 @@ li { margin: 0.3rem 0; }
 <p><span class="req">V-16</span> Takeaway input: white background, 1px #94a3b8 border, 0.85rem font. Caption in snapshot: amber background (#fffbeb), #f59e0b border, italic, #92400e text.</p>
 <p><span class="req">V-17</span> Summary table bundle name hyperlinks: blue (#2563eb), no underline, dashed bottom border (#93c5fd).</p>
 <p><span class="req">V-18</span> "Back to Top" link: 0.82rem, grey (#64748b), no text decoration, right-aligned via <code>margin-left: auto</code>.</p>
-<p><span class="req">V-19</span> (v1.4) <strong>CPI overlay line:</strong> orange (#ea580c), dashed [8,4], borderWidth 2, pointRadius 2, label &quot;Avg CPI (weighted)&quot;. <code>spanGaps: false</code> &mdash; months with no qualifying CPI render as breaks, not interpolated.</p>
+<p><span class="req">V-19</span> (v1.4; label updated v1.7) <strong>CPI overlay line:</strong> orange (#ea580c), dashed [8,4], borderWidth 2, pointRadius 2, label &quot;CPI&quot;. <code>spanGaps: false</code> &mdash; months with no qualifying CPI render as breaks, not interpolated.</p>
 <p><span class="req">V-20</span> (v1.4) <strong>CPI secondary y-axis:</strong> positioned on the right of summary and per-bundle charts, title &quot;CPI&quot;, suggested range 0.5&ndash;1.5 with Chart.js auto-fit when data exceeds. <code>grid.drawOnChartArea: false</code> so it does not double-draw gridlines over the earned-hours axis.</p>
 <p><span class="req">V-21</span> (v1.4) <strong>CPI = 1.0 reference line:</strong> horizontal dashed orange line (#ea580c, dashed [2,3], 55% alpha) drawn on the secondary axis as a visual anchor. Small &quot;CPI = 1.0&quot; label rendered at the left edge of the chart area just above the line. Drawn only when the secondary axis is present.</p>
 <p><span class="req">V-22</span> (v1.5) <strong>CPI data point marker:</strong> Chart.js <code>pointStyle: 'crossRot'</code> (X shape), <code>pointRadius: 6</code>, <code>pointBorderWidth: 2</code>, <code>pointBorderColor: '#ea580c'</code>. <code>pointHoverRadius: 8</code>.</p>
 <p><span class="req">V-23</span> (v1.5) <strong>CPI legend swatch:</strong> custom 14&times;14 canvas glyph showing a filled orange dot (#ea580c, 3.5 radius) with a dark-orange X (#7c2d12, 2px lineWidth, round caps) drawn on top. The dot anchors the swatch visually with the other legend items&apos; dot convention; the X overlay anchors the swatch with the X markers on the data points. All other legend swatches retain the default Chart.js circle.</p>
+<p><span class="req">V-24</span> (v1.6) <strong>CPI legend hover tooltip:</strong> HTML overlay positioned with <code>position: fixed</code> near the cursor. Background <code>#1f2937</code>, text <code>#fff</code>, accent (formula chip + heading) <code>#fcd34d</code> on <code>#374151</code>, body note <code>#cbd5e1</code>. Max-width 360px, 5px border radius, 0.82rem text, drop shadow. <code>pointer-events: none</code> so it never intercepts clicks. Auto-clamped to viewport edges.</p>
+<p><span class="req">V-25</span> (v1.6) <strong>CPI data tooltip earned/actual lines:</strong> appended verbatim under the CPI value via <code>tooltip.callbacks.afterBody</code>. Two-space indent prefix (matches the visual hierarchy of Chart.js&apos; default body lines). Numbers formatted to one decimal place.</p>
 
 <h2>8. Security Controls</h2>
 <p><span class="req">S-01</span> <code>esc()</code> function for XSS prevention (5-char HTML entity escaping).</p>
@@ -279,18 +293,35 @@ li { margin: 0.3rem 0; }
   <li><strong>Unbundled CSV stays in bundle-definition format (v1.3 decision):</strong> The unbundled CSV is a burndown list — work orders that should be added to a bundle. The output format matches the Bundle Definition CSV intentionally so it can be opened, edited (assign a BundleName), and re-imported. Monthly-hours columns would be informational only and aren't useful to the burndown workflow.</li>
   <li><strong>Select All / Deselect All chips (v1.3 ADDED, F-12a):</strong> Two bold chips at the start of the program filter bar. Each click of any program chip or bulk chip immediately re-renders (no separate Apply click required for program filtering).</li>
   <li><strong>CPI input source &mdash; VAC Tracker Log over a new Actual Hours CSV (v1.4 decision):</strong> Gate Tracker already exports the VAC log with a precomputed CPI per WO per snapshot date. Re-using that artifact avoids creating a new artifact users have to maintain. Trade-off: aggregate CPI is an earned-hours-weighted average of per-WO ratios rather than a pure &Sigma;EV &divide; &Sigma;AC. The two differ only when WO-level EV/AC ratios vary substantially; for the productivity-trend storytelling this tool supports, the weighted average is the more meaningful framing anyway (months that earned more hours weight more heavily in that month's efficiency reading).</li>
-  <li><strong>CPI aggregation method &mdash; weighted, not simple average (v1.4 decision):</strong> Aligns with how Gate Tracker computes Avg CPI on the VAC plot. A simple per-WO average would over-weight low-volume WOs.</li>
+  <li><strong>CPI aggregation method &mdash; weighted, not simple average (v1.4 decision, REVERSED in v1.7):</strong> v1.4 shipped an earned-hours-weighted average per-WO CPI &mdash; &Sigma;(CPI<sub>wo</sub> &times; earned<sub>wo</sub>) &divide; &Sigma; earned<sub>wo</sub>. v1.7 reversed this after real-data review surfaced material divergence between the weighted CPI and the true aggregate &Sigma;earned &divide; &Sigma;actual (Oscar saw weighted=0.8 vs aggregate=0.4 and weighted=1.2 vs aggregate=0.5 in consecutive months). The drag-hiding behavior was the opposite of what management framing needs. The v1.4 trade-off had been documented as a small mathematical gap; in practice it was large enough to mislead. See v1.7 decision below.</li>
   <li><strong>Cycle cross-item behavior &mdash; stack hides (v1.5 decision):</strong> When a part-number cycle is in flight on item A (state 1 or 2) and the user clicks part-number item B, B&apos;s counter advances independently rather than resetting A. Mental model: each line has its own &quot;hide me&quot; toggle, plus a shared &quot;isolate me&quot; mode. Considered alternatives: (a) reset and start fresh on the new item; (c) replace isolation with the new item. Stack-hides preserves more user intent across multi-step interactions and only forfeits the rare case where the user wants to discard prior hides; that case is recoverable in one click on the most-recently-isolated item (3rd click triggers global reset).</li>
+  <li><strong>Actual Hours method &mdash; literal &Sigma;(earned&divide;CPI) per WO (v1.6 decision, preserved in v1.7):</strong> The Actual Hours number under the CPI tooltip sums each WO&apos;s implied actual hours from its own CPI sample. v1.6 accepted a small gap between this and EarnedTotal&divide;CPI<sub>shown</sub>; v1.7 removed that gap by switching the displayed CPI itself to the true aggregate (which is exactly EarnedTotal &divide; this same &Sigma;actual). Earned + Actual + CPI now reconcile arithmetically.</li>
+  <li><strong>CPI aggregation switched to &Sigma; earned &divide; &Sigma; actual (v1.7 decision):</strong> True aggregate &mdash; drag-honest, reconciles with the displayed Earned / Actual numbers. The earlier v1.4 mathematical pre-commitment to a weighted-by-earned average was overruled by real-data review. Considered alternatives at the time of the switch: simple mean of per-WO CPI (volatile, what Gate Tracker uses on the VAC plot) and keeping the weighted formula (rejected on drag-hiding grounds). The chosen method directly answers the question this tool exists to answer: &quot;is the lab efficient as a whole?&quot;.</li>
 </ol>
 
-<h2>11. Changelog (v1.5 &mdash; May 14, 2026)</h2>
+<h2>11. Changelog (v1.7 &mdash; May 14, 2026)</h2>
+<ul>
+  <li><strong>F-122 (REVISED):</strong> CPI aggregation switched from earned-hours-weighted average to the true aggregate &Sigma; EarnedHrs<sub>wo,m</sub> &divide; &Sigma; ActualHrs<sub>wo,m</sub>. Drag-honest; reconciles exactly with the Earned / Actual numbers shown in the marker tooltip. See &sect;10 for the decision history.</li>
+  <li><strong>F-136 / F-137 (REVISED):</strong> CPI tooltip + legend hover text updated to reference the new formula. The v1.6 caveat about a weighted-vs-aggregate gap is obsolete.</li>
+  <li><strong>V-19 (REVISED):</strong> Dataset label changed from &quot;Avg CPI (weighted)&quot; to &quot;CPI&quot;. Visual styling unchanged. Legend swatch (X-over-dot) unchanged. CPI = 1.0 reference line unchanged.</li>
+  <li><strong>Snapshot:</strong> all hardcoded &quot;Avg CPI (weighted)&quot; references in the inlined snapshot reconstruction script updated to &quot;CPI&quot;; inlined legend hover tooltip HTML updated to the new formula. Pre-saved snapshots from v1.4&ndash;v1.6 will not auto-update, but their CPI series + tooltip data remain valid for the as-saved state.</li>
+</ul>
+
+<h2>12. Changelog (v1.6 &mdash; May 14, 2026)</h2>
+<ul>
+  <li><strong>F-134 through F-138 / V-24 / V-25 (NEW):</strong> CPI marker tooltips now append &quot;Earned Hours: X / Actual Hours: Y&quot; lines under the CPI value, answering &quot;how many hours did we charge?&quot; in the same hover.</li>
+  <li><strong>Legend hover (NEW):</strong> Hovering the &quot;Avg CPI (weighted)&quot; legend item surfaces an HTML overlay describing the weighted-average formula and carry-forward / exclusion rules.</li>
+  <li><strong>Snapshot:</strong> per-month earned + actual sums are precomputed at save time and serialized into <code>chartConfigs[i].cpiTooltipData</code>; the snapshot&apos;s tooltip afterBody reads from this static array.</li>
+</ul>
+
+<h2>13. Changelog (v1.5 &mdash; May 14, 2026)</h2>
 <ul>
   <li><strong>F-127 / V-22 (NEW):</strong> CPI line data points now render as X markers (Chart.js <code>'crossRot'</code>), differentiating the CPI series at a glance from the dotted earned-hours lines.</li>
   <li><strong>V-23 (NEW):</strong> CPI legend swatch replaced with a custom orange dot + X overlay glyph so the legend visually anchors both conventions &mdash; the X marker on each data point and the dot in every other legend entry.</li>
   <li><strong>F-128 through F-133 (NEW):</strong> Legend click on a part-number entry now follows a 3-state cycle: visible &rarr; hidden &rarr; isolated &rarr; visible. Stack-hides model: independent per-dataset counters. Global reset on the 2&rarr;0 transition.</li>
 </ul>
 
-<h2>12. Changelog (v1.4 &mdash; May 14, 2026)</h2>
+<h2>14. Changelog (v1.4 &mdash; May 14, 2026)</h2>
 <ul>
   <li><strong>F-120 through F-126 (NEW):</strong> CPI overlay on summary and per-bundle charts, sourced from a new optional VAC Tracker Log CSV input. Earned-hours-weighted monthly average with carry-forward CPI lookup. Recomputes dynamically on program chip toggle and on legend toggle of bundle / root-part datasets.</li>
   <li><strong>V-19 through V-21 (NEW):</strong> Orange dashed CPI line on a right-side secondary y-axis (range 0.5&ndash;1.5 with auto-fit), plus a CPI = 1.0 reference line.</li>
@@ -298,7 +329,7 @@ li { margin: 0.3rem 0; }
   <li><strong>Snapshot serialization:</strong> Chart datasets now preserve <code>yAxisID</code> and <code>spanGaps</code>; reconstruction script adds the y1 axis and <code>cpiReferencePlugin</code> when any dataset binds to <code>y1</code>. Inlined snapshot legend handler skips any <code>yAxisID === "y1"</code> dataset from the Total recompute.</li>
 </ul>
 
-<h2>13. Changelog (v1.3 &mdash; May 13, 2026)</h2>
+<h2>15. Changelog (v1.3 &mdash; May 13, 2026)</h2>
 <ul>
   <li><strong>F-12a (NEW):</strong> Program filter chip bar now begins with bold <em>Select All</em> and <em>Deselect All</em> bulk chips. Clicking any chip applies immediately &mdash; the user no longer needs to click <em>Apply</em> after toggling a program. Apply remains the trigger for start-date and (when checked manually) hide-last-month changes affecting axes.</li>
   <li><strong>EV Details dedup visibility (v1.3):</strong> When multiple EV Details files are uploaded, the count of duplicate Order Nos skipped (first-occurrence wins) is now surfaced both inline in the EV file status line at upload time and as a warning row in the validation panel after Analyze. The first 10 duplicate Order Nos are shown as examples.</li>

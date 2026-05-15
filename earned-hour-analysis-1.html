@@ -143,7 +143,7 @@ License: MIT
 </head>
 <body>
 
-<h1>Earned Hour Analysis <span>v1.5</span></h1>
+<h1>Earned Hour Analysis <span>v1.7</span></h1>
 <p class="description">Upload hours earned and bundle definition CSVs, then click Analyze to view aggregated earned hours by work order, grouped by bundle, with trend charts.</p>
 
 <div class="file-inputs">
@@ -227,7 +227,7 @@ License: MIT
 
 <script>
 /* ================================================================
-   Earned Hour Analysis v1.5 — Application Logic
+   Earned Hour Analysis v1.7 — Application Logic
    ================================================================ */
 
 // --- Globals ---
@@ -536,16 +536,22 @@ function cpiForWoAsOf(wo, monthKey) {
   return found;
 }
 
-// v1.4: For a set of work orders and a month range, compute an earned-hours-weighted average
-// CPI per month: CPI_m = Σ(CPI_wo × EarnedHrs_wo,m) / Σ(EarnedHrs_wo,m). Months with no
-// qualifying samples (or zero earned hours) return null so Chart.js skips them as gaps.
-// woList accepts either {orderNo, monthlyHours} objects (bundle workOrders) or raw order-no
-// strings (in which case hoursMap is consulted directly).
+// v1.7: For a set of work orders and a month range, compute the true aggregate CPI per
+// month: CPI_m = Σ EarnedHrs_wo,m ÷ Σ ActualHrs_wo,m, where ActualHrs_wo,m =
+// EarnedHrs_wo,m ÷ CPI_wo,m (the per-WO CPI snapshot carried forward to end-of-month).
+// This is the drag-honest "lab CPI" — it reconciles exactly with the Earned Hours / Actual
+// Hours numbers shown in the marker tooltip.
+// (Replaces v1.4-v1.6 earned-hours-weighted formula. See PRD §10 for the v1.7 reversal:
+// real-data review showed the weighted formula was hiding drag from low-CPI / low-earned
+// WOs that were burning lots of actual hours.)
+// Months with no qualifying samples (or zero earned hours) return null so Chart.js skips
+// them as gaps. woList accepts either {orderNo, monthlyHours} objects (bundle workOrders)
+// or raw order-no strings (in which case hoursMap is consulted directly).
 function computeMonthlyCpiSeries(woList, months, hoursMap) {
   var out = [];
   for (var mi = 0; mi < months.length; mi++) {
     var mk = months[mi];
-    var num = 0, denom = 0;
+    var totalEarned = 0, totalActual = 0;
     for (var i = 0; i < woList.length; i++) {
       var wo = woList[i];
       var orderNo, hrs;
@@ -558,11 +564,11 @@ function computeMonthlyCpiSeries(woList, months, hoursMap) {
       }
       if (hrs <= 0) continue;
       var cpi = cpiForWoAsOf(orderNo, mk);
-      if (cpi === null || !isFinite(cpi)) continue;
-      num += cpi * hrs;
-      denom += hrs;
+      if (cpi === null || !isFinite(cpi) || cpi <= 0) continue;
+      totalEarned += hrs;
+      totalActual += hrs / cpi;
     }
-    out.push(denom > 0 ? +(num / denom).toFixed(3) : null);
+    out.push(totalActual > 0 ? +(totalEarned / totalActual).toFixed(3) : null);
   }
   return out;
 }
@@ -866,7 +872,9 @@ function legendToggleHandler(totalLabel) {
 
 // v1.4: Shared label for the CPI overlay dataset. Single source of truth so
 // legendToggleHandler, attachCpiOverlay, and snapshot serialization stay in sync.
-var CPI_DATASET_LABEL = 'Avg CPI (weighted)';
+// v1.7: renamed from 'Avg CPI (weighted)' to plain 'CPI' alongside the switch to the
+// true-aggregate formula. Snapshot inlined strings updated to match.
+var CPI_DATASET_LABEL = 'CPI';
 
 // v1.5: Build the CPI legend swatch icon (orange dot with X overlay). Used to override
 // the default legend swatch so the legend visually anchors two conventions: the X marker
@@ -891,6 +899,63 @@ function getCpiLegendIcon() {
   ctx.stroke();
   _cpiLegendIcon = c;
   return c;
+}
+
+// v1.6: For a list of WOs and a target month, sum earned hours and per-WO implied actual
+// hours (Σ earned_wo / CPI_wo). WOs with no earned hours that month or no qualifying CPI
+// sample are excluded from both sums. "Actual" is the literal charged total — sum of each
+// WO's earned hours divided by its own CPI snapshot.
+function computeMonthlyEarnedActual(woList, monthKey, hoursMap) {
+  var earned = 0, actual = 0;
+  for (var i = 0; i < woList.length; i++) {
+    var wo = woList[i];
+    var orderNo, hrs;
+    if (typeof wo === 'string') {
+      orderNo = wo;
+      hrs = (hoursMap[orderNo] && hoursMap[orderNo][monthKey]) || 0;
+    } else {
+      orderNo = wo.orderNo;
+      hrs = (wo.monthlyHours && wo.monthlyHours[monthKey]) || 0;
+    }
+    if (hrs <= 0) continue;
+    var cpi = cpiForWoAsOf(orderNo, monthKey);
+    if (cpi === null || !isFinite(cpi) || cpi <= 0) continue;
+    earned += hrs;
+    actual += hrs / cpi;
+  }
+  return { earned: earned, actual: actual };
+}
+
+// v1.6: Shared HTML tooltip shown on legend hover over the CPI item. Built lazily and
+// reused across all charts. Plain DIV positioned with `position: fixed` and clientX/Y from
+// the legend hover event. Cleared on legend.onLeave.
+var _cpiLegendInfoTip = null;
+function getCpiLegendInfoTooltip() {
+  if (_cpiLegendInfoTip) return _cpiLegendInfoTip;
+  var tip = document.createElement('div');
+  tip.id = 'cpi-legend-info-tooltip';
+  tip.style.cssText = 'position:fixed;background:#1f2937;color:#fff;padding:9px 12px;border-radius:5px;font-size:0.82rem;line-height:1.55;max-width:360px;z-index:9999;display:none;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.28);font-family:Arial,sans-serif;';
+  tip.innerHTML = '<div style="font-weight:bold;color:#fcd34d;margin-bottom:4px;">CPI</div>' +
+    'Each month: <span style="background:#374151;padding:1px 5px;border-radius:3px;color:#fcd34d;font-family:Consolas,monospace;font-size:0.78rem;">Σ EarnedHrs<sub>wo,m</sub> &divide; Σ ActualHrs<sub>wo,m</sub></span><br>' +
+    '<span style="color:#cbd5e1;">ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>, where CPI<sub>wo,m</sub> carries forward from the latest VAC sample dated on or before end-of-month. WOs with no earned hours that month, or no qualifying CPI sample, are excluded from both sums.</span>';
+  document.body.appendChild(tip);
+  _cpiLegendInfoTip = tip;
+  return tip;
+}
+function showCpiLegendInfoTip(clientX, clientY) {
+  var tip = getCpiLegendInfoTooltip();
+  tip.style.display = 'block';
+  // Position below and slightly right of the cursor; clamp to viewport.
+  var x = clientX + 14, y = clientY + 18;
+  // Defer clamp until after layout so we can measure
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+  var rect = tip.getBoundingClientRect();
+  if (rect.right > window.innerWidth - 8) tip.style.left = Math.max(8, window.innerWidth - rect.width - 8) + 'px';
+  if (rect.bottom > window.innerHeight - 8) tip.style.top = Math.max(8, clientY - rect.height - 12) + 'px';
+}
+function hideCpiLegendInfoTip() {
+  if (_cpiLegendInfoTip) _cpiLegendInfoTip.style.display = 'none';
 }
 
 // v1.4: Apply CPI overlay to a Chart.js config in place.
@@ -948,6 +1013,55 @@ function attachCpiOverlay(datasetMap, allWos, months, hoursMap, options, dataset
       if (labels[i].text === CPI_DATASET_LABEL) labels[i].pointStyle = getCpiLegendIcon();
     }
     return labels;
+  };
+  // v1.6: hover the CPI legend item to surface the weighted-CPI formula.
+  options.plugins.legend.onHover = function(event, legendItem, legend) {
+    if (legendItem && legendItem.text === CPI_DATASET_LABEL && event && event.native) {
+      showCpiLegendInfoTip(event.native.clientX, event.native.clientY);
+    }
+  };
+  options.plugins.legend.onLeave = function(event, legendItem, legend) {
+    if (legendItem && legendItem.text === CPI_DATASET_LABEL) hideCpiLegendInfoTip();
+  };
+  // v1.6: when hovering a CPI data point, append earned + actual hours lines under the
+  // CPI value in the tooltip so managers can answer "how many hours did we charge?".
+  // Uses Σ(earned_wo / CPI_wo) for actual hours (literal charged total).
+  if (!options.plugins.tooltip) options.plugins.tooltip = {};
+  if (!options.plugins.tooltip.callbacks) options.plugins.tooltip.callbacks = {};
+  var prevAfterBody = options.plugins.tooltip.callbacks.afterBody;
+  options.plugins.tooltip.callbacks.afterBody = function(items) {
+    var base = prevAfterBody ? (prevAfterBody.call(this, items) || []) : [];
+    if (!Array.isArray(base)) base = [base];
+    if (!items || items.length === 0) return base;
+    var chart = items[0].chart;
+    var meta = chart && chart._cpiMeta;
+    if (!meta) return base;
+    // Only show the earned/actual lines when the CPI dataset is part of the tooltip
+    var cpiItem = null;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].dataset && items[i].dataset.label === CPI_DATASET_LABEL) { cpiItem = items[i]; break; }
+    }
+    if (!cpiItem) return base;
+    if (cpiItem.parsed && (cpiItem.parsed.y === null || cpiItem.parsed.y === undefined)) return base;
+    var mk = meta.months[cpiItem.dataIndex];
+    if (!mk) return base;
+    // Aggregate WOs from visible (non-hidden, non-total, non-CPI) datasets
+    var ds = chart.data.datasets;
+    var totalLabel = (chart.canvas.dataset.regionKey === 'summary') ? 'Grand Total' : 'Bundle Total';
+    var visibleWos = [];
+    for (var d = 0; d < ds.length; d++) {
+      if (ds[d].label === totalLabel) continue;
+      if (ds[d].yAxisID === 'y1') continue;
+      if (chart.getDatasetMeta(d).hidden) continue;
+      var wos = meta.datasetWos[ds[d].label];
+      if (wos) for (var wi = 0; wi < wos.length; wi++) visibleWos.push(wos[wi]);
+    }
+    var sums = computeMonthlyEarnedActual(visibleWos, mk, meta.hoursMap);
+    if (sums.earned <= 0) return base;
+    return base.concat([
+      '  Earned Hours: ' + sums.earned.toFixed(1),
+      '  Actual Hours: ' + sums.actual.toFixed(1)
+    ]);
   };
   return { datasetWos: datasetMap, months: months.slice(), hoursMap: hoursMap };
 }
@@ -1637,6 +1751,22 @@ function saveSnapshot() {
     // Capture takeaway text if present
     var takeawayEl = document.getElementById('takeaway-' + key);
     var takeawayText = takeawayEl ? takeawayEl.value.trim() : '';
+    // v1.6: precompute per-month earned + actual for the CPI tooltip so the snapshot
+    // can show them without retaining the live WO objects + hoursMap. The numbers are
+    // frozen at save time — consistent with how the CPI line itself behaves in snapshots.
+    var cpiTooltipData = null;
+    if (chart._cpiMeta) {
+      var m = chart._cpiMeta;
+      var allWos = [];
+      for (var labelKey in m.datasetWos) {
+        var wos = m.datasetWos[labelKey];
+        if (wos) for (var wi = 0; wi < wos.length; wi++) allWos.push(wos[wi]);
+      }
+      cpiTooltipData = m.months.map(function(mk) {
+        var sums = computeMonthlyEarnedActual(allWos, mk, m.hoursMap);
+        return (sums.earned > 0) ? { earned: +sums.earned.toFixed(1), actual: +sums.actual.toFixed(1) } : null;
+      });
+    }
     chartConfigs.push({
       regionKey: key,
       containerId: chart.canvas.parentNode.id,
@@ -1645,7 +1775,8 @@ function saveSnapshot() {
       titleText: titleText,
       totalLabel: totalLabel,
       regions: savedRegions,
-      takeaway: takeawayText
+      takeaway: takeawayText,
+      cpiTooltipData: cpiTooltipData
     });
   });
   var chartDataJSON = JSON.stringify(chartConfigs).replace(/</g, '\\u003c');
@@ -1712,9 +1843,11 @@ function saveSnapshot() {
   // Total / CPI clicks use default toggle. Part-number clicks advance per-dataset counter
   // 0→1→2→0 (1=hidden, 2=isolated, 2→0 triggers global reset). CPI is excluded from total
   // recompute via yAxisID==='y1' guard.
-  h += 'function legendToggleHandler(totalLabel){return function(e,legendItem,legend){var chart=legend.chart;var ds=chart.data.datasets;var ci=(legendItem&&legendItem.datasetIndex!=null)?legendItem.datasetIndex:-1;var cl=(ci>=0&&ds[ci])?ds[ci].label:null;var isTotal=cl===totalLabel;var isCpi=ci>=0&&ds[ci].yAxisID==="y1";if(isTotal||isCpi){Chart.defaults.plugins.legend.onClick.call(this,e,legendItem,legend)}else if(cl!=null){var counts=chart._cycleCounts||(chart._cycleCounts={});var prev=counts[cl]||0;var nx=(prev+1)%3;if(nx===2){for(var k in counts){if(k!==cl&&counts[k]===2)counts[k]=1}counts[cl]=2}else if(nx===0){for(var k2 in counts)counts[k2]=0}else{counts[cl]=nx}var iso=null;for(var lbl in counts){if(counts[lbl]===2){iso=lbl;break}}for(var i=0;i<ds.length;i++){var l=ds[i].label;if(l===totalLabel)continue;if(ds[i].yAxisID==="y1")continue;var hd=(iso!==null)?(l!==iso):((counts[l]||0)===1);chart.getDatasetMeta(i).hidden=hd}}var totalIdx=-1,cpiIdx=-1;for(var ti=0;ti<ds.length;ti++){if(ds[ti].label===totalLabel)totalIdx=ti;if(ds[ti].label==="Avg CPI (weighted)")cpiIdx=ti}if(totalIdx<0){chart.update();return}var len=ds[totalIdx].data.length;var newT=[];for(var j=0;j<len;j++)newT.push(0);var excl=[];for(var d=0;d<ds.length;d++){if(d===totalIdx||d===cpiIdx)continue;if(chart.getDatasetMeta(d).hidden){excl.push(ds[d].label);continue}for(var m=0;m<len;m++)newT[m]+=ds[d].data[m]||0}ds[totalIdx].data=newT;var key=chart.canvas.dataset.regionKey;if(chartRegionState[key])chartRegionState[key].totalData=newT;chart._excludedLabels=excl;chart.update();if(key)renderChartRegionControls(key)}}\n';
+  h += 'function legendToggleHandler(totalLabel){return function(e,legendItem,legend){var chart=legend.chart;var ds=chart.data.datasets;var ci=(legendItem&&legendItem.datasetIndex!=null)?legendItem.datasetIndex:-1;var cl=(ci>=0&&ds[ci])?ds[ci].label:null;var isTotal=cl===totalLabel;var isCpi=ci>=0&&ds[ci].yAxisID==="y1";if(isTotal||isCpi){Chart.defaults.plugins.legend.onClick.call(this,e,legendItem,legend)}else if(cl!=null){var counts=chart._cycleCounts||(chart._cycleCounts={});var prev=counts[cl]||0;var nx=(prev+1)%3;if(nx===2){for(var k in counts){if(k!==cl&&counts[k]===2)counts[k]=1}counts[cl]=2}else if(nx===0){for(var k2 in counts)counts[k2]=0}else{counts[cl]=nx}var iso=null;for(var lbl in counts){if(counts[lbl]===2){iso=lbl;break}}for(var i=0;i<ds.length;i++){var l=ds[i].label;if(l===totalLabel)continue;if(ds[i].yAxisID==="y1")continue;var hd=(iso!==null)?(l!==iso):((counts[l]||0)===1);chart.getDatasetMeta(i).hidden=hd}}var totalIdx=-1,cpiIdx=-1;for(var ti=0;ti<ds.length;ti++){if(ds[ti].label===totalLabel)totalIdx=ti;if(ds[ti].label==="CPI")cpiIdx=ti}if(totalIdx<0){chart.update();return}var len=ds[totalIdx].data.length;var newT=[];for(var j=0;j<len;j++)newT.push(0);var excl=[];for(var d=0;d<ds.length;d++){if(d===totalIdx||d===cpiIdx)continue;if(chart.getDatasetMeta(d).hidden){excl.push(ds[d].label);continue}for(var m=0;m<len;m++)newT[m]+=ds[d].data[m]||0}ds[totalIdx].data=newT;var key=chart.canvas.dataset.regionKey;if(chartRegionState[key])chartRegionState[key].totalData=newT;chart._excludedLabels=excl;chart.update();if(key)renderChartRegionControls(key)}}\n';
   // v1.5: CPI legend swatch builder (X-over-dot canvas). Cached on first call.
   h += 'var _cpiLegendIcon=null;function getCpiLegendIcon(){if(_cpiLegendIcon)return _cpiLegendIcon;var c=document.createElement("canvas");c.width=14;c.height=14;var ctx=c.getContext("2d");ctx.fillStyle="#ea580c";ctx.beginPath();ctx.arc(7,7,3.5,0,2*Math.PI);ctx.fill();ctx.strokeStyle="#7c2d12";ctx.lineWidth=2;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(2.5,2.5);ctx.lineTo(11.5,11.5);ctx.moveTo(11.5,2.5);ctx.lineTo(2.5,11.5);ctx.stroke();_cpiLegendIcon=c;return c}\n';
+  // v1.7: CPI legend info tooltip (HTML overlay, true-aggregate formula)
+  h += 'var _cpiLegendInfoTip=null;function getCpiLegendInfoTooltip(){if(_cpiLegendInfoTip)return _cpiLegendInfoTip;var tip=document.createElement("div");tip.style.cssText="position:fixed;background:#1f2937;color:#fff;padding:9px 12px;border-radius:5px;font-size:0.82rem;line-height:1.55;max-width:360px;z-index:9999;display:none;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.28);font-family:Arial,sans-serif;";tip.innerHTML=\'<div style="font-weight:bold;color:#fcd34d;margin-bottom:4px;">CPI</div>Each month: <span style="background:#374151;padding:1px 5px;border-radius:3px;color:#fcd34d;font-family:Consolas,monospace;font-size:0.78rem;">\\u03a3 EarnedHrs<sub>wo,m</sub> &divide; \\u03a3 ActualHrs<sub>wo,m</sub></span><br><span style="color:#cbd5e1;">ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>, where CPI<sub>wo,m</sub> carries forward from the latest VAC sample dated on or before end-of-month. WOs with no earned hours that month, or no qualifying CPI sample, are excluded from both sums.</span>\';document.body.appendChild(tip);_cpiLegendInfoTip=tip;return tip}function showCpiLegendInfoTip(x,y){var tip=getCpiLegendInfoTooltip();tip.style.display="block";tip.style.left=(x+14)+"px";tip.style.top=(y+18)+"px";var r=tip.getBoundingClientRect();if(r.right>window.innerWidth-8)tip.style.left=Math.max(8,window.innerWidth-r.width-8)+"px";if(r.bottom>window.innerHeight-8)tip.style.top=Math.max(8,y-r.height-12)+"px"}function hideCpiLegendInfoTip(){if(_cpiLegendInfoTip)_cpiLegendInfoTip.style.display="none"}\n';
   // Excluded note plugin
   h += 'var excludedNotePlugin={id:"excludedNote",afterDraw:function(chart){var excluded=chart._excludedLabels;if(!excluded||excluded.length===0)return;var ctx=chart.ctx,area=chart.chartArea;var text="Excluding: "+excluded.join(", ");ctx.save();ctx.font="11px Arial";var tw=ctx.measureText(text).width;if(tw>area.right-area.left-20){text="Excluding: "+excluded.length+" item"+(excluded.length>1?"s":"")+" hidden"}ctx.fillStyle="#dc2626";ctx.textAlign="right";ctx.fillText(text,area.right,area.top-5);ctx.restore()}};\n';
   // v1.4: CPI reference line plugin (inlined for snapshot)
@@ -1750,11 +1883,18 @@ function saveSnapshot() {
   h += '    if (_hasCpi) _scales.y1 = { position: "right", title: { display: true, text: "CPI" }, suggestedMin: 0.5, suggestedMax: 1.5, grid: { drawOnChartArea: false } };\n';
   // v1.5: CPI legend swatch override (X-over-dot). Only attached when a CPI dataset exists.
   h += '    var _legendLabels = { usePointStyle: true, padding: 15 };\n';
-  h += '    if (_hasCpi) { _legendLabels.generateLabels = function(chart){ var labels = Chart.defaults.plugins.legend.labels.generateLabels(chart); for (var i = 0; i < labels.length; i++) { if (labels[i].text === "Avg CPI (weighted)") labels[i].pointStyle = getCpiLegendIcon(); } return labels; }; }\n';
+  h += '    if (_hasCpi) { _legendLabels.generateLabels = function(chart){ var labels = Chart.defaults.plugins.legend.labels.generateLabels(chart); for (var i = 0; i < labels.length; i++) { if (labels[i].text === "CPI") labels[i].pointStyle = getCpiLegendIcon(); } return labels; }; }\n';
+  // v1.7: legend hover -> show true-aggregate CPI formula tooltip; legend leave -> hide it.
+  h += '    var _legendOnHover = _hasCpi ? function(event, legendItem){ if (legendItem && legendItem.text === "CPI" && event && event.native) showCpiLegendInfoTip(event.native.clientX, event.native.clientY); } : undefined;\n';
+  h += '    var _legendOnLeave = _hasCpi ? function(event, legendItem){ if (legendItem && legendItem.text === "CPI") hideCpiLegendInfoTip(); } : undefined;\n';
+  // v1.6: tooltip afterBody -> append Earned Hours / Actual Hours when CPI dataset is in tooltip items
+  h += '    var _cpiTipData = cfg.cpiTooltipData || null;\n';
+  h += '    var _tooltipCallbacks = _hasCpi && _cpiTipData ? { afterBody: function(items){ if (!items || !items.length) return []; var cpiItem = null; for (var i = 0; i < items.length; i++) { if (items[i].dataset && items[i].dataset.label === "CPI") { cpiItem = items[i]; break; } } if (!cpiItem) return []; var slot = _cpiTipData[cpiItem.dataIndex]; if (!slot) return []; return ["  Earned Hours: " + slot.earned.toFixed(1), "  Actual Hours: " + slot.actual.toFixed(1)]; } } : undefined;\n';
   h += '    var chart = new Chart(canvas, { type: "line", data: { labels: cfg.labels, datasets: cfg.datasets },\n';
   h += '      options: { responsive: true, maintainAspectRatio: false,\n';
   h += '        plugins: { title: { display: true, text: cfg.titleText, font: { size: 14, weight: "bold" }, color: "#1e3a5f" },\n';
-  h += '          legend: { position: "bottom", labels: _legendLabels, onClick: legendToggleHandler(cfg.totalLabel) } },\n';
+  h += '          legend: { position: "bottom", labels: _legendLabels, onClick: legendToggleHandler(cfg.totalLabel), onHover: _legendOnHover, onLeave: _legendOnLeave },\n';
+  h += '          tooltip: _tooltipCallbacks ? { callbacks: _tooltipCallbacks } : undefined },\n';
   h += '        scales: _scales },\n';
   h += '      plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin, cpiReferencePlugin] });\n';
   h += '    chartRegionState[cfg.regionKey].chart = chart;\n';
