@@ -143,7 +143,7 @@ License: MIT
 </head>
 <body>
 
-<h1>Earned Hour Analysis <span>v1.3</span></h1>
+<h1>Earned Hour Analysis <span>v1.5</span></h1>
 <p class="description">Upload hours earned and bundle definition CSVs, then click Analyze to view aggregated earned hours by work order, grouped by bundle, with trend charts.</p>
 
 <div class="file-inputs">
@@ -164,6 +164,12 @@ License: MIT
     <p>Columns: Network, Order No, Part No, Plan Title, Program. Upload multiple files to merge.</p>
     <input type="file" id="ev-input" accept=".csv" multiple>
     <div id="ev-status" class="status"></div>
+  </div>
+  <div class="file-group">
+    <h3>4. VAC Tracker Log CSV <span style="font-weight:normal;color:#888;">(optional)</span></h3>
+    <p>Columns: Date, WO, Part #, VAC, CPI. Exported from Gate Tracker. Enables overlay of avg CPI on summary and bundle charts.</p>
+    <input type="file" id="vac-input" accept=".csv">
+    <div id="vac-status" class="status"></div>
   </div>
 </div>
 
@@ -221,7 +227,7 @@ License: MIT
 
 <script>
 /* ================================================================
-   Earned Hour Analysis v1.3 — Application Logic
+   Earned Hour Analysis v1.5 — Application Logic
    ================================================================ */
 
 // --- Globals ---
@@ -236,6 +242,8 @@ var evDetailsData = null; // optional EV Details CSV
 var evDetailsMap = {};    // orderNo -> {network, partNo, planTitle, program}
 var evDedupCount = 0;     // Count of duplicate Order Nos skipped across all EV Details files (informational; first-occurrence wins)
 var evDuplicateOrders = []; // Sample list of deduplicated WOs (first 20) for the validation panel
+var vacData = null;       // v1.4: optional VAC Tracker Log CSV (provides CPI per WO over time)
+var vacByWo = {};         // v1.4: wo -> sorted [{ts, cpi}] from VAC log; ts is ms epoch
 var lastFilteredOrphans = [];
 var allPrograms = [];
 var deselectedPrograms = new Set();
@@ -416,6 +424,40 @@ document.getElementById('ev-input').addEventListener('change', function(e) {
   }
 });
 
+// v1.4: VAC Tracker Log loader. Optional input — provides per-WO CPI samples over time so the
+// summary and per-bundle charts can overlay an earned-hours-weighted average CPI line. Expected
+// columns mirror Gate Tracker's exportVacLog(): Date (M/D/YYYY), WO, Part # (ignored here),
+// VAC (ignored — we only use CPI), CPI (decimal, e.g. 0.987).
+document.getElementById('vac-input').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) { vacData = null; vacByWo = {}; showStatus('vac-status', '', false); return; }
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var result = Papa.parse(ev.target.result, { skipEmptyLines: true });
+      if (result.data.length < 2) { showStatus('vac-status', 'Error: file has no data rows', true); vacData = null; vacByWo = {}; return; }
+      var hdr = result.data[0];
+      var reqCols = ['Date', 'WO', 'CPI'];
+      var missing = [];
+      for (var i = 0; i < reqCols.length; i++) {
+        if (colIndex(hdr, reqCols[i]) === -1) missing.push(reqCols[i]);
+      }
+      if (missing.length > 0) { showStatus('vac-status', 'Missing column(s): ' + missing.join(', '), true); vacData = null; vacByWo = {}; return; }
+      var parsed = parseVacLog(result.data);
+      vacByWo = parsed.vacByWo;
+      vacData = true;
+      var sampleCount = 0;
+      for (var w in vacByWo) sampleCount += vacByWo[w].length;
+      var msg = 'Loaded ' + sampleCount + ' CPI sample(s) across ' + Object.keys(vacByWo).length + ' WO(s)';
+      if (parsed.skippedRows > 0) msg += '; ' + parsed.skippedRows + ' row(s) skipped (blank/non-numeric CPI or bad date)';
+      showStatus('vac-status', msg, false, parsed.skippedRows > 0);
+      // v1.4: re-render if a prior Analyze run already exists, so CPI line appears immediately.
+      if (lastBundles) renderAll(lastBundles);
+    } catch(err) { showStatus('vac-status', 'Error: ' + err.message, true); vacData = null; vacByWo = {}; }
+  };
+  reader.readAsText(file);
+});
+
 // --- Core processing ---
 function aggregateHours(rows) {
   var hdr = rows[0];
@@ -443,6 +485,93 @@ function aggregateHours(rows) {
   if (badDates > 0) warnings.push(badDates + ' row(s) had invalid Year/Month values (skipped)');
   if (badHours > 0) warnings.push(badHours + ' row(s) had non-numeric Hours Earned values (treated as 0)');
   return { hoursMap: hoursMap, warnings: warnings };
+}
+
+// v1.4: Parse the VAC Tracker Log into { wo -> sorted [{ts, cpi}] }. ts is ms epoch from the
+// row's Date (M/D/YYYY). Rows with blank/non-numeric CPI or unparseable dates are skipped.
+// CPI is cumulative through the snapshot date, so callers should pick the latest sample on or
+// before a target instant (carry-forward semantics).
+function parseVacLog(rows) {
+  var hdr = rows[0];
+  var iDate = colIndex(hdr, 'Date');
+  var iWO = colIndex(hdr, 'WO');
+  var iCPI = colIndex(hdr, 'CPI');
+  var byWo = {};
+  var skipped = 0;
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i];
+    var wo = (r[iWO] || '').trim();
+    var ds = (r[iDate] || '').trim();
+    var cpiRaw = (r[iCPI] || '').trim();
+    if (!wo || !ds || cpiRaw === '') { skipped++; continue; }
+    var cpi = parseFloat(cpiRaw);
+    if (!isFinite(cpi)) { skipped++; continue; }
+    var parts = ds.split('/');
+    if (parts.length !== 3) { skipped++; continue; }
+    var mo = parseInt(parts[0], 10), da = parseInt(parts[1], 10), yr = parseInt(parts[2], 10);
+    if (isNaN(mo) || isNaN(da) || isNaN(yr)) { skipped++; continue; }
+    var ts = new Date(yr, mo - 1, da).getTime();
+    if (!isFinite(ts)) { skipped++; continue; }
+    if (!byWo[wo]) byWo[wo] = [];
+    byWo[wo].push({ ts: ts, cpi: cpi });
+  }
+  for (var w in byWo) byWo[w].sort(function(a, b) { return a.ts - b.ts; });
+  return { vacByWo: byWo, skippedRows: skipped };
+}
+
+// v1.4: Look up the latest CPI sample for a WO with a timestamp <= the end of the given month
+// (carry-forward). Returns null if no qualifying sample. Uses ascending sort from parseVacLog().
+function cpiForWoAsOf(wo, monthKey) {
+  var samples = vacByWo[wo];
+  if (!samples || samples.length === 0) return null;
+  var parts = monthKey.split('-');
+  var yr = parseInt(parts[0], 10), mo = parseInt(parts[1], 10);
+  // End-of-month = first ms of next month minus 1
+  var endTs = new Date(yr, mo, 1).getTime() - 1;
+  var found = null;
+  for (var i = 0; i < samples.length; i++) {
+    if (samples[i].ts <= endTs) found = samples[i].cpi;
+    else break;
+  }
+  return found;
+}
+
+// v1.4: For a set of work orders and a month range, compute an earned-hours-weighted average
+// CPI per month: CPI_m = Σ(CPI_wo × EarnedHrs_wo,m) / Σ(EarnedHrs_wo,m). Months with no
+// qualifying samples (or zero earned hours) return null so Chart.js skips them as gaps.
+// woList accepts either {orderNo, monthlyHours} objects (bundle workOrders) or raw order-no
+// strings (in which case hoursMap is consulted directly).
+function computeMonthlyCpiSeries(woList, months, hoursMap) {
+  var out = [];
+  for (var mi = 0; mi < months.length; mi++) {
+    var mk = months[mi];
+    var num = 0, denom = 0;
+    for (var i = 0; i < woList.length; i++) {
+      var wo = woList[i];
+      var orderNo, hrs;
+      if (typeof wo === 'string') {
+        orderNo = wo;
+        hrs = (hoursMap[orderNo] && hoursMap[orderNo][mk]) || 0;
+      } else {
+        orderNo = wo.orderNo;
+        hrs = (wo.monthlyHours && wo.monthlyHours[mk]) || 0;
+      }
+      if (hrs <= 0) continue;
+      var cpi = cpiForWoAsOf(orderNo, mk);
+      if (cpi === null || !isFinite(cpi)) continue;
+      num += cpi * hrs;
+      denom += hrs;
+    }
+    out.push(denom > 0 ? +(num / denom).toFixed(3) : null);
+  }
+  return out;
+}
+
+// v1.4: True if a VAC log has been loaded and there's at least one CPI sample.
+function hasCpiData() {
+  if (!vacData) return false;
+  for (var w in vacByWo) { if (vacByWo[w] && vacByWo[w].length > 0) return true; }
+  return false;
 }
 
 function buildBundleGroups(bundleRows, hoursMap) {
@@ -649,19 +778,69 @@ var regionPlugin = {
   }
 };
 
+// v1.5: Three-state cycle on legend clicks for part-number datasets.
+//   State 0 (default): dataset visible
+//   State 1: dataset hidden
+//   State 2: ISOLATED — this dataset visible, all OTHER part-number datasets hidden
+// Each part-number dataset advances its own counter on each click (0→1→2→0). Clicking
+// different items "stacks hides" — both can be at state 1 simultaneously. Only one item
+// can hold state 2 at a time; entering state 2 demotes any prior state-2 item to 1.
+// The 2→0 transition (3rd click on the same item) triggers a GLOBAL reset so the user
+// returns to the default everything-on view.
+// Total + CPI legend clicks use the default Chart.js toggle and do not advance the cycle.
 function legendToggleHandler(totalLabel) {
   return function(e, legendItem, legend) {
-    Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
     var chart = legend.chart;
     var ds = chart.data.datasets;
-    var totalIdx = -1;
-    for (var i = 0; i < ds.length; i++) { if (ds[i].label === totalLabel) totalIdx = i; }
-    if (totalIdx < 0) return;
+    var clickedIdx = (legendItem && legendItem.datasetIndex != null) ? legendItem.datasetIndex : -1;
+    var clickedLabel = (clickedIdx >= 0 && ds[clickedIdx]) ? ds[clickedIdx].label : null;
+    var isTotalClick = clickedLabel === totalLabel;
+    var isCpiClick = clickedIdx >= 0 && ds[clickedIdx].yAxisID === 'y1';
+
+    if (isTotalClick || isCpiClick) {
+      // Total or CPI dataset click — default Chart.js toggle, leave cycle counts alone
+      Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+    } else if (clickedLabel != null) {
+      // Part-number click — advance this dataset's cycle counter
+      var counts = chart._cycleCounts || (chart._cycleCounts = {});
+      var prev = counts[clickedLabel] || 0;
+      var next = (prev + 1) % 3;
+      if (next === 2) {
+        // Entering isolation. Demote any other dataset still at state 2 to state 1
+        // (only one isolated dataset at a time).
+        for (var k in counts) { if (k !== clickedLabel && counts[k] === 2) counts[k] = 1; }
+        counts[clickedLabel] = 2;
+      } else if (next === 0) {
+        // 2 → 0 transition: global reset on all part-number counters
+        for (var k2 in counts) counts[k2] = 0;
+      } else {
+        counts[clickedLabel] = next;
+      }
+      // Identify isolated label (if any)
+      var isolatedLabel = null;
+      for (var lbl in counts) { if (counts[lbl] === 2) { isolatedLabel = lbl; break; } }
+      // Apply visibility to part-number datasets only (skip total + CPI)
+      for (var i = 0; i < ds.length; i++) {
+        var l = ds[i].label;
+        if (l === totalLabel) continue;
+        if (ds[i].yAxisID === 'y1') continue;
+        var hidden = (isolatedLabel !== null) ? (l !== isolatedLabel) : ((counts[l] || 0) === 1);
+        chart.getDatasetMeta(i).hidden = hidden;
+      }
+    }
+
+    // Recompute Grand Total / Bundle Total + CPI from currently-visible datasets
+    var totalIdx = -1, cpiIdx = -1;
+    for (var ti = 0; ti < ds.length; ti++) {
+      if (ds[ti].label === totalLabel) totalIdx = ti;
+      if (ds[ti].label === CPI_DATASET_LABEL) cpiIdx = ti;
+    }
+    if (totalIdx < 0) { chart.update(); return; }
     var len = ds[totalIdx].data.length;
     var newT = []; for (var j = 0; j < len; j++) newT.push(0);
     var excl = [];
     for (var d = 0; d < ds.length; d++) {
-      if (d === totalIdx) continue;
+      if (d === totalIdx || d === cpiIdx) continue;
       if (chart.getDatasetMeta(d).hidden) { excl.push(ds[d].label); continue; }
       for (var m = 0; m < len; m++) newT[m] += ds[d].data[m] || 0;
     }
@@ -669,9 +848,108 @@ function legendToggleHandler(totalLabel) {
     var key = chart.canvas.dataset.regionKey;
     if (chartRegionState[key]) chartRegionState[key].totalData = newT;
     chart._excludedLabels = excl;
+    if (cpiIdx >= 0 && chart._cpiMeta) {
+      var meta = chart._cpiMeta;
+      var visibleWos = [];
+      for (var d2 = 0; d2 < ds.length; d2++) {
+        if (d2 === totalIdx || d2 === cpiIdx) continue;
+        if (chart.getDatasetMeta(d2).hidden) continue;
+        var wos = meta.datasetWos[ds[d2].label];
+        if (wos) { for (var wi = 0; wi < wos.length; wi++) visibleWos.push(wos[wi]); }
+      }
+      ds[cpiIdx].data = computeMonthlyCpiSeries(visibleWos, meta.months, meta.hoursMap);
+    }
     chart.update();
     if (key) renderChartRegionControls(key);
   };
+}
+
+// v1.4: Shared label for the CPI overlay dataset. Single source of truth so
+// legendToggleHandler, attachCpiOverlay, and snapshot serialization stay in sync.
+var CPI_DATASET_LABEL = 'Avg CPI (weighted)';
+
+// v1.5: Build the CPI legend swatch icon (orange dot with X overlay). Used to override
+// the default legend swatch so the legend visually anchors two conventions: the X marker
+// shape used on each CPI data point AND the dot shape used by every other legend entry.
+// Cached on first call.
+var _cpiLegendIcon = null;
+function getCpiLegendIcon() {
+  if (_cpiLegendIcon) return _cpiLegendIcon;
+  var c = document.createElement('canvas');
+  c.width = 14; c.height = 14;
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#ea580c';
+  ctx.beginPath();
+  ctx.arc(7, 7, 3.5, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.strokeStyle = '#7c2d12';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(2.5, 2.5); ctx.lineTo(11.5, 11.5);
+  ctx.moveTo(11.5, 2.5); ctx.lineTo(2.5, 11.5);
+  ctx.stroke();
+  _cpiLegendIcon = c;
+  return c;
+}
+
+// v1.4: Apply CPI overlay to a Chart.js config in place.
+//   datasetMap: { datasetLabel: [woList, ...] }   ordering doesn't matter
+//   allWos: combined WO list for the chart's initial (everything-visible) CPI series
+//   months: array of monthKeys parallel to the chart's labels
+//   options: the Chart.js options object (will be mutated to add y1 axis)
+//   datasets: the Chart.js datasets array (CPI dataset will be appended)
+// Returns the metadata object that should be stored on the live chart instance as
+// `chart._cpiMeta` so legendToggleHandler can recompute on visibility changes.
+function attachCpiOverlay(datasetMap, allWos, months, hoursMap, options, datasets) {
+  if (!hasCpiData()) return null;
+  var cpiSeries = computeMonthlyCpiSeries(allWos, months, hoursMap);
+  // Skip overlay if no months produced a value (avoids drawing a phantom y1 axis with no line)
+  var anyVal = false;
+  for (var i = 0; i < cpiSeries.length; i++) { if (cpiSeries[i] !== null) { anyVal = true; break; } }
+  if (!anyVal) return null;
+  datasets.push({
+    label: CPI_DATASET_LABEL,
+    data: cpiSeries,
+    borderColor: '#ea580c',
+    backgroundColor: '#ea580c20',
+    borderWidth: 2,
+    borderDash: [8, 4],
+    // v1.5: X markers (Chart.js 'crossRot' = X) on each data point to visually
+    // differentiate CPI from the dotted earned-hours lines and the dashed total line.
+    pointStyle: 'crossRot',
+    pointRadius: 6,
+    pointHoverRadius: 8,
+    pointBorderWidth: 2,
+    pointBorderColor: '#ea580c',
+    tension: 0.1,
+    fill: false,
+    yAxisID: 'y1',
+    spanGaps: false
+  });
+  options.scales.y1 = {
+    position: 'right',
+    title: { display: true, text: 'CPI' },
+    suggestedMin: 0.5,
+    suggestedMax: 1.5,
+    grid: { drawOnChartArea: false }
+  };
+  // v1.5: Override legend label generation for the CPI item only. Other items
+  // continue to use Chart.js' default pointStyle (a circle), matching v1.4 behavior.
+  // The CPI swatch becomes a custom canvas glyph showing an X over a dot, anchoring
+  // the X-on-the-plot convention to the dot-in-the-legend convention.
+  if (!options.plugins) options.plugins = {};
+  if (!options.plugins.legend) options.plugins.legend = {};
+  if (!options.plugins.legend.labels) options.plugins.legend.labels = { usePointStyle: true, padding: 15 };
+  var prevGenerate = options.plugins.legend.labels.generateLabels;
+  options.plugins.legend.labels.generateLabels = function(chart) {
+    var labels = prevGenerate ? prevGenerate(chart) : Chart.defaults.plugins.legend.labels.generateLabels(chart);
+    for (var i = 0; i < labels.length; i++) {
+      if (labels[i].text === CPI_DATASET_LABEL) labels[i].pointStyle = getCpiLegendIcon();
+    }
+    return labels;
+  };
+  return { datasetWos: datasetMap, months: months.slice(), hoursMap: hoursMap };
 }
 
 var excludedNotePlugin = {
@@ -691,6 +969,36 @@ var excludedNotePlugin = {
     ctx.fillStyle = '#dc2626';
     ctx.textAlign = 'right';
     ctx.fillText(text, area.right, area.top - 5);
+    ctx.restore();
+  }
+};
+
+// v1.4: Horizontal reference line at CPI = 1.0 on the right (y1) axis. CPI < 1.0 means
+// over-budget; the line gives managers a quick visual anchor for the efficiency story.
+// Only draws when the y1 axis is present (i.e. CPI overlay is active for this chart).
+var cpiReferencePlugin = {
+  id: 'cpiReference',
+  afterDraw: function(chart) {
+    var y1 = chart.scales && chart.scales.y1;
+    if (!y1) return;
+    var area = chart.chartArea, ctx = chart.ctx;
+    var y = y1.getPixelForValue(1.0);
+    if (y < area.top || y > area.bottom) return;
+    ctx.save();
+    ctx.strokeStyle = '#ea580c';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(area.left, y);
+    ctx.lineTo(area.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1.0;
+    ctx.font = '10px Arial';
+    ctx.fillStyle = '#ea580c';
+    ctx.textAlign = 'left';
+    ctx.fillText('CPI = 1.0', area.left + 4, y - 3);
     ctx.restore();
   }
 };
@@ -837,34 +1145,51 @@ function updateChartRegion(chartKey, idx, which, val) {
   if (state.chart) state.chart.update();
 }
 
-function renderSummaryChart(summaryResult, globalMonths) {
+function renderSummaryChart(summaryResult, globalMonths, filteredBundles, filteredOrphans, hoursMap) {
   var labels = globalMonths.map(formatMonthLabel);
   chartRegionState['summary'] = { regions: [], chart: null, totalData: summaryResult.grandMonthTotals, labels: labels };
   var canvas = document.createElement('canvas'); canvas.style.height = '600px';
   canvas.dataset.regionKey = 'summary';
   document.getElementById('summary-chart').appendChild(canvas);
   var datasets = [];
+  // v1.4: track which WOs feed each dataset so legendToggleHandler can recompute CPI
+  // from the still-visible subset on legend interaction.
+  var datasetWos = {};
   for (var i = 0; i < summaryResult.bundleTotals.length; i++) {
     var bt = summaryResult.bundleTotals[i];
     datasets.push({ label: bt.name, data: globalMonths.map(function(mk) { return bt.monthlyTotals[mk] || 0; }),
       borderColor: CHART_COLORS[i % CHART_COLORS.length], backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '20',
       borderWidth: 2, pointRadius: 3, tension: 0.1, fill: false });
+    datasetWos[bt.name] = (filteredBundles && filteredBundles[i]) ? filteredBundles[i].workOrders.slice() : [];
   }
   // Unbundled line (only if there are unbundled hours)
   var ubHasData = summaryResult.unbundledMonthTotals.some(function(v) { return v > 0; });
   if (ubHasData) {
     datasets.push({ label: 'Unbundled', data: summaryResult.unbundledMonthTotals, borderColor: '#9333ea', backgroundColor: '#9333ea20',
       borderWidth: 2, borderDash: [3,2], pointRadius: 3, tension: 0.1, fill: false });
+    datasetWos['Unbundled'] = (filteredOrphans || []).slice();
   }
   // Grand Total dashed line
   datasets.push({ label: 'Grand Total', data: summaryResult.grandMonthTotals, borderColor: '#1e3a5f', backgroundColor: '#1e3a5f20',
     borderWidth: 3, borderDash: [6,3], pointRadius: 4, tension: 0.1, fill: false });
-  var sc = new Chart(canvas, { type: 'line', data: { labels: labels, datasets: datasets },
-    options: { responsive: true, maintainAspectRatio: false,
+  var options = { responsive: true, maintainAspectRatio: false,
       plugins: { title: { display: true, text: 'Total Earned Hours Per Month', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
         legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 }, onClick: legendToggleHandler('Grand Total') } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours Earned' } }, x: { title: { display: true, text: 'Month' } } } },
-    plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin] });
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours Earned' } }, x: { title: { display: true, text: 'Month' } } } };
+  // v1.4: assemble combined WO list for the lab-wide CPI series, then attach overlay if data
+  // is present. attachCpiOverlay() no-ops cleanly when the VAC log is absent or has no overlap.
+  var allWos = [];
+  if (filteredBundles) {
+    for (var bi = 0; bi < filteredBundles.length; bi++) {
+      for (var wi = 0; wi < filteredBundles[bi].workOrders.length; wi++) allWos.push(filteredBundles[bi].workOrders[wi]);
+    }
+  }
+  if (filteredOrphans) for (var oi = 0; oi < filteredOrphans.length; oi++) allWos.push(filteredOrphans[oi]);
+  var cpiMeta = attachCpiOverlay(datasetWos, allWos, globalMonths, hoursMap, options, datasets);
+  var sc = new Chart(canvas, { type: 'line', data: { labels: labels, datasets: datasets },
+    options: options,
+    plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin, cpiReferencePlugin] });
+  if (cpiMeta) sc._cpiMeta = cpiMeta;
   chartRegionState['summary'].chart = sc;
   chartInstances.push(sc);
   renderChartRegionControls('summary');
@@ -896,13 +1221,14 @@ function getRootPartNo(partNo) {
   return idx > 0 ? partNo.substring(0, idx) + '-x' : partNo;
 }
 
-function renderBundleChart(bundle, months, containerId, bundleIdx) {
+function renderBundleChart(bundle, months, containerId, bundleIdx, hoursMap) {
   var chartKey = 'bundle-' + bundleIdx;
   var labels = months.map(formatMonthLabel);
   var canvas = document.createElement('canvas'); canvas.style.height = '600px';
   canvas.dataset.regionKey = chartKey;
   document.getElementById(containerId).appendChild(canvas);
   var datasets = [];
+  var datasetWos = {}; // v1.4: dataset label -> contributing WO objects
   var rootGroups = {}; var rootOrder = []; var rootNames = {};
   for (var i = 0; i < bundle.workOrders.length; i++) {
     var wo = bundle.workOrders[i];
@@ -917,17 +1243,22 @@ function renderBundleChart(bundle, months, containerId, bundleIdx) {
     datasets.push({ label: chartLabel, data: data,
       borderColor: CHART_COLORS[r % CHART_COLORS.length], backgroundColor: CHART_COLORS[r % CHART_COLORS.length] + '20',
       borderWidth: 2, pointRadius: 3, tension: 0.1, fill: false });
+    datasetWos[chartLabel] = wos.slice();
   }
   var td = months.map(function(mk) { var s=0; for (var j=0;j<bundle.workOrders.length;j++) s+=bundle.workOrders[j].monthlyHours[mk]||0; return s; });
   datasets.push({ label: 'Bundle Total', data: td, borderColor: '#1e3a5f', backgroundColor: '#1e3a5f20',
     borderWidth: 3, borderDash: [6,3], pointRadius: 4, tension: 0.1, fill: false });
   chartRegionState[chartKey] = { regions: [], chart: null, totalData: td, labels: labels };
-  var chart = new Chart(canvas, { type: 'line', data: { labels: labels, datasets: datasets },
-    options: { responsive: true, maintainAspectRatio: false,
+  var options = { responsive: true, maintainAspectRatio: false,
       plugins: { title: { display: true, text: bundle.name + ' \u2014 Hours Earned Trend', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
         legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15 }, onClick: legendToggleHandler('Bundle Total') } },
-      scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours Earned' } }, x: { title: { display: true, text: 'Month' } } } },
-    plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin] });
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'Hours Earned' } }, x: { title: { display: true, text: 'Month' } } } };
+  // v1.4: attach bundle-scoped CPI overlay (no-op when no VAC log loaded)
+  var cpiMeta = attachCpiOverlay(datasetWos, bundle.workOrders.slice(), months, hoursMap, options, datasets);
+  var chart = new Chart(canvas, { type: 'line', data: { labels: labels, datasets: datasets },
+    options: options,
+    plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin, cpiReferencePlugin] });
+  if (cpiMeta) chart._cpiMeta = cpiMeta;
   chartRegionState[chartKey].chart = chart;
   chartInstances.push(chart);
   renderChartRegionControls(chartKey);
@@ -1102,10 +1433,10 @@ function renderAll(bundles) {
   }
   if (filteredOrphans.length > 0) html += renderUnbundled(filteredOrphans, lastHoursMap, globalMonths);
   output.innerHTML = html;
-  if (summaryResult) renderSummaryChart(summaryResult, globalMonths);
+  if (summaryResult) renderSummaryChart(summaryResult, globalMonths, filteredBundles, filteredOrphans, lastHoursMap);
   for (var b2 = 0; b2 < filteredBundles.length; b2++) {
     var months2 = computeMonthRange(filteredBundles[b2]);
-    if (months2.length > 0) renderBundleChart(filteredBundles[b2], months2, 'chart-' + b2, b2);
+    if (months2.length > 0) renderBundleChart(filteredBundles[b2], months2, 'chart-' + b2, b2, lastHoursMap);
   }
   lastBundles = bundles; lastGlobalMonths = globalMonths; lastFilteredOrphans = filteredOrphans;
   document.getElementById('save-btn').style.display = '';
@@ -1282,6 +1613,16 @@ function saveSnapshot() {
       var obj = { label: d.label, data: d.data.slice(), borderColor: d.borderColor, backgroundColor: d.backgroundColor,
         borderWidth: d.borderWidth, pointRadius: d.pointRadius, tension: d.tension, fill: d.fill };
       if (d.borderDash) obj.borderDash = d.borderDash;
+      // v1.4: preserve CPI dataset's axis binding and gap handling for snapshots.
+      if (d.yAxisID) obj.yAxisID = d.yAxisID;
+      if (d.spanGaps === false) obj.spanGaps = false;
+      // v1.5: preserve CPI X-marker styling. pointStyle may be a string ('crossRot') or
+      // a canvas element; only the string variant is JSON-safe, so we only carry through
+      // string pointStyles. The snapshot init script rebuilds the legend swatch canvas.
+      if (typeof d.pointStyle === 'string') obj.pointStyle = d.pointStyle;
+      if (d.pointHoverRadius != null) obj.pointHoverRadius = d.pointHoverRadius;
+      if (d.pointBorderWidth != null) obj.pointBorderWidth = d.pointBorderWidth;
+      if (d.pointBorderColor) obj.pointBorderColor = d.pointBorderColor;
       return obj;
     });
     var titleText = '';
@@ -1367,10 +1708,17 @@ function saveSnapshot() {
   h += 'var REGION_COLORS = [{color:"#2563eb",bg:"rgba(37,99,235,0.08)",border:"rgba(37,99,235,0.3)",cls:"r1",label:"Region 1"},{color:"#b45309",bg:"rgba(180,83,9,0.08)",border:"rgba(180,83,9,0.3)",cls:"r2",label:"Region 2"},{color:"#15803d",bg:"rgba(21,128,61,0.08)",border:"rgba(21,128,61,0.3)",cls:"r3",label:"Region 3"}];\n';
   // Region plugin
   h += 'var regionPlugin={id:"regionBoxes",afterDraw:function(chart){var key=chart.canvas.dataset.regionKey;var state=key?chartRegionState[key]:null;if(!state||!state.regions.length)return;var ctx=chart.ctx,xScale=chart.scales.x,yScale=chart.scales.y,area=chart.chartArea;var step=xScale.getPixelForValue(1)-xScale.getPixelForValue(0);for(var r=0;r<state.regions.length;r++){var reg=state.regions[r],rc=REGION_COLORS[r];if(reg.startIdx>reg.endIdx)continue;var x1=xScale.getPixelForValue(reg.startIdx)-step*0.45;var x2=xScale.getPixelForValue(reg.endIdx)+step*0.45;ctx.save();ctx.fillStyle=rc.bg;ctx.fillRect(x1,area.top,x2-x1,area.bottom-area.top);ctx.strokeStyle=rc.border;ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.strokeRect(x1,area.top,x2-x1,area.bottom-area.top);ctx.setLineDash([]);var sum=0,cnt=0;for(var i=reg.startIdx;i<=reg.endIdx;i++){sum+=state.totalData[i];cnt++}var avg=cnt>0?sum/cnt:0;var avgY=yScale.getPixelForValue(avg);ctx.strokeStyle=rc.color;ctx.lineWidth=2;ctx.setLineDash([6,3]);ctx.beginPath();ctx.moveTo(x1,avgY);ctx.lineTo(x2,avgY);ctx.stroke();ctx.setLineDash([]);var lt="Avg: "+avg.toFixed(1)+" hrs/mo";ctx.font="bold 11px Arial";var tw=ctx.measureText(lt).width;var lx=x1+(x2-x1)/2-tw/2;var ly=avgY-10;if(ly<area.top+15)ly=avgY+18;ctx.fillStyle="rgba(255,255,255,0.9)";ctx.fillRect(lx-4,ly-11,tw+8,15);ctx.strokeStyle=rc.border;ctx.lineWidth=1;ctx.strokeRect(lx-4,ly-11,tw+8,15);ctx.fillStyle=rc.color;ctx.fillText(lt,lx,ly);ctx.restore()}}};\n';
-  // Legend toggle handler
-  h += 'function legendToggleHandler(totalLabel){return function(e,legendItem,legend){Chart.defaults.plugins.legend.onClick.call(this,e,legendItem,legend);var chart=legend.chart;var ds=chart.data.datasets;var totalIdx=-1;for(var i=0;i<ds.length;i++){if(ds[i].label===totalLabel)totalIdx=i}if(totalIdx<0)return;var len=ds[totalIdx].data.length;var newT=[];for(var j=0;j<len;j++)newT.push(0);var excl=[];for(var d=0;d<ds.length;d++){if(d===totalIdx)continue;if(chart.getDatasetMeta(d).hidden){excl.push(ds[d].label);continue}for(var m=0;m<len;m++)newT[m]+=ds[d].data[m]||0}ds[totalIdx].data=newT;var key=chart.canvas.dataset.regionKey;if(chartRegionState[key])chartRegionState[key].totalData=newT;chart._excludedLabels=excl;chart.update();if(key)renderChartRegionControls(key)}}\n';
+  // v1.5: Legend toggle handler with 3-state cycle for part-number datasets (matches live).
+  // Total / CPI clicks use default toggle. Part-number clicks advance per-dataset counter
+  // 0→1→2→0 (1=hidden, 2=isolated, 2→0 triggers global reset). CPI is excluded from total
+  // recompute via yAxisID==='y1' guard.
+  h += 'function legendToggleHandler(totalLabel){return function(e,legendItem,legend){var chart=legend.chart;var ds=chart.data.datasets;var ci=(legendItem&&legendItem.datasetIndex!=null)?legendItem.datasetIndex:-1;var cl=(ci>=0&&ds[ci])?ds[ci].label:null;var isTotal=cl===totalLabel;var isCpi=ci>=0&&ds[ci].yAxisID==="y1";if(isTotal||isCpi){Chart.defaults.plugins.legend.onClick.call(this,e,legendItem,legend)}else if(cl!=null){var counts=chart._cycleCounts||(chart._cycleCounts={});var prev=counts[cl]||0;var nx=(prev+1)%3;if(nx===2){for(var k in counts){if(k!==cl&&counts[k]===2)counts[k]=1}counts[cl]=2}else if(nx===0){for(var k2 in counts)counts[k2]=0}else{counts[cl]=nx}var iso=null;for(var lbl in counts){if(counts[lbl]===2){iso=lbl;break}}for(var i=0;i<ds.length;i++){var l=ds[i].label;if(l===totalLabel)continue;if(ds[i].yAxisID==="y1")continue;var hd=(iso!==null)?(l!==iso):((counts[l]||0)===1);chart.getDatasetMeta(i).hidden=hd}}var totalIdx=-1,cpiIdx=-1;for(var ti=0;ti<ds.length;ti++){if(ds[ti].label===totalLabel)totalIdx=ti;if(ds[ti].label==="Avg CPI (weighted)")cpiIdx=ti}if(totalIdx<0){chart.update();return}var len=ds[totalIdx].data.length;var newT=[];for(var j=0;j<len;j++)newT.push(0);var excl=[];for(var d=0;d<ds.length;d++){if(d===totalIdx||d===cpiIdx)continue;if(chart.getDatasetMeta(d).hidden){excl.push(ds[d].label);continue}for(var m=0;m<len;m++)newT[m]+=ds[d].data[m]||0}ds[totalIdx].data=newT;var key=chart.canvas.dataset.regionKey;if(chartRegionState[key])chartRegionState[key].totalData=newT;chart._excludedLabels=excl;chart.update();if(key)renderChartRegionControls(key)}}\n';
+  // v1.5: CPI legend swatch builder (X-over-dot canvas). Cached on first call.
+  h += 'var _cpiLegendIcon=null;function getCpiLegendIcon(){if(_cpiLegendIcon)return _cpiLegendIcon;var c=document.createElement("canvas");c.width=14;c.height=14;var ctx=c.getContext("2d");ctx.fillStyle="#ea580c";ctx.beginPath();ctx.arc(7,7,3.5,0,2*Math.PI);ctx.fill();ctx.strokeStyle="#7c2d12";ctx.lineWidth=2;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(2.5,2.5);ctx.lineTo(11.5,11.5);ctx.moveTo(11.5,2.5);ctx.lineTo(2.5,11.5);ctx.stroke();_cpiLegendIcon=c;return c}\n';
   // Excluded note plugin
   h += 'var excludedNotePlugin={id:"excludedNote",afterDraw:function(chart){var excluded=chart._excludedLabels;if(!excluded||excluded.length===0)return;var ctx=chart.ctx,area=chart.chartArea;var text="Excluding: "+excluded.join(", ");ctx.save();ctx.font="11px Arial";var tw=ctx.measureText(text).width;if(tw>area.right-area.left-20){text="Excluding: "+excluded.length+" item"+(excluded.length>1?"s":"")+" hidden"}ctx.fillStyle="#dc2626";ctx.textAlign="right";ctx.fillText(text,area.right,area.top-5);ctx.restore()}};\n';
+  // v1.4: CPI reference line plugin (inlined for snapshot)
+  h += 'var cpiReferencePlugin={id:"cpiReference",afterDraw:function(chart){var y1=chart.scales&&chart.scales.y1;if(!y1)return;var area=chart.chartArea,ctx=chart.ctx;var y=y1.getPixelForValue(1.0);if(y<area.top||y>area.bottom)return;ctx.save();ctx.strokeStyle="#ea580c";ctx.lineWidth=1;ctx.setLineDash([2,3]);ctx.globalAlpha=0.55;ctx.beginPath();ctx.moveTo(area.left,y);ctx.lineTo(area.right,y);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1.0;ctx.font="10px Arial";ctx.fillStyle="#ea580c";ctx.textAlign="left";ctx.fillText("CPI = 1.0",area.left+4,y-3);ctx.restore()}};\n';
   // Box zoom plugin
   h += 'var boxZoomPlugin={id:"boxZoom",afterInit:function(chart){var canvas=chart.canvas;var zs={dragging:false,startX:0,startY:0,endX:0,endY:0,zoomed:false};chart._boxZoom=zs;canvas.addEventListener("mousedown",function(e){if(e.button!==0)return;var rect=canvas.getBoundingClientRect();var x=e.clientX-rect.left,y=e.clientY-rect.top;var area=chart.chartArea;if(x<area.left||x>area.right||y<area.top||y>area.bottom)return;zs.dragging=true;zs.startX=x;zs.startY=y;zs.endX=x;zs.endY=y});canvas.addEventListener("mousemove",function(e){if(!zs.dragging)return;var rect=canvas.getBoundingClientRect();var area=chart.chartArea;zs.endX=Math.max(area.left,Math.min(e.clientX-rect.left,area.right));zs.endY=Math.max(area.top,Math.min(e.clientY-rect.top,area.bottom));chart.draw()});canvas.addEventListener("mouseup",function(e){if(!zs.dragging)return;zs.dragging=false;if(Math.abs(zs.endX-zs.startX)<10&&Math.abs(zs.endY-zs.startY)<10)return;var xScale=chart.scales.x,yScale=chart.scales.y;var x1=Math.min(zs.startX,zs.endX),x2=Math.max(zs.startX,zs.endX);var y1=Math.min(zs.startY,zs.endY),y2=Math.max(zs.startY,zs.endY);var xMinIdx=Math.max(0,Math.floor(xScale.getValueForPixel(x1)));var xMaxIdx=Math.min(chart.data.labels.length-1,Math.ceil(xScale.getValueForPixel(x2)));var yMin=yScale.getValueForPixel(y2);var yMax=yScale.getValueForPixel(y1);chart.options.scales.x.min=chart.data.labels[xMinIdx];chart.options.scales.x.max=chart.data.labels[xMaxIdx];chart.options.scales.y.min=Math.max(0,yMin);chart.options.scales.y.max=yMax;zs.zoomed=true;chart.update()});canvas.addEventListener("dblclick",function(){if(!zs.zoomed)return;delete chart.options.scales.x.min;delete chart.options.scales.x.max;delete chart.options.scales.y.min;delete chart.options.scales.y.max;chart.options.scales.y.beginAtZero=true;zs.zoomed=false;chart.update()})},afterDraw:function(chart){var zs=chart._boxZoom;if(!zs)return;var ctx=chart.ctx;if(zs.dragging){var x=Math.min(zs.startX,zs.endX),y=Math.min(zs.startY,zs.endY);var w=Math.abs(zs.endX-zs.startX),h=Math.abs(zs.endY-zs.startY);ctx.save();ctx.fillStyle="rgba(37,99,235,0.1)";ctx.strokeStyle="rgba(37,99,235,0.5)";ctx.lineWidth=1;ctx.setLineDash([4,3]);ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);ctx.setLineDash([]);ctx.restore()}if(zs.zoomed&&!zs.dragging){ctx.save();ctx.font="bold 11px Arial";ctx.fillStyle="rgba(37,99,235,0.8)";ctx.textAlign="left";ctx.fillText("\\u21ba Double-click to reset zoom",chart.chartArea.left+5,chart.chartArea.top+14);ctx.restore()}}};\n';
   // esc helper
@@ -1397,12 +1745,18 @@ function saveSnapshot() {
   h += '      if (cfg.datasets[ti].label === cfg.totalLabel) { totalData = cfg.datasets[ti].data.slice(); break; }\n';
   h += '    }\n';
   h += '    chartRegionState[cfg.regionKey] = { regions: cfg.regions || [], chart: null, totalData: totalData, labels: cfg.labels };\n';
+  h += '    var _hasCpi = cfg.datasets.some(function(d){return d.yAxisID==="y1"});\n';
+  h += '    var _scales = { y: { beginAtZero: true, title: { display: true, text: "Hours Earned" } }, x: { title: { display: true, text: "Month" } } };\n';
+  h += '    if (_hasCpi) _scales.y1 = { position: "right", title: { display: true, text: "CPI" }, suggestedMin: 0.5, suggestedMax: 1.5, grid: { drawOnChartArea: false } };\n';
+  // v1.5: CPI legend swatch override (X-over-dot). Only attached when a CPI dataset exists.
+  h += '    var _legendLabels = { usePointStyle: true, padding: 15 };\n';
+  h += '    if (_hasCpi) { _legendLabels.generateLabels = function(chart){ var labels = Chart.defaults.plugins.legend.labels.generateLabels(chart); for (var i = 0; i < labels.length; i++) { if (labels[i].text === "Avg CPI (weighted)") labels[i].pointStyle = getCpiLegendIcon(); } return labels; }; }\n';
   h += '    var chart = new Chart(canvas, { type: "line", data: { labels: cfg.labels, datasets: cfg.datasets },\n';
   h += '      options: { responsive: true, maintainAspectRatio: false,\n';
   h += '        plugins: { title: { display: true, text: cfg.titleText, font: { size: 14, weight: "bold" }, color: "#1e3a5f" },\n';
-  h += '          legend: { position: "bottom", labels: { usePointStyle: true, padding: 15 }, onClick: legendToggleHandler(cfg.totalLabel) } },\n';
-  h += '        scales: { y: { beginAtZero: true, title: { display: true, text: "Hours Earned" } }, x: { title: { display: true, text: "Month" } } } },\n';
-  h += '      plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin] });\n';
+  h += '          legend: { position: "bottom", labels: _legendLabels, onClick: legendToggleHandler(cfg.totalLabel) } },\n';
+  h += '        scales: _scales },\n';
+  h += '      plugins: [regionPlugin, excludedNotePlugin, boxZoomPlugin, cpiReferencePlugin] });\n';
   h += '    chartRegionState[cfg.regionKey].chart = chart;\n';
   h += '    renderChartRegionControls(cfg.regionKey);\n';
   h += '    if (cfg.takeaway) {\n';
