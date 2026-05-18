@@ -95,11 +95,14 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.4</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.5</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
   (<code>Date, WO, Part #, VAC, CPI</code>). Optionally upload your live VAC tracker to compare overlapping rows and surface any wild inconsistencies before merging.
+</p>
+<p class="description" style="background:#fffbeb;border-left:4px solid #f59e0b;padding:0.6rem 0.9rem;color:#92400e;font-size:0.88rem;margin-bottom:1.5rem;">
+  <strong>Tip &mdash; operation scope alignment:</strong> CPI is only meaningful when your Hours Earned data and your tech-charges data cover the same set of operations. If your earned hours include ALL ops (manufacturing, quality, engineering, etc.) but your charges only include manufacturing, the tool will systematically over-state earned vs actual and inflate CPI. Make sure the two inputs are filtered to the same scope before comparing.
 </p>
 
 <div class="file-inputs">
@@ -149,7 +152,7 @@ License: MIT
 
 <script>
 // =====================================================================
-// VAC Tracker Backfill Tool — v1.0
+// VAC Tracker Backfill Tool — v1.5
 // =====================================================================
 // Inputs:
 //   1. Tech charge .xlsx files (one or more) — schema per Score Card §5.1
@@ -568,9 +571,12 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
   var zeroEarnedFlags = [];   // {wo, dateStr} for diagnostics
   var unmatchedWosCharges = []; // WOs that have charges but NO Hours Earned at all (any date)
   var seenInEarnedButNoCharges = []; // WOs in earned but no charges (just informational)
-  // v1.2: track WOs whose earned-hours history extends before their charge data
-  // and track rows whose computed CPI exceeds the sanity threshold.
-  var preChargeEarnedExcluded = []; // {wo, rowCount, totalHoursExcluded}
+  // v1.2: track rows whose computed CPI exceeds the sanity threshold.
+  // v1.5: F-04 (pre-charge earned exclusion) removed — the labor system returns full
+  // WO history regardless of the user's start-date filter, so the scenario F-04 was
+  // protecting against doesn't actually occur. preChargeEarnedExcluded retained as
+  // an empty array to keep downstream code paths (gap report, diagnostics) stable.
+  var preChargeEarnedExcluded = []; // (deprecated — always empty since v1.5)
   var sanityFlagged = []; // {wo, dateStr, rawCpi, cumEarned, cumActual}
 
   for (var w in woSet) {
@@ -582,19 +588,7 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
     for (var bk in bo) {
       if (bo[bk][0].weekTs < firstTs) firstTs = bo[bk][0].weekTs;
     }
-    // v1.2: count Hours Earned rows for this WO that predate its first charge week.
-    // Those represent earned value whose actual hours we don't have in the charge data
-    // (work that happened before our coverage), so including them would inflate CPI.
-    // We exclude them from cum_earned and surface the count in diagnostics.
-    var preChargeRowCount = 0, preChargeHours = 0;
-    var earnedRowsForWo = earnedByWo[w] || [];
-    for (var pei = 0; pei < earnedRowsForWo.length; pei++) {
-      if (earnedRowsForWo[pei].ts < firstTs) {
-        preChargeRowCount++;
-        preChargeHours += earnedRowsForWo[pei].hours;
-      }
-    }
-    if (preChargeRowCount > 0) preChargeEarnedExcluded.push({ wo: w, rowCount: preChargeRowCount, totalHoursExcluded: +preChargeHours.toFixed(1) });
+    // v1.5: F-04 removed — no longer counting / excluding pre-charge-week earned rows.
     for (var wi = 0; wi < weList.length; wi++) {
       var W = weList[wi];
       var Wts = W.getTime();
@@ -618,12 +612,14 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
         }
       }
       if (cumA <= 0) continue;
-      // cum_earned = Σ earned where firstTs <= effTs <= W
-      // (Earned rows predating the WO's first charge week are excluded — see preChargeEarnedExcluded above.)
+      // cum_earned = Σ earned where effTs <= W
+      // (v1.5: removed the pre-charge-week lower bound — the labor system returns
+      // full WO history, so excluding earned predating the first charge week was
+      // discarding legitimate data and systematically lowering CPI vs the live VAC
+      // tracker. Now every Hours Earned row for the WO with effDate ≤ W counts.)
       var cumE = 0;
       var earnedSeries = earnedByWo[w] || [];
       for (var ej = 0; ej < earnedSeries.length; ej++) {
-        if (earnedSeries[ej].ts < firstTs) continue;
         if (earnedSeries[ej].ts <= Wts) cumE += earnedSeries[ej].hours;
         else break;
       }
@@ -825,7 +821,6 @@ function renderValidation(diagnostics, parseErrors) {
   parseErrors.forEach(function(e) { bits.push('<div class="val-error"><strong>Parse error:</strong> ' + esc(e) + '</div>'); });
   var noteCount = diagnostics.zeroEarned.length + diagnostics.unmatchedWosCharges.length +
                   diagnostics.earnedOnlyNoCharges.length +
-                  (diagnostics.preChargeEarnedExcluded ? diagnostics.preChargeEarnedExcluded.length : 0) +
                   (diagnostics.sanityFlagged ? diagnostics.sanityFlagged.length : 0);
   if (noteCount > 0) {
     var body = '';
@@ -837,17 +832,7 @@ function renderValidation(diagnostics, parseErrors) {
       });
       body += '<ul>' + flagSample.map(function(s) { return '<li>' + esc(s) + '</li>'; }).join('') + (diagnostics.sanityFlagged.length > 15 ? '<li>… +' + (diagnostics.sanityFlagged.length - 15) + ' more</li>' : '') + '</ul>';
     }
-    // v1.2: WOs whose earned-hours history precedes their first charge week.
-    if (diagnostics.preChargeEarnedExcluded && diagnostics.preChargeEarnedExcluded.length) {
-      var preWoCount = diagnostics.preChargeEarnedExcluded.length;
-      var preTotalRows = diagnostics.preChargeEarnedExcluded.reduce(function(s, p) { return s + p.rowCount; }, 0);
-      var preTotalHrs = diagnostics.preChargeEarnedExcluded.reduce(function(s, p) { return s + p.totalHoursExcluded; }, 0);
-      body += '<div><strong>' + preWoCount + ' WO(s) had Hours Earned entries predating their first charge week — ' + preTotalRows + ' row(s) / ' + preTotalHrs.toFixed(1) + ' total earned hours excluded from cum_earned.</strong> The work for those operations happened before the charge data window, so including them would inflate CPI.</div>';
-      var preSample = diagnostics.preChargeEarnedExcluded.slice(0, 15).map(function(p) {
-        return p.wo + ' — ' + p.rowCount + ' row(s), ' + p.totalHoursExcluded.toFixed(1) + ' hours excluded';
-      });
-      body += '<ul>' + preSample.map(function(s) { return '<li>' + esc(s) + '</li>'; }).join('') + (preWoCount > 15 ? '<li>… +' + (preWoCount - 15) + ' more</li>' : '') + '</ul>';
-    }
+    // (v1.5: preChargeEarnedExcluded section removed — F-04 is gone.)
     if (diagnostics.zeroEarned.length) {
       body += '<div><strong>' + diagnostics.zeroEarned.length + ' (WO, week-ending) pair(s) with charges but no cumulative earned hours.</strong> Emitted with blank CPI; these represent mid-WO snapshots before any operation closed.</div>';
       var sample = diagnostics.zeroEarned.slice(0, 10).map(function(z) { return z.wo + ' on ' + z.dateStr; });
@@ -861,7 +846,7 @@ function renderValidation(diagnostics, parseErrors) {
       body += '<div><strong>' + diagnostics.earnedOnlyNoCharges.length + ' WO(s) have Hours Earned rows but no charges in the uploaded files.</strong> No backfill row will be emitted for these.</div>';
       body += '<ul>' + diagnostics.earnedOnlyNoCharges.slice(0, 20).map(function(w) { return '<li>' + esc(w) + '</li>'; }).join('') + (diagnostics.earnedOnlyNoCharges.length > 20 ? '<li>… +' + (diagnostics.earnedOnlyNoCharges.length - 20) + ' more</li>' : '') + '</ul>';
     }
-    var openAttr = ((diagnostics.sanityFlagged && diagnostics.sanityFlagged.length) || (diagnostics.preChargeEarnedExcluded && diagnostics.preChargeEarnedExcluded.length)) ? ' open' : '';
+    var openAttr = (diagnostics.sanityFlagged && diagnostics.sanityFlagged.length) ? ' open' : '';
     bits.push('<details class="val-panel"' + openAttr + '><summary>Validation: ' + noteCount + ' note(s) (click to ' + (openAttr ? 'collapse' : 'expand') + ')</summary><div class="val-body">' + body + '</div></details>');
   }
   panel.innerHTML = bits.join('');
@@ -956,7 +941,7 @@ function renderGapReport(diagnostics) {
   candidates.forEach(function(c) {
     var notes = [];
     if (c.flaggedRowCount > 0) notes.push(c.flaggedRowCount + ' flagged row' + (c.flaggedRowCount === 1 ? '' : 's'));
-    if (c.preChargeRows > 0) notes.push(c.preChargeRows + ' pre-charge earned (' + c.preChargeHours.toFixed(1) + ' hrs excluded)');
+    // v1.5: pre-charge earned notes removed (F-04 gone).
     html += '<tr><td>' + esc(c.partNo || '&mdash;') + '</td>';
     html += '<td>' + esc(c.wo) + '</td>';
     html += '<td>' + (c.earliestEarnedDate ? fmtMDY(c.earliestEarnedDate) : '&mdash;') + '</td>';
@@ -980,7 +965,7 @@ function downloadGapReportCSV() {
   var csv = '';
   csv += '# Flagged WOs — high earned-vs-actual ratio (triage hint, not a verdict)\r\n';
   csv += '# Sanity threshold used: ' + lastDiagnostics.sanityThreshold.toFixed(2) + '\r\n';
-  csv += csvRow(['Part #', 'WO', 'Earliest Earned Date', 'Latest Earned Date', 'Earliest Actuals Date', 'Latest Cum Earned', 'Latest Cum Actual', 'Max Raw CPI', 'Flagged Row Count', 'Pre-Charge Earned Rows', 'Pre-Charge Earned Hours Excluded']);
+  csv += csvRow(['Part #', 'WO', 'Earliest Earned Date', 'Latest Earned Date', 'Earliest Actuals Date', 'Latest Cum Earned', 'Latest Cum Actual', 'Max Raw CPI', 'Flagged Row Count']);
   cs.forEach(function(c) {
     csv += csvRow([
       c.partNo, c.wo,
@@ -990,7 +975,7 @@ function downloadGapReportCSV() {
       (c.latestCumEarned || 0).toFixed(1),
       (c.latestCumActual || 0).toFixed(1),
       c.maxRawCpi !== null ? c.maxRawCpi.toFixed(3) : '',
-      c.flaggedRowCount, c.preChargeRows, c.preChargeHours.toFixed(1)
+      c.flaggedRowCount
     ]);
   });
   triggerDownload('vac-backfill-flagged-wos-' + todayStr() + '.csv', csv);
