@@ -27,7 +27,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
 <p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
-<p class="version">Version 1.7 | May 14, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.8 | May 14, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
@@ -246,6 +246,7 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-136</span> (v1.7) The Actual Hours total and the displayed CPI value reconcile exactly: <code>CPI<sub>m</sub> = EarnedHours<sub>m</sub> &divide; ActualHours<sub>m</sub></code> by construction (within rounding to 3 decimal places). The earlier v1.6 caveat about a weighted-vs-aggregate gap is obsolete &mdash; v1.7 swapped the aggregation method specifically to remove that gap.</p>
 <p><span class="req">F-137</span> When the user hovers the CPI item in the chart legend, an HTML tooltip is positioned near the cursor describing the aggregation: &quot;Each month: &Sigma; EarnedHrs<sub>wo,m</sub> &divide; &Sigma; ActualHrs<sub>wo,m</sub>&quot; with a follow-on note that ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>, plus the carry-forward and exclusion rules. The tooltip is hidden when the user leaves the legend item.</p>
 <p><span class="req">F-138</span> Both tooltip augmentations are inlined into snapshot HTML. The tooltip&apos;s earned + actual numbers are precomputed at snapshot save time (consistent with the snapshot-as-frozen-view semantics already established for the CPI line itself); legend toggle / cycle interactions in the snapshot do not recompute them.</p>
+<p><span class="req">F-139</span> (v1.8) <strong>Coverage indicator.</strong> The CPI marker tooltip appends a third line: <code>  Coverage: NN%</code>. Computed as &Sigma; EarnedHrs<sub>wo,m</sub> over WOs that have a qualifying CPI sample &divide; &Sigma; EarnedHrs<sub>wo,m</sub> over <strong>all</strong> in-scope WOs (including those WITHOUT a qualifying CPI sample). Earned-hours-weighted; rounded to the nearest integer percent. Always shown when finite (including 100%, which reassures the read is complete). Recomputes live with the legend cycle and program chip filter; precomputed at snapshot save time and stored on <code>chartConfigs[i].cpiTooltipData[i].coverage</code> as an integer.</p>
 
 <h2>7. Visual & UI Requirements</h2>
 <p><span class="req">V-01</span> Navy/gray color palette: #1e3a5f (headings), #334155 (table headers), #2563eb (primary buttons), #f5f5f5 (background).</p>
@@ -273,6 +274,7 @@ li { margin: 0.3rem 0; }
 <p><span class="req">V-23</span> (v1.5) <strong>CPI legend swatch:</strong> custom 14&times;14 canvas glyph showing a filled orange dot (#ea580c, 3.5 radius) with a dark-orange X (#7c2d12, 2px lineWidth, round caps) drawn on top. The dot anchors the swatch visually with the other legend items&apos; dot convention; the X overlay anchors the swatch with the X markers on the data points. All other legend swatches retain the default Chart.js circle.</p>
 <p><span class="req">V-24</span> (v1.6) <strong>CPI legend hover tooltip:</strong> HTML overlay positioned with <code>position: fixed</code> near the cursor. Background <code>#1f2937</code>, text <code>#fff</code>, accent (formula chip + heading) <code>#fcd34d</code> on <code>#374151</code>, body note <code>#cbd5e1</code>. Max-width 360px, 5px border radius, 0.82rem text, drop shadow. <code>pointer-events: none</code> so it never intercepts clicks. Auto-clamped to viewport edges.</p>
 <p><span class="req">V-25</span> (v1.6) <strong>CPI data tooltip earned/actual lines:</strong> appended verbatim under the CPI value via <code>tooltip.callbacks.afterBody</code>. Two-space indent prefix (matches the visual hierarchy of Chart.js&apos; default body lines). Numbers formatted to one decimal place.</p>
+<p><span class="req">V-26</span> (v1.8) <strong>CPI tooltip coverage line:</strong> same two-space indent + colon format used for Earned / Actual. Integer percent with a trailing <code>%</code>. Always rendered when the coverage value is finite, even at 100%.</p>
 
 <h2>8. Security Controls</h2>
 <p><span class="req">S-01</span> <code>esc()</code> function for XSS prevention (5-char HTML entity escaping).</p>
@@ -297,9 +299,18 @@ li { margin: 0.3rem 0; }
   <li><strong>Cycle cross-item behavior &mdash; stack hides (v1.5 decision):</strong> When a part-number cycle is in flight on item A (state 1 or 2) and the user clicks part-number item B, B&apos;s counter advances independently rather than resetting A. Mental model: each line has its own &quot;hide me&quot; toggle, plus a shared &quot;isolate me&quot; mode. Considered alternatives: (a) reset and start fresh on the new item; (c) replace isolation with the new item. Stack-hides preserves more user intent across multi-step interactions and only forfeits the rare case where the user wants to discard prior hides; that case is recoverable in one click on the most-recently-isolated item (3rd click triggers global reset).</li>
   <li><strong>Actual Hours method &mdash; literal &Sigma;(earned&divide;CPI) per WO (v1.6 decision, preserved in v1.7):</strong> The Actual Hours number under the CPI tooltip sums each WO&apos;s implied actual hours from its own CPI sample. v1.6 accepted a small gap between this and EarnedTotal&divide;CPI<sub>shown</sub>; v1.7 removed that gap by switching the displayed CPI itself to the true aggregate (which is exactly EarnedTotal &divide; this same &Sigma;actual). Earned + Actual + CPI now reconcile arithmetically.</li>
   <li><strong>CPI aggregation switched to &Sigma; earned &divide; &Sigma; actual (v1.7 decision):</strong> True aggregate &mdash; drag-honest, reconciles with the displayed Earned / Actual numbers. The earlier v1.4 mathematical pre-commitment to a weighted-by-earned average was overruled by real-data review. Considered alternatives at the time of the switch: simple mean of per-WO CPI (volatile, what Gate Tracker uses on the VAC plot) and keeping the weighted formula (rejected on drag-hiding grounds). The chosen method directly answers the question this tool exists to answer: &quot;is the lab efficient as a whole?&quot;.</li>
+  <li><strong>Coverage indicator pattern (v1.8 decision):</strong> Any aggregation that depends on sparse / optional data must surface its data completeness in the same hover affordance that shows the aggregate. v1.4 shipped CPI without one and the silent-failure risk only surfaced during Oscar&apos;s real-data review &mdash; he could have briefed management with cross-month comparisons that were materially distorted by missing VAC tracker history for the N program. The fix in v1.8 is a single tooltip line (&quot;Coverage: NN%&quot;) showing the earned-hours-weighted fraction of in-scope hours that has a qualifying CPI sample. Generalized as a process reminder for future visualizations.</li>
 </ol>
 
-<h2>11. Changelog (v1.7 &mdash; May 14, 2026)</h2>
+<h2>11. Changelog (v1.8 &mdash; May 14, 2026)</h2>
+<ul>
+  <li><strong>F-139 / V-26 (NEW):</strong> CPI marker tooltip appends a &quot;Coverage: NN%&quot; line under Earned / Actual Hours. Earned-hours-weighted: &Sigma; covered_earned &divide; &Sigma; total_earned. Always shown when finite (including 100%).</li>
+  <li><strong>Legend hover (UPDATED):</strong> Weighted-CPI-formula popover now includes a note explaining the Coverage % so first-time viewers understand the indicator.</li>
+  <li><strong>Snapshot:</strong> precomputed integer coverage % stored on <code>cpiTooltipData[i].coverage</code>; inlined afterBody appends the Coverage line from that static value.</li>
+  <li><strong>Not in this release:</strong> the underlying VAC-tracker data gap for the N program (June&ndash;November 2025) is a separate effort &mdash; a one-time backfill tool that emits VAC tracker rows from technician-charges granularity for the period missing P File history.</li>
+</ul>
+
+<h2>12. Changelog (v1.7 &mdash; May 14, 2026)</h2>
 <ul>
   <li><strong>F-122 (REVISED):</strong> CPI aggregation switched from earned-hours-weighted average to the true aggregate &Sigma; EarnedHrs<sub>wo,m</sub> &divide; &Sigma; ActualHrs<sub>wo,m</sub>. Drag-honest; reconciles exactly with the Earned / Actual numbers shown in the marker tooltip. See &sect;10 for the decision history.</li>
   <li><strong>F-136 / F-137 (REVISED):</strong> CPI tooltip + legend hover text updated to reference the new formula. The v1.6 caveat about a weighted-vs-aggregate gap is obsolete.</li>
@@ -307,21 +318,21 @@ li { margin: 0.3rem 0; }
   <li><strong>Snapshot:</strong> all hardcoded &quot;Avg CPI (weighted)&quot; references in the inlined snapshot reconstruction script updated to &quot;CPI&quot;; inlined legend hover tooltip HTML updated to the new formula. Pre-saved snapshots from v1.4&ndash;v1.6 will not auto-update, but their CPI series + tooltip data remain valid for the as-saved state.</li>
 </ul>
 
-<h2>12. Changelog (v1.6 &mdash; May 14, 2026)</h2>
+<h2>13. Changelog (v1.6 &mdash; May 14, 2026)</h2>
 <ul>
   <li><strong>F-134 through F-138 / V-24 / V-25 (NEW):</strong> CPI marker tooltips now append &quot;Earned Hours: X / Actual Hours: Y&quot; lines under the CPI value, answering &quot;how many hours did we charge?&quot; in the same hover.</li>
   <li><strong>Legend hover (NEW):</strong> Hovering the &quot;Avg CPI (weighted)&quot; legend item surfaces an HTML overlay describing the weighted-average formula and carry-forward / exclusion rules.</li>
   <li><strong>Snapshot:</strong> per-month earned + actual sums are precomputed at save time and serialized into <code>chartConfigs[i].cpiTooltipData</code>; the snapshot&apos;s tooltip afterBody reads from this static array.</li>
 </ul>
 
-<h2>13. Changelog (v1.5 &mdash; May 14, 2026)</h2>
+<h2>14. Changelog (v1.5 &mdash; May 14, 2026)</h2>
 <ul>
   <li><strong>F-127 / V-22 (NEW):</strong> CPI line data points now render as X markers (Chart.js <code>'crossRot'</code>), differentiating the CPI series at a glance from the dotted earned-hours lines.</li>
   <li><strong>V-23 (NEW):</strong> CPI legend swatch replaced with a custom orange dot + X overlay glyph so the legend visually anchors both conventions &mdash; the X marker on each data point and the dot in every other legend entry.</li>
   <li><strong>F-128 through F-133 (NEW):</strong> Legend click on a part-number entry now follows a 3-state cycle: visible &rarr; hidden &rarr; isolated &rarr; visible. Stack-hides model: independent per-dataset counters. Global reset on the 2&rarr;0 transition.</li>
 </ul>
 
-<h2>14. Changelog (v1.4 &mdash; May 14, 2026)</h2>
+<h2>15. Changelog (v1.4 &mdash; May 14, 2026)</h2>
 <ul>
   <li><strong>F-120 through F-126 (NEW):</strong> CPI overlay on summary and per-bundle charts, sourced from a new optional VAC Tracker Log CSV input. Earned-hours-weighted monthly average with carry-forward CPI lookup. Recomputes dynamically on program chip toggle and on legend toggle of bundle / root-part datasets.</li>
   <li><strong>V-19 through V-21 (NEW):</strong> Orange dashed CPI line on a right-side secondary y-axis (range 0.5&ndash;1.5 with auto-fit), plus a CPI = 1.0 reference line.</li>
@@ -329,7 +340,7 @@ li { margin: 0.3rem 0; }
   <li><strong>Snapshot serialization:</strong> Chart datasets now preserve <code>yAxisID</code> and <code>spanGaps</code>; reconstruction script adds the y1 axis and <code>cpiReferencePlugin</code> when any dataset binds to <code>y1</code>. Inlined snapshot legend handler skips any <code>yAxisID === "y1"</code> dataset from the Total recompute.</li>
 </ul>
 
-<h2>15. Changelog (v1.3 &mdash; May 13, 2026)</h2>
+<h2>16. Changelog (v1.3 &mdash; May 13, 2026)</h2>
 <ul>
   <li><strong>F-12a (NEW):</strong> Program filter chip bar now begins with bold <em>Select All</em> and <em>Deselect All</em> bulk chips. Clicking any chip applies immediately &mdash; the user no longer needs to click <em>Apply</em> after toggling a program. Apply remains the trigger for start-date and (when checked manually) hide-last-month changes affecting axes.</li>
   <li><strong>EV Details dedup visibility (v1.3):</strong> When multiple EV Details files are uploaded, the count of duplicate Order Nos skipped (first-occurrence wins) is now surfaced both inline in the EV file status line at upload time and as a warning row in the validation panel after Analyze. The first 10 duplicate Order Nos are shown as examples.</li>
