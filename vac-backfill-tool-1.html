@@ -95,7 +95,7 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.0</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.1</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
@@ -125,8 +125,16 @@ License: MIT
 
 <div class="action-bar">
   <button id="run-btn" class="btn btn-primary" disabled>Compute Backfill</button>
-  <button id="download-btn" class="btn btn-green" style="display:none;">📥 Download Backfill CSV</button>
-  <button id="download-comp-btn" class="btn btn-slate" style="display:none;">📥 Download Comparison CSV</button>
+  <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem;color:#334155;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:6px 10px;">
+    <span style="font-weight:600;">Charge totals format:</span>
+    <select id="totals-format" style="padding:3px 6px;border:1px solid #94a3b8;border-radius:3px;font-size:0.85rem;">
+      <option value="incremental" selected>Incremental (per-week hours)</option>
+      <option value="cumulative">Cumulative per Badge+Op</option>
+    </select>
+    <span title="Real-world weekly export typically reports incremental hours per week. The synthetic Score Card test fixtures are cumulative — switch to that mode to reproduce their expected values." style="color:#64748b;cursor:help;">&#9432;</span>
+  </label>
+  <button id="download-btn" class="btn btn-green" style="display:none;">&#128229; Download Backfill CSV</button>
+  <button id="download-comp-btn" class="btn btn-slate" style="display:none;">&#128229; Download Comparison CSV</button>
 </div>
 
 <div id="validation"></div>
@@ -495,10 +503,19 @@ function dedupChargeRows(allRows) {
   return { rows: out, dropped: dropped };
 }
 
-function computeBackfill(chargeRows, earnedRows) {
-  // Index charges per (orderNo, badge|operNo) → sorted by week-ending ascending
+function computeBackfill(chargeRows, earnedRows, totalsFormat) {
+  // v1.1: totalsFormat = 'incremental' (default — each row = that week's hours)
+  // or 'cumulative' (each row = running total per Badge+Op as of Week Ending).
+  // Real-world weekly exports are incremental; the Score Card test fixtures
+  // are cumulative. cum_actual is computed differently per format:
+  //   incremental → cum_actual_W = Σ all charge rows for WO where weekTs ≤ W
+  //   cumulative  → cum_actual_W = Σ (latest Total Hours where weekTs ≤ W) per (Badge, Op)
+  var fmt = (totalsFormat === 'cumulative') ? 'cumulative' : 'incremental';
+
+  // Index charges per (orderNo, badge|operNo) → sorted by week-ending ascending.
   // Also collect global week-ending set and per-WO part-no first-seen.
   var byWoBO = {};            // orderNo → (badge|operNo) → [{weekTs, totalHours}, ...]
+  var byWoFlat = {};          // orderNo → [{weekTs, totalHours}, ...]  (incremental sum source)
   var partNoForWo = {};       // orderNo → first non-empty Part No.
   var weTsSet = {};
   var woSet = {};
@@ -511,6 +528,8 @@ function computeBackfill(chargeRows, earnedRows) {
     var k = r.badge + '|' + r.operNo;
     if (!byWoBO[r.orderNo][k]) byWoBO[r.orderNo][k] = [];
     byWoBO[r.orderNo][k].push({ weekTs: r.weekEndingTs, totalHours: r.totalHours });
+    if (!byWoFlat[r.orderNo]) byWoFlat[r.orderNo] = [];
+    byWoFlat[r.orderNo].push({ weekTs: r.weekEndingTs, totalHours: r.totalHours });
   }
   // Sort each (Badge, Operation) series by Week Ending ascending
   for (var wo in byWoBO) {
@@ -540,6 +559,7 @@ function computeBackfill(chargeRows, earnedRows) {
   for (var w in woSet) {
     if (!earnedByWo[w]) unmatchedWosCharges.push(w);
     var bo = byWoBO[w];
+    var flat = byWoFlat[w] || [];
     // Determine first charge week for this WO
     var firstTs = Infinity;
     for (var bk in bo) {
@@ -549,16 +569,23 @@ function computeBackfill(chargeRows, earnedRows) {
       var W = weList[wi];
       var Wts = W.getTime();
       if (Wts < firstTs) continue;
-      // cum_actual = Σ (latest Total Hours where row.weekTs <= W) over each (badge, op)
       var cumA = 0;
-      for (var bk2 in bo) {
-        var series = bo[bk2];
-        var latest = null;
-        for (var si = 0; si < series.length; si++) {
-          if (series[si].weekTs <= Wts) latest = series[si].totalHours;
-          else break;
+      if (fmt === 'incremental') {
+        // cum_actual = Σ all rows where weekTs <= W (every charge row counted)
+        for (var fi = 0; fi < flat.length; fi++) {
+          if (flat[fi].weekTs <= Wts) cumA += flat[fi].totalHours;
         }
-        if (latest != null) cumA += latest;
+      } else {
+        // cum_actual = Σ (latest Total Hours where row.weekTs <= W) over each (Badge, Op)
+        for (var bk2 in bo) {
+          var series = bo[bk2];
+          var latest = null;
+          for (var si = 0; si < series.length; si++) {
+            if (series[si].weekTs <= Wts) latest = series[si].totalHours;
+            else break;
+          }
+          if (latest != null) cumA += latest;
+        }
       }
       if (cumA <= 0) continue;
       // cum_earned = Σ earned where effTs <= W
@@ -794,7 +821,8 @@ document.getElementById('run-btn').addEventListener('click', function() {
     for (var i = 0; i < f.rows.length; i++) allCharge.push(f.rows[i]);
   });
   var deduped = dedupChargeRows(allCharge);
-  var result = computeBackfill(deduped.rows, earnedRowsParsed);
+  var totalsFormat = (document.getElementById('totals-format') || {}).value || 'incremental';
+  var result = computeBackfill(deduped.rows, earnedRowsParsed, totalsFormat);
   lastBackfillRows = result.rows;
   renderValidation(result.diagnostics, parseErrors);
   renderOutput(result.rows, result.diagnostics);
