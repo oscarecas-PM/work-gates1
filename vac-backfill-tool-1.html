@@ -95,7 +95,7 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.3</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.4</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
@@ -631,13 +631,16 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
       var flagged = false;
       if (cumE > 0) {
         var rawCpi = cumE / cumA;
+        // v1.4: always emit the computed CPI value. Flagging still happens for
+        // diagnostics, but the value is no longer blanked. Rationale: real-data
+        // review confirmed that high-CPI rows are often legitimate (e.g. planner
+        // assigned 414 hours each to two ops that closed the same day) — not
+        // partial-coverage bugs. The user can pick their own filter via the
+        // existing comparison panel + flagged-WOs report.
+        cpi = +rawCpi.toFixed(3);
         if (rawCpi > sanity) {
-          // v1.2: sanity threshold — likely partial-coverage data. Blank out CPI.
           flagged = true;
           sanityFlagged.push({ wo: w, dateStr: fmtMDY(W), rawCpi: +rawCpi.toFixed(3), cumEarned: +cumE.toFixed(2), cumActual: +cumA.toFixed(2) });
-          cpi = null;
-        } else {
-          cpi = +rawCpi.toFixed(3);
         }
       } else {
         zeroEarnedFlags.push({ wo: w, dateStr: fmtMDY(W) });
@@ -680,21 +683,22 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
     }
     return candidateMap[wo];
   }
+  // v1.4: track the peak (highest) raw CPI per WO for triage, but use the WO's
+  // LATEST backfill row (by date) for cum_earned / cum_actual. Reasoning: the
+  // "latest" snapshot is the most honest representation of the WO's state in
+  // the data; the peak-CPI snapshot might have been an earlier moment that
+  // doesn't reflect later activity.
   sanityFlagged.forEach(function(f) {
     var c = ensureCandidate(f.wo);
     c.flaggedRowCount++;
-    if (c.maxRawCpi === null || f.rawCpi > c.maxRawCpi) {
-      c.maxRawCpi = f.rawCpi;
-      c.latestCumEarned = f.cumEarned;
-      c.latestCumActual = f.cumActual;
-    }
+    if (c.maxRawCpi === null || f.rawCpi > c.maxRawCpi) c.maxRawCpi = f.rawCpi;
   });
   preChargeEarnedExcluded.forEach(function(p) {
     var c = ensureCandidate(p.wo);
     c.preChargeRows = p.rowCount;
     c.preChargeHours = p.totalHoursExcluded;
   });
-  // Fill per-candidate dates from the source data
+  // Fill per-candidate dates + latest snapshot from the source / output data
   for (var cwo in candidateMap) {
     var c = candidateMap[cwo];
     var firstTs = Infinity;
@@ -706,17 +710,15 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
       c.earliestEarnedDate = new Date(earnedSer[0].ts);
       c.latestEarnedDate = new Date(earnedSer[earnedSer.length - 1].ts);
     }
-    // If no sanityFlagged but the WO is here only due to pre-charge exclusion,
-    // we still want the latest cum_earned/cum_actual snapshot for the WO so the
-    // report has actionable numbers. Pull from the last output row for this WO.
-    if (c.maxRawCpi === null) {
-      for (var oi = output.length - 1; oi >= 0; oi--) {
-        if (output[oi].wo === cwo) {
-          c.latestCumEarned = output[oi].cumEarned;
-          c.latestCumActual = output[oi].cumActual;
-          if (output[oi].cpi !== null) c.maxRawCpi = output[oi].cpi;
-          break;
-        }
+    // Pull cum_earned / cum_actual from the WO's LATEST backfill row (output is sorted asc).
+    for (var oi = output.length - 1; oi >= 0; oi--) {
+      if (output[oi].wo === cwo) {
+        c.latestCumEarned = output[oi].cumEarned;
+        c.latestCumActual = output[oi].cumActual;
+        // If we somehow have no maxRawCpi (no sanity-flagged rows for this WO),
+        // fall back to the latest row's CPI as a sensible default.
+        if (c.maxRawCpi === null && output[oi].cpi !== null) c.maxRawCpi = output[oi].cpi;
+        break;
       }
     }
   }
@@ -827,11 +829,11 @@ function renderValidation(diagnostics, parseErrors) {
                   (diagnostics.sanityFlagged ? diagnostics.sanityFlagged.length : 0);
   if (noteCount > 0) {
     var body = '';
-    // v1.2: sanity-flagged rows surfaced first — most actionable for real-data review.
+    // v1.2/v1.4: sanity-flagged rows surfaced first — most actionable for real-data review.
     if (diagnostics.sanityFlagged && diagnostics.sanityFlagged.length) {
-      body += '<div><strong>' + diagnostics.sanityFlagged.length + ' row(s) had CPI &gt; sanity threshold (' + diagnostics.sanityThreshold.toFixed(1) + ') and were emitted with BLANK CPI.</strong> Typically means the WO had significant work done before the charge data start, so actual hours are undercounted vs the earned hours we see. Examine the underlying WOs to confirm — if the data is correct after all, raise the threshold.</div>';
+      body += '<div><strong>' + diagnostics.sanityFlagged.length + ' row(s) had CPI &gt; sanity threshold (' + diagnostics.sanityThreshold.toFixed(1) + ') and were flagged for review.</strong> CPI is still written to the downloaded CSV. High CPI is often legitimate (e.g. planner releasing large block hours when an op closes); the flag is a triage hint, not a verdict. Use the comparison panel and the flagged-WOs report below to investigate.</div>';
       var flagSample = diagnostics.sanityFlagged.slice(0, 15).map(function(f) {
-        return f.wo + ' on ' + f.dateStr + ' — raw CPI ' + f.rawCpi.toFixed(3) + ' (earned ' + f.cumEarned.toFixed(1) + ' / actual ' + f.cumActual.toFixed(1) + ')';
+        return f.wo + ' on ' + f.dateStr + ' — raw CPI ' + f.rawCpi.toFixed(3) + ' (cum_earned ' + f.cumEarned.toFixed(1) + ' / cum_actual ' + f.cumActual.toFixed(1) + ')';
       });
       body += '<ul>' + flagSample.map(function(s) { return '<li>' + esc(s) + '</li>'; }).join('') + (diagnostics.sanityFlagged.length > 15 ? '<li>… +' + (diagnostics.sanityFlagged.length - 15) + ' more</li>' : '') + '</ul>';
     }
@@ -879,12 +881,16 @@ function renderOutput(rows, diagnostics) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     // v1.2: visually mark sanity-flagged rows so the user can spot them while reviewing the preview.
+    // v1.4: flagged rows now show their CPI value with a warning marker (CPI is no longer blanked).
     var rowClass = r.flagged ? ' class="flagged"' : '';
-    var cpiCell = (r.cpi === null)
-      ? (r.flagged
-          ? '<span class="muted" title="Flagged: CPI exceeded sanity threshold and was blanked out">blank &#9888;</span>'
-          : '<span class="muted">blank</span>')
-      : r.cpi.toFixed(3);
+    var cpiCell;
+    if (r.cpi === null) {
+      cpiCell = '<span class="muted">blank</span>';
+    } else if (r.flagged) {
+      cpiCell = r.cpi.toFixed(3) + ' <span title="Flagged: raw CPI above sanity threshold — review for legitimacy vs data quirk" style="color:#b45309;">&#9888;</span>';
+    } else {
+      cpiCell = r.cpi.toFixed(3);
+    }
     body += '<tr' + rowClass + '><td>' + esc(r.dateStr) + '</td><td>' + esc(r.wo) + '</td><td>' + esc(r.partNo) + '</td>'
       + '<td class="num">' + fmtNum(r.cumEarned, 1) + '</td>'
       + '<td class="num">' + fmtNum(r.cumActual, 1) + '</td>'
@@ -894,10 +900,12 @@ function renderOutput(rows, diagnostics) {
   out.innerHTML = head + '<div class="table-wrap scroll-table"><table class="dt">' + thead + body + '</table></div></div></div>';
 }
 
-// v1.3: Gap candidates report — surfaces WOs whose earned-hours history extends
-// before the charge-data coverage. Goal: give Oscar an actionable Part #-level
-// rollup so he knows which part numbers to pull earlier data for, and how far
-// back the gap goes (= earliest earned date he doesn't have actuals for).
+// v1.3 / v1.4: "Flagged WOs" report — surfaces WOs with high earned-vs-actual
+// ratio plus any WOs whose earned history extends before their first charge week.
+// Originally framed as "coverage gap candidates" (v1.3), reframed in v1.4 to be
+// neutral about the cause: real-data review confirmed that high CPI is often
+// legitimate (e.g. planner releasing large block hours when an op closes) rather
+// than a coverage gap. The dates and totals help triage which case applies.
 function renderGapReport(diagnostics) {
   var el = document.getElementById('gap-report');
   var candidates = (diagnostics && diagnostics.gapCandidates) ? diagnostics.gapCandidates : [];
@@ -911,15 +919,15 @@ function renderGapReport(diagnostics) {
   });
   var partKeys = Object.keys(byPart).sort();
   var html = '<div class="section">';
-  html += '<div class="section-head">Coverage gap candidates <span class="badge">' + candidates.length + ' WOs · ' + partKeys.length + ' part #</span></div>';
+  html += '<div class="section-head">Flagged WOs &mdash; high earned-vs-actual ratio <span class="badge">' + candidates.length + ' WOs · ' + partKeys.length + ' part #</span></div>';
   html += '<div class="section-body">';
   html += '<p style="color:#475569;font-size:0.88rem;margin-bottom:0.8rem;line-height:1.5;">';
-  html += 'These work orders likely need an earlier data pull. <strong>Earliest charge week</strong> = where your tech-charge data currently starts for the WO. <strong>Earliest earned date</strong> = how far back the earned-hours history goes for the WO. If the earned date is meaningfully before the charge week, you\'re missing actuals coverage for that span, and CPI gets inflated. Pull charge data back to (or before) the earliest earned date to close the gap.';
+  html += 'These work orders have a raw CPI above the sanity threshold somewhere in their backfill timeline. <em>This is a triage hint, not a verdict.</em> Common causes: a planner releasing large block hours when an op closes (legitimate high CPI &mdash; CSV value is correct), tech-charge data missing for early weeks (real data-coverage gap &mdash; pull charges back further), or estimating/planning-system quirks (data-quality issue worth surfacing). The dates and totals below help you tell them apart.';
   html += '</p>';
   // Per-Part # rollup
-  html += '<h4 style="margin:0.4rem 0 0.3rem;color:#1e3a5f;">By Part # &mdash; suggested pull-back-to date</h4>';
+  html += '<h4 style="margin:0.4rem 0 0.3rem;color:#1e3a5f;">By Part #</h4>';
   html += '<div class="table-wrap"><table class="dt"><thead><tr>';
-  html += '<th>Part #</th><th class="num"># WOs</th><th>Earliest earned date</th><th>Latest earned date</th><th>Earliest charge week</th><th class="num">Total earned at risk</th>';
+  html += '<th>Part #</th><th class="num"># WOs</th><th>Earliest earned date</th><th>Latest earned date</th><th>Earliest actuals date</th><th class="num" title="Sum of each flagged WO’s latest cum_earned in the backfill output">&Sigma; cum_earned (flagged WOs)</th>';
   html += '</tr></thead><tbody>';
   partKeys.forEach(function(p) {
     var ws = byPart[p];
@@ -943,7 +951,7 @@ function renderGapReport(diagnostics) {
   // Per-WO detail (collapsible)
   html += '<details style="margin-top:0.8rem;"><summary style="cursor:pointer;font-weight:600;color:#1e3a5f;padding:4px 0;">Per-WO detail (' + candidates.length + ' row' + (candidates.length === 1 ? '' : 's') + ')</summary>';
   html += '<div class="table-wrap" style="margin-top:0.4rem;"><table class="dt"><thead><tr>';
-  html += '<th>Part #</th><th>WO</th><th>Earliest earned</th><th>Earliest charge wk</th><th class="num">Latest cum_earned</th><th class="num">Latest cum_actual</th><th class="num">Max raw CPI</th><th>Notes</th>';
+  html += '<th>Part #</th><th>WO</th><th>Earliest earned</th><th>Earliest actuals</th><th class="num">Latest cum_earned</th><th class="num">Latest cum_actual</th><th class="num">Max raw CPI</th><th>Notes</th>';
   html += '</tr></thead><tbody>';
   candidates.forEach(function(c) {
     var notes = [];
@@ -960,7 +968,7 @@ function renderGapReport(diagnostics) {
   });
   html += '</tbody></table></div></details>';
   // Download button
-  html += '<div style="margin-top:0.7rem;"><button class="btn btn-slate" id="download-gap-btn" style="padding:6px 14px;font-size:0.85rem;">&#128229; Download Gap Report CSV</button></div>';
+  html += '<div style="margin-top:0.7rem;"><button class="btn btn-slate" id="download-gap-btn" style="padding:6px 14px;font-size:0.85rem;">&#128229; Download Flagged WOs CSV</button></div>';
   html += '</div></div>';
   el.innerHTML = html;
   document.getElementById('download-gap-btn').addEventListener('click', function() { downloadGapReportCSV(); });
@@ -970,9 +978,9 @@ function downloadGapReportCSV() {
   if (!lastDiagnostics || !lastDiagnostics.gapCandidates) return;
   var cs = lastDiagnostics.gapCandidates;
   var csv = '';
-  csv += '# Coverage gap candidates — WOs likely needing an earlier data pull\r\n';
+  csv += '# Flagged WOs — high earned-vs-actual ratio (triage hint, not a verdict)\r\n';
   csv += '# Sanity threshold used: ' + lastDiagnostics.sanityThreshold.toFixed(2) + '\r\n';
-  csv += csvRow(['Part #', 'WO', 'Earliest Earned Date', 'Latest Earned Date', 'Earliest Charge Week', 'Latest Cum Earned', 'Latest Cum Actual', 'Max Raw CPI', 'Flagged Row Count', 'Pre-Charge Earned Rows', 'Pre-Charge Earned Hours Excluded']);
+  csv += csvRow(['Part #', 'WO', 'Earliest Earned Date', 'Latest Earned Date', 'Earliest Actuals Date', 'Latest Cum Earned', 'Latest Cum Actual', 'Max Raw CPI', 'Flagged Row Count', 'Pre-Charge Earned Rows', 'Pre-Charge Earned Hours Excluded']);
   cs.forEach(function(c) {
     csv += csvRow([
       c.partNo, c.wo,
@@ -985,7 +993,7 @@ function downloadGapReportCSV() {
       c.flaggedRowCount, c.preChargeRows, c.preChargeHours.toFixed(1)
     ]);
   });
-  triggerDownload('vac-backfill-gap-report-' + todayStr() + '.csv', csv);
+  triggerDownload('vac-backfill-flagged-wos-' + todayStr() + '.csv', csv);
 }
 
 function renderComparison(comp) {
