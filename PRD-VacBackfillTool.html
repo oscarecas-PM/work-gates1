@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD - VAC Tracker Backfill Tool</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #222; line-height: 1.6; }
+h1 { color: #1e3a5f; border-bottom: 3px solid #1e3a5f; padding-bottom: 0.5rem; }
+h2 { color: #1e3a5f; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+h3 { color: #334155; margin-top: 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+th { background: #334155; color: #fff; padding: 8px 12px; text-align: left; }
+td { padding: 6px 12px; border-bottom: 1px solid #e5e7eb; }
+tr:nth-child(even) { background: #f8fafc; }
+code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+.req { font-weight: bold; color: #2563eb; margin-right: 6px; }
+.version { color: #666; font-size: 0.9em; }
+ul { margin: 0.5rem 0; }
+li { margin: 0.3rem 0; }
+.note { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>Product Requirements Document (PRD)</h1>
+<p><strong>Product Name:</strong> VAC Tracker Backfill Tool</p>
+<p><strong>File:</strong> <code>vac-backfill-tool-1.html</code></p>
+<p class="version">Version 1.0 | May 14, 2026 | Author: Oscar Castillo</p>
+
+<h2>1. Overview</h2>
+<p>A client-side, one-shot tool to fill in missing VAC tracker history for work-order/program combinations that lack P File coverage. Reads tech-charges <code>.xlsx</code> exports (per-employee, per-operation, per-week-ending) plus the Hours Earned CSV, then computes weekly cumulative actual hours and cumulative earned hours per WO and emits a CSV in the exact same format Gate Tracker's <code>exportVacLog()</code> produces (<code>Date, WO, Part #, VAC, CPI</code>). Oscar merges the output into his live VAC tracker externally; no other tool in the suite changes.</p>
+<p>An optional third input &mdash; the live VAC tracker CSV &mdash; activates a comparison panel that surfaces any work-order/date pairs where the backfill CPI diverges materially from the live VAC tracker CPI. This catches calibration issues between the two data paths before the user merges anything.</p>
+
+<h2>2. Objectives</h2>
+<ul>
+  <li>Backfill the VAC tracker for periods where P Files are unavailable (e.g., the N program back to June 2025), so that downstream tools (Earned Hour Analysis) can show meaningful CPI history.</li>
+  <li>Match the exact output format of Gate Tracker's <code>exportVacLog()</code> so merging is a plain text concatenation, with no schema changes anywhere else.</li>
+  <li>Emit at weekly granularity, matching the cadence at which P Files are normally captured.</li>
+  <li>Provide a sanity-check comparison against the live VAC tracker so divergences are caught before they reach EHA.</li>
+  <li>Surface validation diagnostics for charges that have no earned credit, WOs missing from one of the inputs, and similar data anomalies.</li>
+</ul>
+
+<h2>3. Architecture Constraints</h2>
+<ul>
+  <li>Entirely client-side; all parsing, computation, and CSV generation happens in the browser.</li>
+  <li>Single self-contained HTML file with embedded libraries (no CDN).</li>
+  <li>No persistent storage (no cookies, localStorage, IndexedDB).</li>
+  <li>Must work in modern browsers (Chrome, Edge).</li>
+  <li>Same security envelope as the rest of the suite: <code>esc()</code> XSS prevention on dynamic HTML, CSP meta tag, CSV field quoting + length cap.</li>
+</ul>
+
+<h2>4. Embedded Libraries</h2>
+<table>
+  <tr><th>Library</th><th>Version</th><th>Purpose</th><th>License</th></tr>
+  <tr><td>SheetJS Community Edition</td><td>v0.18.5</td><td><code>.xlsx</code> parsing</td><td>Apache-2.0</td></tr>
+  <tr><td>PapaParse</td><td>v5.5.2</td><td>CSV parsing</td><td>MIT</td></tr>
+</table>
+<p>Both libraries are copied byte-for-byte from <code>employee-score-card-1.html</code> (the existing Score Card consumer). When updating libraries, splice via raw <code>bytes</code> operations &mdash; the SheetJS minified code contains a U+0085 NEL character that Python's <code>splitlines()</code> incorrectly treats as a line break and corrupts on re-join. See &sect;11.1.</p>
+
+<h2>5. Data Inputs</h2>
+
+<h3>5.1 Tech Charge files (.xlsx, required, multiple)</h3>
+<p>Identical schema to <code>PRD-EmployeeScoreCard.html</code> &sect;5.1. Each file's data table starts on row 4 (rows 1&ndash;3 are export metadata). The header row is auto-detected by scanning the first 10 rows for a cell whose normalized value matches <code>Order No</code> (case-insensitive, punctuation/whitespace tolerant via <code>normHeader()</code>).</p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Use</th></tr>
+  <tr><td>Order No</td><td>String</td><td>WO identifier; primary key.</td></tr>
+  <tr><td>Week Ending</td><td>Date/Time</td><td>Snapshot date. Format <code>MM/DD/YYYY HH:MM:SS AM/PM</code>. Drives the output cadence.</td></tr>
+  <tr><td>Badge</td><td>String</td><td>Employee identity. Used as part of the dedup key and as a sub-series key for cumulative aggregation.</td></tr>
+  <tr><td>Operation</td><td>String</td><td>Oper No. Used as a sub-series key.</td></tr>
+  <tr><td>Total Hours</td><td>Numeric</td><td><strong>Cumulative-through-Week-Ending</strong> hours that this employee has charged against this operation. Drives cumulative actual.</td></tr>
+  <tr><td>Part No.</td><td>String</td><td>First non-empty value seen per WO is emitted as <code>Part #</code> in the output (Score-Card-style first-occurrence-wins).</td></tr>
+  <tr><td>Status</td><td>String</td><td>Read but ignored by the algorithm. <code>ACTIVE</code> charges count toward cumulative actual the same as <code>CLOSE</code> (matches the WO-level <code>Total Actual Hours</code> semantics used by Gate Tracker).</td></tr>
+</table>
+<p>Multi-file ingest: rows are concatenated across files, then deduplicated by composite key <code>(Badge, Order No, Operation, Week Ending)</code> keeping the row with the maximum <code>Total Hours</code> (most-recent-snapshot wins). Per-file <code>try/catch</code>: one bad file does not abort the batch; failures are recorded in the status line.</p>
+<p>Optional columns from Score Card (<code>Employee Name</code>, <code>Part Description</code>, <code>CCC</code>, <code>Work Center</code>) are silently ignored.</p>
+
+<h3>5.2 Hours Earned CSV (required)</h3>
+<p>Identical format to <code>PRD-EarnedHourAnalysis.html</code> &sect;5.1.</p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Use</th></tr>
+  <tr><td>Order No</td><td>String</td><td>WO identifier; primary key.</td></tr>
+  <tr><td>Year of Actual End Date</td><td>Integer</td><td>Used in fallback effective-date computation.</td></tr>
+  <tr><td>Month of Actual End Date</td><td>String/Integer</td><td>Month name or number. Same <code>parseMonth</code> tolerance as EHA.</td></tr>
+  <tr><td>Hours Earned</td><td>Numeric</td><td>Earned hours for one closed operation.</td></tr>
+  <tr><td>Actual End Date</td><td>Date (optional)</td><td>If parseable as <code>M/D/YYYY</code>, used as the row's effective date for week-level cumulative attribution. Otherwise fall back to the last day of <code>(Year, Month)</code>.</td></tr>
+</table>
+
+<h3>5.3 Existing VAC Tracker Log CSV (optional, for comparison)</h3>
+<p>Format: <code>exportVacLog()</code> output &mdash; <code>Date, WO, Part #, VAC, CPI</code>. Only <code>Date</code>, <code>WO</code>, and <code>CPI</code> are read; <code>Part #</code> and <code>VAC</code> are ignored. Rows with blank or non-numeric CPI are skipped (counted in the status line).</p>
+
+<h2>6. Functional Requirements</h2>
+
+<h3>6.1 Data Processing</h3>
+<p><span class="req">F-01</span> Auto-detect the header row in each xlsx by scanning the first 10 rows for a cell whose normalized value matches <code>Order No</code>. Use <code>normHeader()</code> (case-insensitive, punctuation- and whitespace-tolerant) so headers like <code>Order No.</code> or <code>Order  No</code> resolve correctly. Files without a matching header are recorded as per-file failures; the batch continues with the remaining files.</p>
+<p><span class="req">F-02</span> After concatenating rows from all uploaded xlsx files, deduplicate by composite key <code>(Badge, Order No, Operation, Week Ending)</code>. When duplicates exist, retain the row with the maximum <code>Total Hours</code>.</p>
+<p><span class="req">F-03</span> For each work order, compute weekly cumulative actual hours: for every unique <code>Week Ending</code> in the global dataset, and every <code>(Badge, Operation)</code> series that has any row for this WO, find the latest <code>Total Hours</code> with Week Ending &le; the target week, then sum across all <code>(Badge, Operation)</code> series for that WO. <code>Total Hours</code> is already cumulative per-<code>(Badge, Operation)</code>, so no per-week incremental conversion is needed.</p>
+<p><span class="req">F-04</span> For each WO, compute weekly cumulative earned hours: sum <code>Hours Earned</code> over all rows in the Hours Earned CSV whose effective date &le; the target week. Effective date precedence: <code>Actual End Date</code> column if present and parseable, otherwise last-day-of-<code>(Year, Month)</code>.</p>
+<p><span class="req">F-05</span> For each <code>(WO, Week Ending)</code> tuple where cumulative actual &gt; 0: emit one output row. <code>CPI = cumulative_earned / cumulative_actual</code> rounded to 3 decimal places, or blank when cumulative_earned == 0 (mid-WO read with no closures yet).</p>
+<p><span class="req">F-06</span> Output rows are sorted by Date ascending, then WO ascending. Matches the ordering produced by Gate Tracker's <code>exportVacLog()</code> so a downstream re-sort is not required after merge.</p>
+<p><span class="req">F-07</span> Date values are formatted as <code>M/D/YYYY</code> (no leading zeros). VAC column is always blank in the output; Gate Tracker recomputes it on its next P File run.</p>
+
+<h3>6.2 Validation</h3>
+<p><span class="req">F-10</span> Collapsed validation panel surfaces (each section appears only when non-empty):
+  <ul>
+    <li><strong>Per-file parse errors</strong> from xlsx ingest (missing header, missing required columns, etc.).</li>
+    <li><strong>WOs with charges but no Hours Earned</strong> &mdash; emitted with blank CPI throughout; flagged for follow-up.</li>
+    <li><strong>WOs in Hours Earned but no charges</strong> &mdash; no backfill row emitted; flagged so the user knows the gap exists.</li>
+    <li><strong>(WO, Week Ending) pairs with charges but cumulative earned still zero</strong> &mdash; mid-WO snapshots before any operation closed. Listed for spot-check; rows still emitted with blank CPI.</li>
+  </ul>
+</p>
+
+<h3>6.3 Output</h3>
+<p><span class="req">F-20</span> Preview table displays all computed rows: <code>Date, WO, Part #, Cumulative Earned, Cumulative Actual, CPI</code>. Cumulative columns are displayed for transparency but excluded from the downloaded CSV. Blank CPI rendered as the muted text "blank".</p>
+<p><span class="req">F-21</span> "Download Backfill CSV" button writes the exportVacLog-format CSV (<code>Date, WO, Part #, VAC, CPI</code> header + rows). Filename: <code>vac-backfill-YYYY-MM-DD.csv</code>. CSV cell escape follows the Score Card S-06 pattern: 32K-byte cap per cell + double-quote escape on commas/quotes/newlines.</p>
+
+<h3>6.4 Comparison vs Existing VAC Log (optional)</h3>
+<p>Activates only when the user uploads the optional VAC Tracker Log CSV in input slot 3.</p>
+<p><span class="req">F-30</span> For each row in the existing VAC log, find the closest-by-date backfill row for the same WO within a tolerance window. Default: &plusmn;7 days. User can adjust the tolerance via a number input at the top of the comparison panel.</p>
+<p><span class="req">F-31</span> Compute <code>&Delta; CPI = backfill_CPI &minus; existing_CPI</code>. Tag the pair as a "wild inconsistency" when <code>|&Delta;| &ge; threshold</code>. Default threshold: 0.10. User can adjust via a number input.</p>
+<p><span class="req">F-32</span> Comparison panel surfaces:
+  <ul>
+    <li>Summary stats: overlapping rows, flagged count, max <code>|&Delta;|</code>, mean &Delta;, median &Delta;, unmatched-existing count.</li>
+    <li>Top-20 table sorted by <code>|&Delta;|</code> descending: WO, existing date, existing CPI, matched backfill date, backfill CPI, &Delta;. Flagged rows highlighted amber.</li>
+    <li>WOs only in backfill output (collapsible list).</li>
+    <li>WOs only in existing VAC log (collapsible list).</li>
+    <li>Existing rows with no backfill match within tolerance (collapsible list, first 100 shown).</li>
+  </ul>
+</p>
+<p><span class="req">F-33</span> "Recompute" button next to the threshold + tolerance inputs reruns the comparison without reprocessing the input files.</p>
+<p><span class="req">F-34</span> "Download Comparison CSV" writes a multi-section CSV: header rows naming the active threshold/tolerance, then four sections separated by blank lines + <code>#</code> comment headers: overlap pairs (with Flagged column), unmatched-existing rows, only-in-backfill WOs, only-in-existing WOs. Filename: <code>vac-backfill-comparison-YYYY-MM-DD.csv</code>.</p>
+
+<h2>7. Visual & UI Requirements</h2>
+<p><span class="req">V-01</span> Navy/slate color palette consistent with the other tools in the suite: <code>#1e3a5f</code> headings, <code>#334155</code> table headers, <code>#2563eb</code> primary buttons, <code>#16a34a</code> green for the main download CTA, <code>#334155</code> slate for secondary actions.</p>
+<p><span class="req">V-02</span> File-inputs row uses three flex cards (charge, earned, VAC). Each card has a heading, a short schema reminder, the <code>&lt;input type="file"&gt;</code> control, and a status line below.</p>
+<p><span class="req">V-03</span> Output preview table renders inside a 520px max-height scroll container with sticky header. Right-aligned numeric columns use <code>font-variant-numeric: tabular-nums</code>.</p>
+<p><span class="req">V-04</span> Comparison panel uses a stats grid (auto-fit columns, min 150px) for summary metrics, an amber-highlighted row style for flagged pairs, and collapsible <code>&lt;details&gt;</code> elements for the only-in-one-source / unmatched lists.</p>
+
+<h2>8. Security Controls</h2>
+<p><span class="req">S-01</span> <code>esc()</code> on every dynamic string interpolated into HTML.</p>
+<p><span class="req">S-02</span> CSP meta tag: <code>default-src 'self' 'unsafe-inline'; img-src 'self' data:;</code>.</p>
+<p><span class="req">S-03</span> CSV cell escape with a 32K-byte length cap (matches Score Card S-06).</p>
+
+<h2>9. Test Fixtures</h2>
+<p>Test data is the same set Score Card uses (generated by <code>dummy-files/_make_score_card_test.py</code>):</p>
+<ul>
+  <li><code>dummy-files/test-charges-555-777.xlsx</code> &mdash; charge file A (10 rows).</li>
+  <li><code>dummy-files/test-charges-5x-and-999.xlsx</code> &mdash; charge file B (8 rows, includes duplicates of A's WO-100 rows for dedup verification, plus the unmatched WO-300 and Diana's WO-600).</li>
+  <li><code>dummy-files/test-hours-earned.csv</code> &mdash; 5 closed ops across WO-100, WO-200, WO-400, WO-500, WO-600. Each row carries <code>Actual End Date</code> in <code>M/D/YYYY</code> format.</li>
+</ul>
+<p>Expected backfill output: 20 rows total over 6 work orders. Documented per-WO expectations:</p>
+<table>
+  <tr><th>WO</th><th>Rows</th><th>Notable values</th></tr>
+  <tr><td>WO-100</td><td>6</td><td>3/7 onward: cum_earned=60, cum_actual=55 (Alice 30 + Bob 20 op 0010 + Alice 5 op 0020), <strong>CPI=1.091</strong>. The WO-level cum_actual includes op 0020's 5h ACTIVE charge, which is why CPI is 1.091 and not the op-level 1.200.</td></tr>
+  <tr><td>WO-200</td><td>2</td><td>cum_earned=40, cum_actual=50, CPI=0.800.</td></tr>
+  <tr><td>WO-300</td><td>4</td><td>All blank CPI (no earned rows).</td></tr>
+  <tr><td>WO-400</td><td>5</td><td>Multi-week cumulative actual progression 5 / 12 / 20. CPI=1.250 from 3/21 onward (25/20).</td></tr>
+  <tr><td>WO-500</td><td>1</td><td>CPI=0.833 (25/30).</td></tr>
+  <tr><td>WO-600</td><td>2</td><td>CPI=1.000 (8/8).</td></tr>
+</table>
+
+<h2>10. Known Issues</h2>
+<p style="font-size:0.9rem;color:#666;">No open bugs at this time.</p>
+
+<h2>11. Design Decisions &amp; Notes</h2>
+
+<h3>11.1 Library splicing &mdash; raw bytes only</h3>
+<div class="note">The SheetJS minified code contains a U+0085 (NEL) byte sequence inside a Unicode-character lookup table. Python's <code>str.splitlines()</code> treats U+0085 as a line break and drops it on rejoin, corrupting the lookup table. When extracting the SheetJS / PapaParse blocks from the Score Card source, use <code>bytes</code> operations only (<code>find</code> + slice on <code>b'</code><code>&lt;</code><code>/script&gt;'</code> markers). Verified during v1.0 build &mdash; the bug manifested as <code>typeof XLSX === 'undefined'</code> at runtime even though the script tag was present.</div>
+
+<h3>11.2 Weekly granularity (decision, v1.0)</h3>
+<p>Output emits one row per <code>(WO, Week Ending)</code> from the WO's first charge week forward. Chosen over monthly bucketing because:</p>
+<ul>
+  <li>P Files are typically captured weekly; the backfill should look like a real weekly P File run.</li>
+  <li>Higher resolution gives EHA more flexibility for downstream displays.</li>
+  <li>The marginal cost in output size (~6&times; vs. monthly) is trivial for a one-shot CSV.</li>
+</ul>
+
+<h3>11.3 WO-level cumulative actual (decision, v1.0)</h3>
+<p>Cumulative actual aggregates across <em>all</em> operations of a WO, including those that have not yet earned credit. This matches Gate Tracker's <code>Total Actual Hours</code> semantics from the P File. A consequence is that a WO with one closed operation and one ongoing operation reports a CPI that already reflects the ongoing op's hours &mdash; identical to what Gate Tracker would show. Operation-level CPI would be a different feature and is out of scope for v1.0.</p>
+
+<h3>11.4 VAC column blank in output (decision, v1.0)</h3>
+<p>Computing VAC requires baseline hours per WO, which is not present in either input. Leaving VAC blank is correct &mdash; Gate Tracker's <code>exportVacLog()</code> already merges by <code>(Date, WO)</code> on its next run, so VAC will be re-populated automatically once a real P File becomes available for the period.</p>
+
+<h3>11.5 Comparison threshold and tolerance defaults (decision, v1.0)</h3>
+<p>Default <code>|&Delta;|</code> threshold of 0.10 chosen to flag &ge; 10-percentage-point CPI deltas (a substantive operational mismatch worth investigating, not normal rounding noise). Default date tolerance of &plusmn;7 days handles cases where the two systems sample at slightly different weekday cadences. Both are user-adjustable in the panel.</p>
+
+<h2>12. Out of Scope</h2>
+<ul>
+  <li><strong>Merging the backfill into the live VAC tracker.</strong> The user concatenates externally (or future EHA could accept multiple VAC log files).</li>
+  <li><strong>Computing VAC.</strong> See &sect;11.4.</li>
+  <li><strong>Operation-level CPI output.</strong> See &sect;11.3.</li>
+  <li><strong>Trending visuals.</strong> This tool emits CSV only; visualization happens downstream in EHA after the merge.</li>
+</ul>
+
+</body>
+</html>
