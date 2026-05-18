@@ -26,7 +26,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> VAC Tracker Backfill Tool</p>
 <p><strong>File:</strong> <code>vac-backfill-tool-1.html</code></p>
-<p class="version">Version 1.2 | May 15, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.3 | May 15, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side, one-shot tool to fill in missing VAC tracker history for work-order/program combinations that lack P File coverage. Reads tech-charges <code>.xlsx</code> exports (per-employee, per-operation, per-week-ending) plus the Hours Earned CSV, then computes weekly cumulative actual hours and cumulative earned hours per WO and emits a CSV in the exact same format Gate Tracker's <code>exportVacLog()</code> produces (<code>Date, WO, Part #, VAC, CPI</code>). Oscar merges the output into his live VAC tracker externally; no other tool in the suite changes.</p>
@@ -190,6 +190,13 @@ li { margin: 0.3rem 0; }
 
 <h3>11.5 Comparison threshold and tolerance defaults (decision, v1.0)</h3>
 <p>Default <code>|&Delta;|</code> threshold of 0.10 chosen to flag &ge; 10-percentage-point CPI deltas (a substantive operational mismatch worth investigating, not normal rounding noise). Default date tolerance of &plusmn;7 days handles cases where the two systems sample at slightly different weekday cadences. Both are user-adjustable in the panel.</p>
+
+<h3>11.8 Coverage gap report (v1.3)</h3>
+<p>v1.2 made the data-asymmetry symptoms safe to display (blank CPI, flagged rows). v1.3 makes the symptoms <em>actionable</em> by surfacing a per-Part # rollup of the work orders that need an earlier data pull, plus a per-WO detail table and a CSV download. The user&apos;s mental model is &quot;I pull tech-charges data by part number&quot;, so the report is grouped by Part # with the suggested pull-back-to date (the earliest earned date across all candidate WOs of that part).</p>
+<p>The candidate set = any WO that hit the sanity threshold (cum_earned vs cum_actual ratio too high) OR had any Hours Earned rows excluded by F-04 (effective date before the WO&apos;s first charge week). Rendering is hidden when the candidate set is empty.</p>
+<p>F-70 / F-71 spec this section. Output CSV filename: <code>vac-backfill-gap-report-YYYY-MM-DD.csv</code>.</p>
+<p><strong>F-70</strong> &mdash; Per-Part # rollup table columns: Part #, # WOs flagged, Earliest earned date (across the part&apos;s candidate WOs), Latest earned date, Earliest charge week (across the part&apos;s candidate WOs), Total earned at risk (sum of latest cum_earned across the part&apos;s candidate WOs). Sort by Part # ascending.</p>
+<p><strong>F-71</strong> &mdash; Per-WO detail table (collapsible, defaulting closed): one row per candidate WO with Part #, WO, Earliest earned date, Earliest charge week, Latest cum_earned, Latest cum_actual, Max raw CPI (uncapped, useful even when CPI was blanked in the output), Notes (flagged row count + pre-charge excluded summary). Sort by Part # ascending, then by max raw CPI descending.</p>
 
 <h3>11.7 Coverage-asymmetry handling (decision, v1.2)</h3>
 <p>v1.1 surfaced inflated CPI values (25&ndash;30) in Oscar&apos;s comparison panel against the live VAC tracker. Root cause: Hours Earned has full historical context (going back to whenever the EHA pipeline started recording closures), but tech charges only start at the cutoff the user selected when exporting. For any WO whose work mostly happened before that cutoff, the tool sees full earned but only a sliver of actuals &mdash; CPI inflates by 5&times; or more.</p>

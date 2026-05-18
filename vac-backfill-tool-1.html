@@ -95,7 +95,7 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.2</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.3</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
@@ -144,6 +144,7 @@ License: MIT
 
 <div id="validation"></div>
 <div id="output"></div>
+<div id="gap-report"></div>
 <div id="comparison"></div>
 
 <script>
@@ -170,6 +171,7 @@ var earnedRowsParsed = null;    // [{orderNo, effectiveDate (Date), hoursEarned}
 var vacRowsParsed = null;       // [{date (Date), wo, cpi}] — optional comparison input
 var lastBackfillRows = null;    // computed output rows
 var lastComparison = null;      // computed comparison result
+var lastDiagnostics = null;     // v1.3: kept for the gap-report CSV download
 
 // --- Utility ---
 function esc(s) {
@@ -661,6 +663,71 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
     return a.wo < b.wo ? -1 : a.wo > b.wo ? 1 : 0;
   });
 
+  // v1.3: build a per-WO "gap candidates" report. Surfaces WOs whose earned-hours
+  // history extends before our charge data and / or whose computed CPI got flagged.
+  // Goal: tell the user which Part #s they should pull more historical data for, and
+  // how far back to extend the pull (= earliest earned date for that WO).
+  var candidateMap = {};
+  function ensureCandidate(wo) {
+    if (!candidateMap[wo]) {
+      candidateMap[wo] = {
+        wo: wo, partNo: partNoForWo[wo] || '',
+        flaggedRowCount: 0, maxRawCpi: null,
+        preChargeRows: 0, preChargeHours: 0,
+        earliestChargeWeek: null, earliestEarnedDate: null, latestEarnedDate: null,
+        latestCumEarned: 0, latestCumActual: 0
+      };
+    }
+    return candidateMap[wo];
+  }
+  sanityFlagged.forEach(function(f) {
+    var c = ensureCandidate(f.wo);
+    c.flaggedRowCount++;
+    if (c.maxRawCpi === null || f.rawCpi > c.maxRawCpi) {
+      c.maxRawCpi = f.rawCpi;
+      c.latestCumEarned = f.cumEarned;
+      c.latestCumActual = f.cumActual;
+    }
+  });
+  preChargeEarnedExcluded.forEach(function(p) {
+    var c = ensureCandidate(p.wo);
+    c.preChargeRows = p.rowCount;
+    c.preChargeHours = p.totalHoursExcluded;
+  });
+  // Fill per-candidate dates from the source data
+  for (var cwo in candidateMap) {
+    var c = candidateMap[cwo];
+    var firstTs = Infinity;
+    var bo = byWoBO[cwo] || {};
+    for (var bk in bo) { if (bo[bk][0].weekTs < firstTs) firstTs = bo[bk][0].weekTs; }
+    if (firstTs !== Infinity) c.earliestChargeWeek = new Date(firstTs);
+    var earnedSer = earnedByWo[cwo] || [];
+    if (earnedSer.length > 0) {
+      c.earliestEarnedDate = new Date(earnedSer[0].ts);
+      c.latestEarnedDate = new Date(earnedSer[earnedSer.length - 1].ts);
+    }
+    // If no sanityFlagged but the WO is here only due to pre-charge exclusion,
+    // we still want the latest cum_earned/cum_actual snapshot for the WO so the
+    // report has actionable numbers. Pull from the last output row for this WO.
+    if (c.maxRawCpi === null) {
+      for (var oi = output.length - 1; oi >= 0; oi--) {
+        if (output[oi].wo === cwo) {
+          c.latestCumEarned = output[oi].cumEarned;
+          c.latestCumActual = output[oi].cumActual;
+          if (output[oi].cpi !== null) c.maxRawCpi = output[oi].cpi;
+          break;
+        }
+      }
+    }
+  }
+  var gapCandidates = [];
+  for (var cwo2 in candidateMap) gapCandidates.push(candidateMap[cwo2]);
+  // Sort by part # asc, then by max raw CPI desc within each part #
+  gapCandidates.sort(function(a, b) {
+    if (a.partNo !== b.partNo) return a.partNo < b.partNo ? -1 : 1;
+    return (b.maxRawCpi || 0) - (a.maxRawCpi || 0);
+  });
+
   return {
     rows: output,
     diagnostics: {
@@ -670,6 +737,7 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
       preChargeEarnedExcluded: preChargeEarnedExcluded,
       sanityFlagged: sanityFlagged,
       sanityThreshold: sanity,
+      gapCandidates: gapCandidates,
       weekEndingCount: weList.length,
       woCount: Object.keys(woSet).length
     }
@@ -826,6 +894,100 @@ function renderOutput(rows, diagnostics) {
   out.innerHTML = head + '<div class="table-wrap scroll-table"><table class="dt">' + thead + body + '</table></div></div></div>';
 }
 
+// v1.3: Gap candidates report — surfaces WOs whose earned-hours history extends
+// before the charge-data coverage. Goal: give Oscar an actionable Part #-level
+// rollup so he knows which part numbers to pull earlier data for, and how far
+// back the gap goes (= earliest earned date he doesn't have actuals for).
+function renderGapReport(diagnostics) {
+  var el = document.getElementById('gap-report');
+  var candidates = (diagnostics && diagnostics.gapCandidates) ? diagnostics.gapCandidates : [];
+  if (!candidates.length) { el.innerHTML = ''; return; }
+  // Group by Part #
+  var byPart = {};
+  candidates.forEach(function(c) {
+    var key = c.partNo || '(no part #)';
+    if (!byPart[key]) byPart[key] = [];
+    byPart[key].push(c);
+  });
+  var partKeys = Object.keys(byPart).sort();
+  var html = '<div class="section">';
+  html += '<div class="section-head">Coverage gap candidates <span class="badge">' + candidates.length + ' WOs · ' + partKeys.length + ' part #</span></div>';
+  html += '<div class="section-body">';
+  html += '<p style="color:#475569;font-size:0.88rem;margin-bottom:0.8rem;line-height:1.5;">';
+  html += 'These work orders likely need an earlier data pull. <strong>Earliest charge week</strong> = where your tech-charge data currently starts for the WO. <strong>Earliest earned date</strong> = how far back the earned-hours history goes for the WO. If the earned date is meaningfully before the charge week, you\'re missing actuals coverage for that span, and CPI gets inflated. Pull charge data back to (or before) the earliest earned date to close the gap.';
+  html += '</p>';
+  // Per-Part # rollup
+  html += '<h4 style="margin:0.4rem 0 0.3rem;color:#1e3a5f;">By Part # &mdash; suggested pull-back-to date</h4>';
+  html += '<div class="table-wrap"><table class="dt"><thead><tr>';
+  html += '<th>Part #</th><th class="num"># WOs</th><th>Earliest earned date</th><th>Latest earned date</th><th>Earliest charge week</th><th class="num">Total earned at risk</th>';
+  html += '</tr></thead><tbody>';
+  partKeys.forEach(function(p) {
+    var ws = byPart[p];
+    var earliestEarned = null, latestEarned = null, earliestCharge = null;
+    var totalEarned = 0;
+    ws.forEach(function(c) {
+      if (c.earliestEarnedDate && (!earliestEarned || c.earliestEarnedDate < earliestEarned)) earliestEarned = c.earliestEarnedDate;
+      if (c.latestEarnedDate && (!latestEarned || c.latestEarnedDate > latestEarned)) latestEarned = c.latestEarnedDate;
+      if (c.earliestChargeWeek && (!earliestCharge || c.earliestChargeWeek < earliestCharge)) earliestCharge = c.earliestChargeWeek;
+      totalEarned += c.latestCumEarned || 0;
+    });
+    html += '<tr><td><strong>' + esc(p) + '</strong></td>';
+    html += '<td class="num">' + ws.length + '</td>';
+    html += '<td>' + (earliestEarned ? fmtMDY(earliestEarned) : '&mdash;') + '</td>';
+    html += '<td>' + (latestEarned ? fmtMDY(latestEarned) : '&mdash;') + '</td>';
+    html += '<td>' + (earliestCharge ? fmtMDY(earliestCharge) : '&mdash;') + '</td>';
+    html += '<td class="num">' + totalEarned.toFixed(1) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  // Per-WO detail (collapsible)
+  html += '<details style="margin-top:0.8rem;"><summary style="cursor:pointer;font-weight:600;color:#1e3a5f;padding:4px 0;">Per-WO detail (' + candidates.length + ' row' + (candidates.length === 1 ? '' : 's') + ')</summary>';
+  html += '<div class="table-wrap" style="margin-top:0.4rem;"><table class="dt"><thead><tr>';
+  html += '<th>Part #</th><th>WO</th><th>Earliest earned</th><th>Earliest charge wk</th><th class="num">Latest cum_earned</th><th class="num">Latest cum_actual</th><th class="num">Max raw CPI</th><th>Notes</th>';
+  html += '</tr></thead><tbody>';
+  candidates.forEach(function(c) {
+    var notes = [];
+    if (c.flaggedRowCount > 0) notes.push(c.flaggedRowCount + ' flagged row' + (c.flaggedRowCount === 1 ? '' : 's'));
+    if (c.preChargeRows > 0) notes.push(c.preChargeRows + ' pre-charge earned (' + c.preChargeHours.toFixed(1) + ' hrs excluded)');
+    html += '<tr><td>' + esc(c.partNo || '&mdash;') + '</td>';
+    html += '<td>' + esc(c.wo) + '</td>';
+    html += '<td>' + (c.earliestEarnedDate ? fmtMDY(c.earliestEarnedDate) : '&mdash;') + '</td>';
+    html += '<td>' + (c.earliestChargeWeek ? fmtMDY(c.earliestChargeWeek) : '&mdash;') + '</td>';
+    html += '<td class="num">' + (c.latestCumEarned || 0).toFixed(1) + '</td>';
+    html += '<td class="num">' + (c.latestCumActual || 0).toFixed(1) + '</td>';
+    html += '<td class="num">' + (c.maxRawCpi !== null ? c.maxRawCpi.toFixed(3) : '&mdash;') + '</td>';
+    html += '<td>' + esc(notes.join('; ')) + '</td></tr>';
+  });
+  html += '</tbody></table></div></details>';
+  // Download button
+  html += '<div style="margin-top:0.7rem;"><button class="btn btn-slate" id="download-gap-btn" style="padding:6px 14px;font-size:0.85rem;">&#128229; Download Gap Report CSV</button></div>';
+  html += '</div></div>';
+  el.innerHTML = html;
+  document.getElementById('download-gap-btn').addEventListener('click', function() { downloadGapReportCSV(); });
+}
+
+function downloadGapReportCSV() {
+  if (!lastDiagnostics || !lastDiagnostics.gapCandidates) return;
+  var cs = lastDiagnostics.gapCandidates;
+  var csv = '';
+  csv += '# Coverage gap candidates — WOs likely needing an earlier data pull\r\n';
+  csv += '# Sanity threshold used: ' + lastDiagnostics.sanityThreshold.toFixed(2) + '\r\n';
+  csv += csvRow(['Part #', 'WO', 'Earliest Earned Date', 'Latest Earned Date', 'Earliest Charge Week', 'Latest Cum Earned', 'Latest Cum Actual', 'Max Raw CPI', 'Flagged Row Count', 'Pre-Charge Earned Rows', 'Pre-Charge Earned Hours Excluded']);
+  cs.forEach(function(c) {
+    csv += csvRow([
+      c.partNo, c.wo,
+      c.earliestEarnedDate ? fmtMDY(c.earliestEarnedDate) : '',
+      c.latestEarnedDate ? fmtMDY(c.latestEarnedDate) : '',
+      c.earliestChargeWeek ? fmtMDY(c.earliestChargeWeek) : '',
+      (c.latestCumEarned || 0).toFixed(1),
+      (c.latestCumActual || 0).toFixed(1),
+      c.maxRawCpi !== null ? c.maxRawCpi.toFixed(3) : '',
+      c.flaggedRowCount, c.preChargeRows, c.preChargeHours.toFixed(1)
+    ]);
+  });
+  triggerDownload('vac-backfill-gap-report-' + todayStr() + '.csv', csv);
+}
+
 function renderComparison(comp) {
   var el = document.getElementById('comparison');
   if (!comp) { el.innerHTML = ''; return; }
@@ -902,8 +1064,10 @@ document.getElementById('run-btn').addEventListener('click', function() {
   var sanity = (isFinite(sanityRaw) && sanityRaw > 0) ? sanityRaw : 3.0;
   var result = computeBackfill(deduped.rows, earnedRowsParsed, totalsFormat, sanity);
   lastBackfillRows = result.rows;
+  lastDiagnostics = result.diagnostics;
   renderValidation(result.diagnostics, parseErrors);
   renderOutput(result.rows, result.diagnostics);
+  renderGapReport(result.diagnostics);
   if (result.rows.length > 0) document.getElementById('download-btn').style.display = '';
   // Comparison if vac log uploaded
   if (vacRowsParsed && result.rows.length > 0) {
