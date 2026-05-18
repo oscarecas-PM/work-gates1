@@ -95,7 +95,7 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.5</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.6</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
@@ -152,7 +152,7 @@ License: MIT
 
 <script>
 // =====================================================================
-// VAC Tracker Backfill Tool — v1.5
+// VAC Tracker Backfill Tool — v1.6
 // =====================================================================
 // Inputs:
 //   1. Tech charge .xlsx files (one or more) — schema per Score Card §5.1
@@ -589,6 +589,22 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
       if (bo[bk][0].weekTs < firstTs) firstTs = bo[bk][0].weekTs;
     }
     // v1.5: F-04 removed — no longer counting / excluding pre-charge-week earned rows.
+    // v1.6: per-WO emission cutoff. After the latest activity for the WO (max of
+    // its last charge Week Ending and its last earned effective date), the
+    // cumulative values stop changing. Continuing to emit rows for weeks beyond
+    // that adds nothing but noise: they're identical to the last meaningful row.
+    // We emit through the FIRST global Week Ending W >= woFreezeTs and stop.
+    var lastChargeTs = -Infinity;
+    for (var bk3 in bo) {
+      var ser3 = bo[bk3];
+      var lastInSeries = ser3[ser3.length - 1].weekTs;
+      if (lastInSeries > lastChargeTs) lastChargeTs = lastInSeries;
+    }
+    var lastEarnedTs = -Infinity;
+    var earnedRowsForFreeze = earnedByWo[w] || [];
+    if (earnedRowsForFreeze.length > 0) lastEarnedTs = earnedRowsForFreeze[earnedRowsForFreeze.length - 1].ts;
+    var woFreezeTs = Math.max(lastChargeTs, lastEarnedTs);
+    var emittedAtOrAfterFreeze = false;
     for (var wi = 0; wi < weList.length; wi++) {
       var W = weList[wi];
       var Wts = W.getTime();
@@ -651,6 +667,11 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) 
         cpi: cpi,
         flagged: flagged
       });
+      // v1.6: once we've emitted the first row at or past the WO's freeze
+      // timestamp, the cumulative values won't change in any subsequent week.
+      // Break out so we don't append duplicate "frozen state" rows through
+      // the end of the global dataset.
+      if (Wts >= woFreezeTs) { emittedAtOrAfterFreeze = true; break; }
     }
   }
   // WOs in earned-only (no charges) — won't have backfill rows
