@@ -26,7 +26,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> VAC Tracker Backfill Tool</p>
 <p><strong>File:</strong> <code>vac-backfill-tool-1.html</code></p>
-<p class="version">Version 1.1 | May 15, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.2 | May 15, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side, one-shot tool to fill in missing VAC tracker history for work-order/program combinations that lack P File coverage. Reads tech-charges <code>.xlsx</code> exports (per-employee, per-operation, per-week-ending) plus the Hours Earned CSV, then computes weekly cumulative actual hours and cumulative earned hours per WO and emits a CSV in the exact same format Gate Tracker's <code>exportVacLog()</code> produces (<code>Date, WO, Part #, VAC, CPI</code>). Oscar merges the output into his live VAC tracker externally; no other tool in the suite changes.</p>
@@ -100,8 +100,8 @@ li { margin: 0.3rem 0; }
     <li><strong>Cumulative per Badge+Op</strong>: each charge row is the running total through Week Ending for that <code>(Badge, Operation)</code> tuple. <code>cum_actual_W = &Sigma; latest Total Hours (where Week Ending &le; W) across each (Badge, Operation) series for the WO</code>. Use this when the export reports cumulative values (matches the Employee Score Card PRD &sect;5.1 wording and the synthetic test fixtures).</li>
   </ul>
   Default is incremental because Oscar's v1.0 real-data test surfaced that the live labor-system export is incremental, contradicting the Score Card PRD&apos;s &quot;cumulative-as-of-Week-Ending&quot; description. The toggle exists so the synthetic fixtures (which are cumulative by design) can still be reproduced.</p>
-<p><span class="req">F-04</span> For each WO, compute weekly cumulative earned hours: sum <code>Hours Earned</code> over all rows in the Hours Earned CSV whose effective date &le; the target week. Effective date precedence: <code>Actual End Date</code> column if present and parseable, otherwise last-day-of-<code>(Year, Month)</code>.</p>
-<p><span class="req">F-05</span> For each <code>(WO, Week Ending)</code> tuple where cumulative actual &gt; 0: emit one output row. <code>CPI = cumulative_earned / cumulative_actual</code> rounded to 3 decimal places, or blank when cumulative_earned == 0 (mid-WO read with no closures yet).</p>
+<p><span class="req">F-04</span> For each WO, compute weekly cumulative earned hours: sum <code>Hours Earned</code> over all rows in the Hours Earned CSV whose effective date &le; the target week <strong>AND</strong> whose effective date &ge; that WO&apos;s first charge week. (v1.2) The lower bound excludes earned hours whose corresponding actual hours predate the charge data coverage &mdash; counting them would inflate CPI for any WO whose history extends before the charge data start. Effective date precedence: <code>Actual End Date</code> column if present and parseable, otherwise last-day-of-<code>(Year, Month)</code>.</p>
+<p><span class="req">F-05</span> For each <code>(WO, Week Ending)</code> tuple where cumulative actual &gt; 0: emit one output row. <code>CPI = cumulative_earned / cumulative_actual</code> rounded to 3 decimal places, or blank when cumulative_earned == 0 (mid-WO read with no closures yet, or all earned hours excluded by F-04). (v1.2) <strong>CPI sanity threshold:</strong> if the raw computed CPI exceeds the user-configurable sanity threshold (default 3.0), the row is emitted with BLANK CPI and the row is marked <code>flagged</code> for diagnostics. This catches WOs whose work happened before the charge data start window but whose operation closed within it (the close date is post-cutoff so F-04 doesn&apos;t catch it, but the actual hours we observe are a tiny fragment of the work&apos;s lifetime). Blank CPI is the honest signal &mdash; downstream EHA&apos;s coverage indicator (v1.8) treats it as "no qualifying sample" rather than ingesting a misleading value.</p>
 <p><span class="req">F-06</span> Output rows are sorted by Date ascending, then WO ascending. Matches the ordering produced by Gate Tracker's <code>exportVacLog()</code> so a downstream re-sort is not required after merge.</p>
 <p><span class="req">F-07</span> Date values are formatted as <code>M/D/YYYY</code> (no leading zeros). VAC column is always blank in the output; Gate Tracker recomputes it on its next P File run.</p>
 
@@ -112,6 +112,8 @@ li { margin: 0.3rem 0; }
     <li><strong>WOs with charges but no Hours Earned</strong> &mdash; emitted with blank CPI throughout; flagged for follow-up.</li>
     <li><strong>WOs in Hours Earned but no charges</strong> &mdash; no backfill row emitted; flagged so the user knows the gap exists.</li>
     <li><strong>(WO, Week Ending) pairs with charges but cumulative earned still zero</strong> &mdash; mid-WO snapshots before any operation closed. Listed for spot-check; rows still emitted with blank CPI.</li>
+    <li><strong>(v1.2)</strong> <strong>WOs with Hours Earned entries predating their first charge week</strong> &mdash; row count + total earned hours excluded per WO. Reports F-04&apos;s lower-bound exclusion so users can see where coverage gaps are causing data loss.</li>
+    <li><strong>(v1.2)</strong> <strong>Rows with CPI above the sanity threshold</strong> &mdash; sample of WO/date/raw-CPI/earned/actual for the first 15. Most actionable item: surfaces the WOs whose work probably happened before the charge data start so the user can decide whether to (a) raise the threshold if the data is in fact correct, or (b) trust the blank CPI and merge accordingly.</li>
   </ul>
 </p>
 
@@ -188,6 +190,15 @@ li { margin: 0.3rem 0; }
 
 <h3>11.5 Comparison threshold and tolerance defaults (decision, v1.0)</h3>
 <p>Default <code>|&Delta;|</code> threshold of 0.10 chosen to flag &ge; 10-percentage-point CPI deltas (a substantive operational mismatch worth investigating, not normal rounding noise). Default date tolerance of &plusmn;7 days handles cases where the two systems sample at slightly different weekday cadences. Both are user-adjustable in the panel.</p>
+
+<h3>11.7 Coverage-asymmetry handling (decision, v1.2)</h3>
+<p>v1.1 surfaced inflated CPI values (25&ndash;30) in Oscar&apos;s comparison panel against the live VAC tracker. Root cause: Hours Earned has full historical context (going back to whenever the EHA pipeline started recording closures), but tech charges only start at the cutoff the user selected when exporting. For any WO whose work mostly happened before that cutoff, the tool sees full earned but only a sliver of actuals &mdash; CPI inflates by 5&times; or more.</p>
+<p>v1.2 ships two complementary fixes:</p>
+<ol>
+  <li><strong>Per-WO earned filter (F-04, v1.2).</strong> For each WO, exclude any Hours Earned row whose effective date is before that WO&apos;s first charge week. Cleanly handles WOs that closed entirely pre-cutoff: cum_earned = 0 &rarr; CPI blank &rarr; row drops out of the comparison.</li>
+  <li><strong>CPI sanity threshold (F-05, v1.2).</strong> Catches WOs the per-WO filter can&apos;t &mdash; those whose operations closed within the charge data window but whose work happened before it. The close date is post-cutoff (so F-04 keeps the earned hours), but the actual hours are still a tiny fragment of the real work. Default threshold 3.0; raw CPI above this is set to BLANK in the output, with the row marked <code>flagged</code> in diagnostics. Threshold is user-adjustable from the UI without re-uploading.</li>
+</ol>
+<p>Blank CPI in the output is the honest signal &mdash; downstream EHA&apos;s v1.8 coverage indicator naturally treats it as "no qualifying sample" and surfaces lower coverage % for the affected months, rather than ingesting a misleading number.</p>
 
 <h3>11.6 Charge totals format toggle (decision, v1.1)</h3>
 <p>v1.0 shipped with the cumulative-per-(Badge, Op) interpretation hard-coded, mirroring the Score Card PRD &sect;5.1 wording. When Oscar tested v1.0 against the real labor-system export, backfill CPI values came back at 26&ndash;27 across many WOs while the live VAC tracker reported 5&ndash;11 for the same WOs &mdash; both implausibly high for real CPI, with the backfill consistently ~5&times; the live tracker. Diagnostic: the live export uses <strong>incremental</strong> Total Hours per row, not cumulative. The v1.0 algorithm's &quot;latest Total Hours per (Badge, Op)&quot; lookup therefore picked only the most recent week and threw away all earlier weeks, undercounting <code>cum_actual</code> by 4&ndash;5&times; and inflating CPI by the same factor.</p>

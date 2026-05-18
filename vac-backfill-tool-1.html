@@ -95,7 +95,7 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.1</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.2</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
@@ -132,6 +132,11 @@ License: MIT
       <option value="cumulative">Cumulative per Badge+Op</option>
     </select>
     <span title="Real-world weekly export typically reports incremental hours per week. The synthetic Score Card test fixtures are cumulative — switch to that mode to reproduce their expected values." style="color:#64748b;cursor:help;">&#9432;</span>
+  </label>
+  <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.88rem;color:#334155;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:6px 10px;">
+    <span style="font-weight:600;">CPI sanity threshold:</span>
+    <input type="number" id="sanity-threshold" min="1" step="0.1" value="3.0" style="width:60px;padding:3px 6px;border:1px solid #94a3b8;border-radius:3px;font-size:0.85rem;">
+    <span title="Rows with computed CPI above this threshold are flagged as likely incomplete data (typically: WO whose work happened before the charge data start). Flagged rows are emitted with BLANK CPI so they don't poison downstream tools. Defaults to 3.0 — well above any realistic CPI but low enough to catch the partial-coverage cases." style="color:#64748b;cursor:help;">&#9432;</span>
   </label>
   <button id="download-btn" class="btn btn-green" style="display:none;">&#128229; Download Backfill CSV</button>
   <button id="download-comp-btn" class="btn btn-slate" style="display:none;">&#128229; Download Comparison CSV</button>
@@ -503,7 +508,7 @@ function dedupChargeRows(allRows) {
   return { rows: out, dropped: dropped };
 }
 
-function computeBackfill(chargeRows, earnedRows, totalsFormat) {
+function computeBackfill(chargeRows, earnedRows, totalsFormat, sanityThreshold) {
   // v1.1: totalsFormat = 'incremental' (default — each row = that week's hours)
   // or 'cumulative' (each row = running total per Badge+Op as of Week Ending).
   // Real-world weekly exports are incremental; the Score Card test fixtures
@@ -511,6 +516,12 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat) {
   //   incremental → cum_actual_W = Σ all charge rows for WO where weekTs ≤ W
   //   cumulative  → cum_actual_W = Σ (latest Total Hours where weekTs ≤ W) per (Badge, Op)
   var fmt = (totalsFormat === 'cumulative') ? 'cumulative' : 'incremental';
+  // v1.2: CPI sanity threshold — rows with computed CPI above this are flagged as
+  // likely incomplete actual hours coverage (typically: WO whose work happened
+  // before the charge data start). Flagged rows are emitted with BLANK CPI in
+  // the output so downstream tools don't ingest a misleading value.
+  var sanity = (typeof sanityThreshold === 'number' && isFinite(sanityThreshold) && sanityThreshold > 0)
+    ? sanityThreshold : Infinity;
 
   // Index charges per (orderNo, badge|operNo) → sorted by week-ending ascending.
   // Also collect global week-ending set and per-WO part-no first-seen.
@@ -555,6 +566,10 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat) {
   var zeroEarnedFlags = [];   // {wo, dateStr} for diagnostics
   var unmatchedWosCharges = []; // WOs that have charges but NO Hours Earned at all (any date)
   var seenInEarnedButNoCharges = []; // WOs in earned but no charges (just informational)
+  // v1.2: track WOs whose earned-hours history extends before their charge data
+  // and track rows whose computed CPI exceeds the sanity threshold.
+  var preChargeEarnedExcluded = []; // {wo, rowCount, totalHoursExcluded}
+  var sanityFlagged = []; // {wo, dateStr, rawCpi, cumEarned, cumActual}
 
   for (var w in woSet) {
     if (!earnedByWo[w]) unmatchedWosCharges.push(w);
@@ -565,6 +580,19 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat) {
     for (var bk in bo) {
       if (bo[bk][0].weekTs < firstTs) firstTs = bo[bk][0].weekTs;
     }
+    // v1.2: count Hours Earned rows for this WO that predate its first charge week.
+    // Those represent earned value whose actual hours we don't have in the charge data
+    // (work that happened before our coverage), so including them would inflate CPI.
+    // We exclude them from cum_earned and surface the count in diagnostics.
+    var preChargeRowCount = 0, preChargeHours = 0;
+    var earnedRowsForWo = earnedByWo[w] || [];
+    for (var pei = 0; pei < earnedRowsForWo.length; pei++) {
+      if (earnedRowsForWo[pei].ts < firstTs) {
+        preChargeRowCount++;
+        preChargeHours += earnedRowsForWo[pei].hours;
+      }
+    }
+    if (preChargeRowCount > 0) preChargeEarnedExcluded.push({ wo: w, rowCount: preChargeRowCount, totalHoursExcluded: +preChargeHours.toFixed(1) });
     for (var wi = 0; wi < weList.length; wi++) {
       var W = weList[wi];
       var Wts = W.getTime();
@@ -588,16 +616,30 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat) {
         }
       }
       if (cumA <= 0) continue;
-      // cum_earned = Σ earned where effTs <= W
+      // cum_earned = Σ earned where firstTs <= effTs <= W
+      // (Earned rows predating the WO's first charge week are excluded — see preChargeEarnedExcluded above.)
       var cumE = 0;
       var earnedSeries = earnedByWo[w] || [];
       for (var ej = 0; ej < earnedSeries.length; ej++) {
+        if (earnedSeries[ej].ts < firstTs) continue;
         if (earnedSeries[ej].ts <= Wts) cumE += earnedSeries[ej].hours;
         else break;
       }
       var cpi = null;
-      if (cumE > 0) cpi = +(cumE / cumA).toFixed(3);
-      else zeroEarnedFlags.push({ wo: w, dateStr: fmtMDY(W) });
+      var flagged = false;
+      if (cumE > 0) {
+        var rawCpi = cumE / cumA;
+        if (rawCpi > sanity) {
+          // v1.2: sanity threshold — likely partial-coverage data. Blank out CPI.
+          flagged = true;
+          sanityFlagged.push({ wo: w, dateStr: fmtMDY(W), rawCpi: +rawCpi.toFixed(3), cumEarned: +cumE.toFixed(2), cumActual: +cumA.toFixed(2) });
+          cpi = null;
+        } else {
+          cpi = +rawCpi.toFixed(3);
+        }
+      } else {
+        zeroEarnedFlags.push({ wo: w, dateStr: fmtMDY(W) });
+      }
       output.push({
         date: W,
         dateStr: fmtMDY(W),
@@ -605,7 +647,8 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat) {
         partNo: partNoForWo[w] || '',
         cumEarned: +cumE.toFixed(2),
         cumActual: +cumA.toFixed(2),
-        cpi: cpi
+        cpi: cpi,
+        flagged: flagged
       });
     }
   }
@@ -624,6 +667,9 @@ function computeBackfill(chargeRows, earnedRows, totalsFormat) {
       zeroEarned: zeroEarnedFlags,
       unmatchedWosCharges: unmatchedWosCharges,
       earnedOnlyNoCharges: seenInEarnedButNoCharges,
+      preChargeEarnedExcluded: preChargeEarnedExcluded,
+      sanityFlagged: sanityFlagged,
+      sanityThreshold: sanity,
       weekEndingCount: weList.length,
       woCount: Object.keys(woSet).length
     }
@@ -707,9 +753,31 @@ function renderValidation(diagnostics, parseErrors) {
   var panel = document.getElementById('validation');
   var bits = [];
   parseErrors.forEach(function(e) { bits.push('<div class="val-error"><strong>Parse error:</strong> ' + esc(e) + '</div>'); });
-  var hasWarn = (diagnostics.zeroEarned.length || diagnostics.unmatchedWosCharges.length || diagnostics.earnedOnlyNoCharges.length);
-  if (hasWarn) {
+  var noteCount = diagnostics.zeroEarned.length + diagnostics.unmatchedWosCharges.length +
+                  diagnostics.earnedOnlyNoCharges.length +
+                  (diagnostics.preChargeEarnedExcluded ? diagnostics.preChargeEarnedExcluded.length : 0) +
+                  (diagnostics.sanityFlagged ? diagnostics.sanityFlagged.length : 0);
+  if (noteCount > 0) {
     var body = '';
+    // v1.2: sanity-flagged rows surfaced first — most actionable for real-data review.
+    if (diagnostics.sanityFlagged && diagnostics.sanityFlagged.length) {
+      body += '<div><strong>' + diagnostics.sanityFlagged.length + ' row(s) had CPI &gt; sanity threshold (' + diagnostics.sanityThreshold.toFixed(1) + ') and were emitted with BLANK CPI.</strong> Typically means the WO had significant work done before the charge data start, so actual hours are undercounted vs the earned hours we see. Examine the underlying WOs to confirm — if the data is correct after all, raise the threshold.</div>';
+      var flagSample = diagnostics.sanityFlagged.slice(0, 15).map(function(f) {
+        return f.wo + ' on ' + f.dateStr + ' — raw CPI ' + f.rawCpi.toFixed(3) + ' (earned ' + f.cumEarned.toFixed(1) + ' / actual ' + f.cumActual.toFixed(1) + ')';
+      });
+      body += '<ul>' + flagSample.map(function(s) { return '<li>' + esc(s) + '</li>'; }).join('') + (diagnostics.sanityFlagged.length > 15 ? '<li>… +' + (diagnostics.sanityFlagged.length - 15) + ' more</li>' : '') + '</ul>';
+    }
+    // v1.2: WOs whose earned-hours history precedes their first charge week.
+    if (diagnostics.preChargeEarnedExcluded && diagnostics.preChargeEarnedExcluded.length) {
+      var preWoCount = diagnostics.preChargeEarnedExcluded.length;
+      var preTotalRows = diagnostics.preChargeEarnedExcluded.reduce(function(s, p) { return s + p.rowCount; }, 0);
+      var preTotalHrs = diagnostics.preChargeEarnedExcluded.reduce(function(s, p) { return s + p.totalHoursExcluded; }, 0);
+      body += '<div><strong>' + preWoCount + ' WO(s) had Hours Earned entries predating their first charge week — ' + preTotalRows + ' row(s) / ' + preTotalHrs.toFixed(1) + ' total earned hours excluded from cum_earned.</strong> The work for those operations happened before the charge data window, so including them would inflate CPI.</div>';
+      var preSample = diagnostics.preChargeEarnedExcluded.slice(0, 15).map(function(p) {
+        return p.wo + ' — ' + p.rowCount + ' row(s), ' + p.totalHoursExcluded.toFixed(1) + ' hours excluded';
+      });
+      body += '<ul>' + preSample.map(function(s) { return '<li>' + esc(s) + '</li>'; }).join('') + (preWoCount > 15 ? '<li>… +' + (preWoCount - 15) + ' more</li>' : '') + '</ul>';
+    }
     if (diagnostics.zeroEarned.length) {
       body += '<div><strong>' + diagnostics.zeroEarned.length + ' (WO, week-ending) pair(s) with charges but no cumulative earned hours.</strong> Emitted with blank CPI; these represent mid-WO snapshots before any operation closed.</div>';
       var sample = diagnostics.zeroEarned.slice(0, 10).map(function(z) { return z.wo + ' on ' + z.dateStr; });
@@ -723,7 +791,8 @@ function renderValidation(diagnostics, parseErrors) {
       body += '<div><strong>' + diagnostics.earnedOnlyNoCharges.length + ' WO(s) have Hours Earned rows but no charges in the uploaded files.</strong> No backfill row will be emitted for these.</div>';
       body += '<ul>' + diagnostics.earnedOnlyNoCharges.slice(0, 20).map(function(w) { return '<li>' + esc(w) + '</li>'; }).join('') + (diagnostics.earnedOnlyNoCharges.length > 20 ? '<li>… +' + (diagnostics.earnedOnlyNoCharges.length - 20) + ' more</li>' : '') + '</ul>';
     }
-    bits.push('<details class="val-panel"><summary>Validation: ' + (diagnostics.zeroEarned.length + diagnostics.unmatchedWosCharges.length + diagnostics.earnedOnlyNoCharges.length) + ' note(s) (click to expand)</summary><div class="val-body">' + body + '</div></details>');
+    var openAttr = ((diagnostics.sanityFlagged && diagnostics.sanityFlagged.length) || (diagnostics.preChargeEarnedExcluded && diagnostics.preChargeEarnedExcluded.length)) ? ' open' : '';
+    bits.push('<details class="val-panel"' + openAttr + '><summary>Validation: ' + noteCount + ' note(s) (click to ' + (openAttr ? 'collapse' : 'expand') + ')</summary><div class="val-body">' + body + '</div></details>');
   }
   panel.innerHTML = bits.join('');
 }
@@ -741,10 +810,17 @@ function renderOutput(rows, diagnostics) {
   var body = '<tbody>';
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    body += '<tr><td>' + esc(r.dateStr) + '</td><td>' + esc(r.wo) + '</td><td>' + esc(r.partNo) + '</td>'
+    // v1.2: visually mark sanity-flagged rows so the user can spot them while reviewing the preview.
+    var rowClass = r.flagged ? ' class="flagged"' : '';
+    var cpiCell = (r.cpi === null)
+      ? (r.flagged
+          ? '<span class="muted" title="Flagged: CPI exceeded sanity threshold and was blanked out">blank &#9888;</span>'
+          : '<span class="muted">blank</span>')
+      : r.cpi.toFixed(3);
+    body += '<tr' + rowClass + '><td>' + esc(r.dateStr) + '</td><td>' + esc(r.wo) + '</td><td>' + esc(r.partNo) + '</td>'
       + '<td class="num">' + fmtNum(r.cumEarned, 1) + '</td>'
       + '<td class="num">' + fmtNum(r.cumActual, 1) + '</td>'
-      + '<td class="num">' + (r.cpi === null ? '<span class="muted">blank</span>' : r.cpi.toFixed(3)) + '</td></tr>';
+      + '<td class="num">' + cpiCell + '</td></tr>';
   }
   body += '</tbody>';
   out.innerHTML = head + '<div class="table-wrap scroll-table"><table class="dt">' + thead + body + '</table></div></div></div>';
@@ -822,7 +898,9 @@ document.getElementById('run-btn').addEventListener('click', function() {
   });
   var deduped = dedupChargeRows(allCharge);
   var totalsFormat = (document.getElementById('totals-format') || {}).value || 'incremental';
-  var result = computeBackfill(deduped.rows, earnedRowsParsed, totalsFormat);
+  var sanityRaw = parseFloat((document.getElementById('sanity-threshold') || {}).value);
+  var sanity = (isFinite(sanityRaw) && sanityRaw > 0) ? sanityRaw : 3.0;
+  var result = computeBackfill(deduped.rows, earnedRowsParsed, totalsFormat, sanity);
   lastBackfillRows = result.rows;
   renderValidation(result.diagnostics, parseErrors);
   renderOutput(result.rows, result.diagnostics);
