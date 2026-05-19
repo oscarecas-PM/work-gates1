@@ -5351,7 +5351,13 @@ function saveEvmReport() {
   html += 'var selectedPrograms = new Set(allPrograms);\n';
   html += 'var selectedPartNo = null;\n';
   html += 'var partToPrograms = (function() { var raw = ' + safePtpJson + '; var m = {}; for (var k in raw) { m[k] = new Set(raw[k]); } return m; })();\n';
-  html += 'var partNamesGlobal = ' + safePartNamesJson + ';\n\n';
+  html += 'var partNamesGlobal = ' + safePartNamesJson + ';\n';
+  // F-220 (v34 fix 2026-05-18): serialize siblingGroups and inline getProgramsForKey so the
+  // inlined selectPartNo / applyFilters / searchParts can resolve sibling-group keys in the
+  // saved snapshot. Without this, the snapshot threw "getProgramsForKey is not defined" on
+  // every chip click and search input event, freezing the entire filter UI.
+  var safeSiblingGroupsJson = JSON.stringify(siblingGroups).replace(/\x3c/g, '\\u003c');
+  html += 'var siblingGroups = ' + safeSiblingGroupsJson + ';\n\n';
 
   // Include interactive functions
   html += toggleProgram.toString() + '\n\n';
@@ -5359,6 +5365,7 @@ function saveEvmReport() {
   html += selectPartNo.toString() + '\n\n';
   html += showAllParts.toString() + '\n\n';
   html += applyFilters.toString() + '\n\n';
+  html += getProgramsForKey.toString() + '\n\n';
   html += esc.toString() + '\n\n';
   html += searchParts.toString() + '\n\n';
   html += toggleBundleDetails.toString() + '\n\n';
@@ -5611,7 +5618,13 @@ function saveSnapshot() {
 
   // Part names for search
   var safePartNamesJson = partNamesJson.replace(/\x3c/g, '\\u003c');
-  html += 'var partNamesGlobal = ' + safePartNamesJson + ';\n\n';
+  html += 'var partNamesGlobal = ' + safePartNamesJson + ';\n';
+  // F-220 (v34 fix 2026-05-18): serialize siblingGroups and inline getProgramsForKey so the
+  // inlined selectPartNo / applyFilters / searchParts can resolve sibling-group keys in the
+  // saved EVM report. Without this, the report threw "getProgramsForKey is not defined" on
+  // every chip click and search input event, freezing the entire filter UI.
+  var safeSiblingGroupsJsonEvm = JSON.stringify(siblingGroups).replace(/\x3c/g, '\\u003c');
+  html += 'var siblingGroups = ' + safeSiblingGroupsJsonEvm + ';\n\n';
 
   // Include interactive functions
   html += toggleDetailView.toString() + '\n\n';
@@ -5621,6 +5634,7 @@ function saveSnapshot() {
   html += selectPartNo.toString() + '\n\n';
   html += showAllParts.toString() + '\n\n';
   html += applyFilters.toString() + '\n\n';
+  html += getProgramsForKey.toString() + '\n\n';
 
   // Nav link functions
   html += jumpToDetail.toString() + '\n\n';
