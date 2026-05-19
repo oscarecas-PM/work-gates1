@@ -51,6 +51,19 @@ h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
 .comparison-controls { display: flex; gap: 1.2rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; font-size: 0.88rem; color: #334155; }
 .comparison-controls label { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; }
 .comparison-controls input[type=number] { width: 70px; padding: 3px 6px; border: 1px solid #94a3b8; border-radius: 3px; font-size: 0.88rem; }
+.cmp-plot-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.6rem 0.8rem 0.8rem; margin-bottom: 1rem; }
+.cmp-plot-head { font-size: 0.95rem; font-weight: 700; color: #1e3a5f; margin: 0 0 0.4rem; display: flex; align-items: baseline; gap: 0.6rem; }
+.cmp-plot-head .meta { font-size: 0.8rem; color: #64748b; font-weight: 500; }
+.cmp-plot-wrap { position: relative; }
+.cmp-plot-tooltip { position: absolute; pointer-events: none; background: #0f172a; color: #f1f5f9; font-size: 0.78rem; padding: 6px 9px; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); display: none; white-space: nowrap; z-index: 50; }
+.cmp-plot-tooltip .ttl { font-weight: 700; margin-bottom: 2px; }
+.cmp-plot-tooltip .row { display: flex; gap: 0.5rem; }
+.cmp-plot-tooltip .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.cmp-plot-legend { font-size: 0.78rem; color: #475569; margin-top: 0.4rem; display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; }
+.cmp-plot-legend .item { display: inline-flex; align-items: center; gap: 4px; }
+.cmp-plot-legend .swatch { display: inline-block; width: 22px; height: 3px; vertical-align: middle; }
+.cmp-plot-legend .dash { background: repeating-linear-gradient(to right, currentColor 0, currentColor 4px, transparent 4px, transparent 7px); height: 3px; }
+.cmp-plot-section-head { font-size: 1.05rem; font-weight: 700; color: #1e3a5f; margin: 1.2rem 0 0.5rem; }
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; margin-bottom: 0.75rem; }
 .stat { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0.5rem 0.75rem; }
 .stat .stat-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 600; }
@@ -95,7 +108,7 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.6</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.7</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
@@ -149,10 +162,11 @@ License: MIT
 <div id="output"></div>
 <div id="gap-report"></div>
 <div id="comparison"></div>
+<div id="comparison-plots"></div>
 
 <script>
 // =====================================================================
-// VAC Tracker Backfill Tool — v1.6
+// VAC Tracker Backfill Tool — v1.7
 // =====================================================================
 // Inputs:
 //   1. Tech charge .xlsx files (one or more) — schema per Score Card §5.1
@@ -453,6 +467,7 @@ function parseVacFile(file) {
           var iDate = colIndex(headers, 'Date');
           var iWO = colIndex(headers, 'WO');
           var iCpi = colIndex(headers, 'CPI');
+          var iPartNo = colIndex(headers, 'Part #');
           if (iDate < 0 || iWO < 0 || iCpi < 0) throw new Error('VAC log missing Date / WO / CPI');
           var rows = [];
           var bad = 0;
@@ -464,7 +479,8 @@ function parseVacFile(file) {
             if (!wo || !dt || cpiRaw === '') { bad++; continue; }
             var cpi = parseFloat(cpiRaw);
             if (!isFinite(cpi)) { bad++; continue; }
-            rows.push({ wo: wo, date: dt, dateTs: dt.getTime(), cpi: cpi });
+            var partNo = iPartNo >= 0 ? String(r[iPartNo] || '').trim() : '';
+            rows.push({ wo: wo, date: dt, dateTs: dt.getTime(), cpi: cpi, partNo: partNo });
           }
           resolve({ rows: rows, skipped: bad });
         } catch (err) {
@@ -1063,6 +1079,309 @@ function renderComparison(comp) {
   });
 }
 
+// --- Comparison plots (v1.7) ---
+// Per-Part-# canvas plots overlaying backfill vs existing-VAC CPI traces, one line per WO,
+// solid+circle for backfill, dashed+diamond for existing. Hover surfaces date / source / CPI.
+function buildComparisonPlotData(backfillRows, existingRows) {
+  // groups: { partNoKey: { partNo, wos: { wo: { backfill: [{ts,date,cpi}], existing: [{ts,date,cpi}], existingPartNo:'' } } } }
+  var groups = {};
+  // Build a WO -> partNo lookup from backfill (more reliable since charge files have Part No.)
+  var woPartFromBackfill = {};
+  for (var i = 0; i < backfillRows.length; i++) {
+    var br = backfillRows[i];
+    if (br.partNo && !woPartFromBackfill[br.wo]) woPartFromBackfill[br.wo] = br.partNo;
+  }
+  function getOrInit(part, wo) {
+    var key = part || '(no part #)';
+    if (!groups[key]) groups[key] = { partNo: part || '', wos: {} };
+    if (!groups[key].wos[wo]) groups[key].wos[wo] = { backfill: [], existing: [] };
+    return groups[key].wos[wo];
+  }
+  for (var b = 0; b < backfillRows.length; b++) {
+    var rb = backfillRows[b];
+    if (rb.cpi === null || !isFinite(rb.cpi)) continue;
+    var rec = getOrInit(rb.partNo, rb.wo);
+    rec.backfill.push({ ts: rb.date.getTime(), date: rb.date, cpi: rb.cpi });
+  }
+  for (var e = 0; e < existingRows.length; e++) {
+    var er = existingRows[e];
+    // Prefer the Part # from the VAC log; fall back to backfill's mapping so a WO present in
+    // existing but absent from backfill still groups under SOME part-# header instead of (no part #).
+    var part = er.partNo || woPartFromBackfill[er.wo] || '';
+    var rec2 = getOrInit(part, er.wo);
+    rec2.existing.push({ ts: er.dateTs, date: er.date, cpi: er.cpi });
+  }
+  // Sort each WO's points ascending in time.
+  Object.keys(groups).forEach(function(k) {
+    var g = groups[k];
+    Object.keys(g.wos).forEach(function(w) {
+      g.wos[w].backfill.sort(function(a, b) { return a.ts - b.ts; });
+      g.wos[w].existing.sort(function(a, b) { return a.ts - b.ts; });
+    });
+  });
+  return groups;
+}
+
+function renderComparisonPlots(backfillRows, existingRows) {
+  var host = document.getElementById('comparison-plots');
+  if (!host) return;
+  if (!backfillRows || !existingRows || existingRows.length === 0) { host.innerHTML = ''; return; }
+  var groups = buildComparisonPlotData(backfillRows, existingRows);
+  var partKeys = Object.keys(groups).sort();
+  // Filter to groups that have at least one WO with BOTH backfill and existing points — those
+  // are the visually interesting ones. Groups with only one source still render but get a note.
+  if (partKeys.length === 0) { host.innerHTML = ''; return; }
+
+  var palette = ['#2563eb', '#dc2626', '#16a34a', '#f59e0b', '#7c3aed', '#0891b2', '#db2777', '#84cc16', '#f97316', '#a855f7'];
+
+  var headHtml = '<div class="cmp-plot-section-head">CPI comparison plots <span style="font-weight:500;font-size:0.8rem;color:#64748b;">— ' + partKeys.length + ' part #, grouped per WO. Solid + ● = backfill. Dashed + ◆ = existing VAC log.</span></div>';
+  // Build placeholder cards.
+  var cardsHtml = '';
+  for (var p = 0; p < partKeys.length; p++) {
+    var key = partKeys[p];
+    var g = groups[key];
+    var woList = Object.keys(g.wos);
+    var bfCount = 0, exCount = 0;
+    for (var w = 0; w < woList.length; w++) {
+      bfCount += g.wos[woList[w]].backfill.length;
+      exCount += g.wos[woList[w]].existing.length;
+    }
+    cardsHtml += '<div class="cmp-plot-card" data-part-key="' + esc(key) + '">'
+      + '<div class="cmp-plot-head">Part # ' + esc(key) + ' <span class="meta">' + woList.length + ' WO · ' + bfCount + ' backfill pts · ' + exCount + ' existing pts</span></div>'
+      + '<div class="cmp-plot-wrap"><canvas width="880" height="300"></canvas><div class="cmp-plot-tooltip"></div></div>'
+      + '<div class="cmp-plot-legend"></div>'
+      + '</div>';
+  }
+  host.innerHTML = headHtml + cardsHtml;
+
+  // Now wire up each canvas.
+  var cards = host.querySelectorAll('.cmp-plot-card');
+  for (var c = 0; c < cards.length; c++) {
+    (function(card) {
+      var key = card.getAttribute('data-part-key');
+      var g = groups[key];
+      var canvas = card.querySelector('canvas');
+      var tooltipEl = card.querySelector('.cmp-plot-tooltip');
+      var legendEl = card.querySelector('.cmp-plot-legend');
+      drawComparisonPlot(canvas, tooltipEl, legendEl, g, palette);
+    })(cards[c]);
+  }
+}
+
+function drawComparisonPlot(canvas, tooltipEl, legendEl, group, palette) {
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+  var PAD_L = 56, PAD_R = 16, PAD_T = 14, PAD_B = 36;
+  var plotW = W - PAD_L - PAD_R;
+  var plotH = H - PAD_T - PAD_B;
+
+  // Assign a stable color per WO.
+  var wos = Object.keys(group.wos).sort();
+  var woColor = {};
+  for (var i = 0; i < wos.length; i++) woColor[wos[i]] = palette[i % palette.length];
+
+  // X-axis: union date range across all WOs / both sources.
+  var allTs = [];
+  for (var w = 0; w < wos.length; w++) {
+    var pts = group.wos[wos[w]];
+    for (var b = 0; b < pts.backfill.length; b++) allTs.push(pts.backfill[b].ts);
+    for (var e = 0; e < pts.existing.length; e++) allTs.push(pts.existing[e].ts);
+  }
+  if (allTs.length === 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('No CPI data for this part #.', PAD_L, H / 2);
+    return;
+  }
+  var minTs = Math.min.apply(null, allTs);
+  var maxTs = Math.max.apply(null, allTs);
+  if (minTs === maxTs) { minTs -= 7 * 86400000; maxTs += 7 * 86400000; }
+  var spanMs = maxTs - minTs;
+
+  // Y-axis: 0 to max CPI (cap at 5 if huge — protects readability) with 10% headroom.
+  var maxCpi = 0;
+  for (var w2 = 0; w2 < wos.length; w2++) {
+    var pts2 = group.wos[wos[w2]];
+    for (var b2 = 0; b2 < pts2.backfill.length; b2++) if (pts2.backfill[b2].cpi > maxCpi) maxCpi = pts2.backfill[b2].cpi;
+    for (var e2 = 0; e2 < pts2.existing.length; e2++) if (pts2.existing[e2].cpi > maxCpi) maxCpi = pts2.existing[e2].cpi;
+  }
+  var yMax = Math.max(1.2, Math.min(5, maxCpi * 1.1));
+  // If maxCpi exceeds 5 we still want to fit it — uncap to maxCpi * 1.1.
+  if (maxCpi > 5) yMax = maxCpi * 1.1;
+
+  function xPx(ts) { return PAD_L + ((ts - minTs) / spanMs) * plotW; }
+  function yPx(cpi) { return PAD_T + plotH - (cpi / yMax) * plotH; }
+
+  // Background
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid + Y labels
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#64748b';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  var yTicks = 4;
+  for (var t = 0; t <= yTicks; t++) {
+    var v = (yMax / yTicks) * t;
+    var y = yPx(v);
+    ctx.beginPath();
+    ctx.moveTo(PAD_L, y);
+    ctx.lineTo(PAD_L + plotW, y);
+    ctx.stroke();
+    ctx.fillText(v.toFixed(2), PAD_L - 6, y);
+  }
+
+  // CPI=1.0 reference (dashed gray)
+  ctx.save();
+  ctx.strokeStyle = '#94a3b8';
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(PAD_L, yPx(1));
+  ctx.lineTo(PAD_L + plotW, yPx(1));
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#64748b';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('CPI = 1.0', PAD_L + 4, yPx(1) - 4);
+
+  // X-axis date labels (5 evenly spaced)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#64748b';
+  for (var t2 = 0; t2 <= 4; t2++) {
+    var tts = minTs + (spanMs / 4) * t2;
+    var x = xPx(tts);
+    ctx.beginPath();
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.moveTo(x, PAD_T + plotH);
+    ctx.lineTo(x, PAD_T + plotH + 4);
+    ctx.stroke();
+    var d = new Date(tts);
+    var label = (d.getMonth() + 1) + '/' + d.getDate() + '/' + String(d.getFullYear()).slice(-2);
+    ctx.fillText(label, x, PAD_T + plotH + 6);
+  }
+
+  // Plot frame
+  ctx.strokeStyle = '#94a3b8';
+  ctx.strokeRect(PAD_L, PAD_T, plotW, plotH);
+
+  // Build all hover points so we can do nearest-neighbor lookup on mousemove.
+  var hoverPoints = []; // {x,y,wo,source,date,cpi,color}
+
+  // Draw each WO's two traces.
+  for (var i = 0; i < wos.length; i++) {
+    var wo = wos[i];
+    var rec = group.wos[wo];
+    var color = woColor[wo];
+
+    // Backfill: solid line + circles.
+    if (rec.backfill.length > 0) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      for (var p = 0; p < rec.backfill.length; p++) {
+        var px = xPx(rec.backfill[p].ts);
+        var py = yPx(rec.backfill[p].cpi);
+        if (p === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.fillStyle = color;
+      for (var p2 = 0; p2 < rec.backfill.length; p2++) {
+        var pp = rec.backfill[p2];
+        var cx = xPx(pp.ts), cy = yPx(pp.cpi);
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        hoverPoints.push({ x: cx, y: cy, wo: wo, source: 'backfill', date: pp.date, cpi: pp.cpi, color: color });
+      }
+    }
+
+    // Existing: dashed line + diamonds.
+    if (rec.existing.length > 0) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      for (var q = 0; q < rec.existing.length; q++) {
+        var qx = xPx(rec.existing[q].ts);
+        var qy = yPx(rec.existing[q].cpi);
+        if (q === 0) ctx.moveTo(qx, qy); else ctx.lineTo(qx, qy);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      for (var q2 = 0; q2 < rec.existing.length; q2++) {
+        var qp = rec.existing[q2];
+        var dx = xPx(qp.ts), dy = yPx(qp.cpi);
+        // Diamond
+        ctx.beginPath();
+        ctx.moveTo(dx, dy - 4.5);
+        ctx.lineTo(dx + 4.5, dy);
+        ctx.lineTo(dx, dy + 4.5);
+        ctx.lineTo(dx - 4.5, dy);
+        ctx.closePath();
+        ctx.fill();
+        hoverPoints.push({ x: dx, y: dy, wo: wo, source: 'existing', date: qp.date, cpi: qp.cpi, color: color });
+      }
+    }
+  }
+
+  // Legend (per-WO color swatches)
+  var legendBits = [];
+  for (var lw = 0; lw < wos.length; lw++) {
+    var lwo = wos[lw];
+    var rec3 = group.wos[lwo];
+    var marker = '';
+    if (rec3.backfill.length && rec3.existing.length) marker = '● solid + ◆ dashed';
+    else if (rec3.backfill.length) marker = '● solid only';
+    else if (rec3.existing.length) marker = '◆ dashed only';
+    legendBits.push('<span class="item"><span class="swatch" style="background:' + woColor[lwo] + ';"></span>' + esc(lwo) + ' <span style="color:#94a3b8;font-size:0.72rem;">(' + marker + ')</span></span>');
+  }
+  legendEl.innerHTML = legendBits.join('');
+
+  // Hover handler.
+  function onMove(ev) {
+    var rect = canvas.getBoundingClientRect();
+    var scaleX = canvas.width / rect.width;
+    var scaleY = canvas.height / rect.height;
+    var mx = (ev.clientX - rect.left) * scaleX;
+    var my = (ev.clientY - rect.top) * scaleY;
+    var best = null, bestD = 14 * Math.max(scaleX, scaleY); // 14px in canvas units
+    for (var h = 0; h < hoverPoints.length; h++) {
+      var hp = hoverPoints[h];
+      var d = Math.hypot(hp.x - mx, hp.y - my);
+      if (d < bestD) { bestD = d; best = hp; }
+    }
+    if (!best) { tooltipEl.style.display = 'none'; return; }
+    var ds = fmtMDY(best.date);
+    tooltipEl.innerHTML =
+      '<div class="ttl"><span class="swatch" style="background:' + best.color + ';"></span>WO ' + esc(best.wo) + '</div>'
+      + '<div class="row"><span>Source:</span><strong>' + best.source + '</strong></div>'
+      + '<div class="row"><span>Date:</span><strong>' + esc(ds) + '</strong></div>'
+      + '<div class="row"><span>CPI:</span><strong>' + best.cpi.toFixed(3) + '</strong></div>';
+    tooltipEl.style.display = 'block';
+    // Position tooltip near point in CSS pixels.
+    var leftCss = best.x / scaleX + 12;
+    var topCss = best.y / scaleY - 10;
+    var wrap = canvas.parentNode;
+    var wrapW = wrap.clientWidth;
+    var ttW = tooltipEl.offsetWidth;
+    if (leftCss + ttW > wrapW) leftCss = best.x / scaleX - ttW - 12;
+    if (leftCss < 0) leftCss = 4;
+    if (topCss < 0) topCss = 4;
+    tooltipEl.style.left = leftCss + 'px';
+    tooltipEl.style.top = topCss + 'px';
+  }
+  function onLeave() { tooltipEl.style.display = 'none'; }
+  canvas.addEventListener('mousemove', onMove);
+  canvas.addEventListener('mouseleave', onLeave);
+}
+
 // --- Analyze ---
 document.getElementById('run-btn').addEventListener('click', function() {
   // Concatenate ok charges, dedup
@@ -1090,8 +1409,10 @@ document.getElementById('run-btn').addEventListener('click', function() {
     lastComparison = c;
     renderComparison(c);
     document.getElementById('download-comp-btn').style.display = '';
+    renderComparisonPlots(result.rows, vacRowsParsed);
   } else {
     document.getElementById('comparison').innerHTML = '';
+    document.getElementById('comparison-plots').innerHTML = '';
     document.getElementById('download-comp-btn').style.display = 'none';
   }
 });

@@ -26,7 +26,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> VAC Tracker Backfill Tool</p>
 <p><strong>File:</strong> <code>vac-backfill-tool-1.html</code></p>
-<p class="version">Version 1.6 | May 18, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.7 | May 19, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side, one-shot tool to fill in missing VAC tracker history for work-order/program combinations that lack P File coverage. Reads tech-charges <code>.xlsx</code> exports (per-employee, per-operation, per-week-ending) plus the Hours Earned CSV, then computes weekly cumulative actual hours and cumulative earned hours per WO and emits a CSV in the exact same format Gate Tracker's <code>exportVacLog()</code> produces (<code>Date, WO, Part #, VAC, CPI</code>). Oscar merges the output into his live VAC tracker externally; no other tool in the suite changes.</p>
@@ -136,6 +136,7 @@ li { margin: 0.3rem 0; }
 </p>
 <p><span class="req">F-33</span> "Recompute" button next to the threshold + tolerance inputs reruns the comparison without reprocessing the input files.</p>
 <p><span class="req">F-34</span> "Download Comparison CSV" writes a multi-section CSV: header rows naming the active threshold/tolerance, then four sections separated by blank lines + <code>#</code> comment headers: overlap pairs (with Flagged column), unmatched-existing rows, only-in-backfill WOs, only-in-existing WOs. Filename: <code>vac-backfill-comparison-YYYY-MM-DD.csv</code>.</p>
+<p><span class="req">F-35</span> <strong>(v1.7) Per-Part-# comparison plots.</strong> Below the existing comparison panel, render one canvas plot per Part # (sorted ascending), each plotting CPI over time for every WO of that Part #. Each WO gets a stable color from a 10-hue palette. <strong>Backfill series:</strong> solid 1.5px line + filled circles (3.5px radius). <strong>Existing VAC log series:</strong> dashed 1.5px line + filled diamonds (4.5px half-diagonal), same color as the WO&apos;s backfill series. Reference line at <code>CPI = 1.0</code> (dashed gray). Y-axis 0 to max(1.2, maxCPI &times; 1.1), uncapped if any CPI exceeds 5. X-axis 5 evenly spaced date ticks across the union of backfill + existing date ranges for that Part #. Per-plot legend below the canvas lists each WO with its color swatch and a marker hint ("solid + dashed" / "solid only" / "dashed only"). Hover within 14px of any plotted point surfaces a tooltip showing WO, source (backfill or existing), date, and CPI. Plot data structure groups by Part # from the backfill rows&apos; <code>partNo</code> field, falling back to a backfill-derived WO&rarr;Part# lookup for any existing-VAC row whose <code>Part #</code> column is missing or whose WO has no backfill rows. See &sect;11.12.</p>
 
 <h2>7. Visual & UI Requirements</h2>
 <p><span class="req">V-01</span> Navy/slate color palette consistent with the other tools in the suite: <code>#1e3a5f</code> headings, <code>#334155</code> table headers, <code>#2563eb</code> primary buttons, <code>#16a34a</code> green for the main download CTA, <code>#334155</code> slate for secondary actions.</p>
@@ -202,6 +203,22 @@ li { margin: 0.3rem 0; }
 <p>v1.6 adds the cutoff inside the per-WO loop. For each WO we compute <code>woFreezeTs = max(latest charge weekTs, latest earned effTs)</code> and emit rows through the FIRST global Week Ending whose timestamp is at or after that freeze date. Beyond that point, the inner loop breaks.</p>
 <p>Verified on the Score Card fixtures: total emitted rows dropped 20 &rarr; 9 (55% reduction), all CPI values unchanged (WO-100 = 1.091, WO-400 = 1.250, WO-500 = 0.833, WO-600 = 1.000, WO-200 = 0.800). The cutoff only removes redundant frozen-state duplicates, never meaningful data.</p>
 <p>Note: EHA&apos;s monthly CPI line was never affected by the over-emission because EHA gates its per-WO contribution on &quot;earned hours &gt; 0 in the target month&quot; (a closed WO has no in-month earned). The v1.6 fix is hygiene for the VAC tracker file and for the comparison panel, not a correctness fix for the EHA chart.</p>
+
+<h3>11.12 Per-Part-# comparison plots (v1.7)</h3>
+<p>Numeric stats in the existing comparison panel (mean/median &Delta;, top-20 table) summarize divergence but flatten the time dimension &mdash; Oscar couldn&apos;t tell whether the disagreement was steady, growing, or concentrated in one calendar window. He asked for plots: "very similar to what you already do in the gate tracker, plot over time and give me a mouse over at each data point with the cpi value. I want to see the deviation between the two approaches."</p>
+<p><strong>Design choices, all confirmed with the user:</strong></p>
+<ul>
+  <li><strong>Grouping unit = Part #</strong> (not root part, not all-in-one). Each canvas covers a single Part #, so the visual density of one chart is always proportional to that part&apos;s WO count. Root-grouping could be a future toggle if the data justifies it.</li>
+  <li><strong>Per-WO double line</strong> (not per-source aggregate). A WO&apos;s backfill series and existing series share a color so the eye can pair them. Solid + circles for backfill, dashed + diamonds for existing &mdash; consistent with chart conventions where solid carries the &quot;primary&quot; series (the new computed values) and dashed carries the reference (the live tracker).</li>
+  <li><strong>Position: below the existing comparison panel.</strong> The numeric stats answer "is there a problem?" at a glance; the plots answer "where and when?" once the user wants to dig in.</li>
+</ul>
+<p><strong>Implementation notes:</strong></p>
+<ul>
+  <li>Self-contained 2D canvas rendering &mdash; no external chart library. Chart.js was rejected because the existing tool has no chart dependency and the comparison plot needs a custom point hit-test (nearest-point across two interleaved series per WO) that doesn&apos;t map cleanly onto Chart.js's tooltip plugin.</li>
+  <li>Hover hit-radius = 14 canvas-units. Tooltip is absolutely positioned inside the plot wrap and auto-flips to the left side when too close to the right edge.</li>
+  <li>Existing VAC log gained a <code>Part #</code> column read in v1.7 (the existing parser ignored it through v1.6). When a VAC row has no Part #, the renderer looks up the WO in a backfill-derived map first &mdash; this prevents an "(no part #)" bucket from collecting WOs that already have a confirmed Part # from the charge files.</li>
+  <li>Y-axis cap: <code>max(1.2, maxCPI &times; 1.1)</code>, but uncapped when any CPI exceeds 5 so high-CPI flagged rows still plot inside the frame. CPI = 1.0 dashed gray reference line is always drawn so the operationally interesting threshold is visible at a glance.</li>
+</ul>
 
 <h3>11.10 F-04 per-WO earned filter removed (v1.5)</h3>
 <p>v1.2 added a per-WO lower bound on Hours Earned: any row whose effective date was before the WO&apos;s first charge week was excluded from cum_earned. The stated purpose: prevent CPI inflation for WOs whose work happened before the user&apos;s tech-charges start window.</p>
