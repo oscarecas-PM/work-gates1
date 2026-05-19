@@ -240,7 +240,7 @@
   /* Print styles */
   @media print {
     body { background: #fff; padding: 0.5rem; }
-    .file-inputs, #run-btn, #print-btn, #save-btn, #audit-btn, #evm-report-btn, #vac-export-btn, #detail-toggle, .filter-bar, #chip-legend, .description, .top-link, .gv-no-audit, #nav-links, #validation-panel, #priority-panel, #save-comments-btn, #save-replies-btn, .gv-gate-comment, .gv-manager-reply, .gv-scan-date { display: none !important; }
+    .file-inputs, #run-btn, #print-btn, #save-btn, #audit-btn, #evm-report-btn, #evm-program-select, #vac-export-btn, #detail-toggle, .filter-bar, #chip-legend, .description, .top-link, .gv-no-audit, #nav-links, #validation-panel, #priority-panel, #save-comments-btn, #save-replies-btn, .gv-gate-comment, .gv-manager-reply, .gv-scan-date { display: none !important; }
     #print-timestamp, #detail-view, .program-section, .part-section { display: block !important; }
     .program-section, .part-section, .order-card { break-inside: avoid; }
     .gate-view-wrapper { break-before: page; }
@@ -318,7 +318,8 @@
 <button id="print-btn" onclick="printPage()">Print / Export PDF</button>
 <button id="save-btn" onclick="saveSnapshot()">&#128190; Save Snapshot</button>
 <button id="audit-btn" onclick="generateMobileAudit()">&#128241; Generate Mobile Audit</button>
-<button id="evm-report-btn" onclick="saveEvmReport()">&#128202; Save Manager EVM Report</button>
+<button id="evm-report-btn" onclick="saveEvmReport(document.getElementById('evm-program-select').value)">&#128202; Save Manager EVM Report</button>
+<select id="evm-program-select" title="Limit the exported Manager EVM Report to one program" style="display:none;margin:1rem 6px 1rem 0;padding:9px 8px;font-size:0.95rem;border:1px solid #7c3aed;border-radius:4px;background:#fff;color:#1e293b;cursor:pointer;vertical-align:middle;"><option value="__ALL__">All Programs</option></select>
 <button id="vac-export-btn" onclick="exportVacLog()">&#128190; Export VAC Tracker Log</button>
 <button id="signage-btn" onclick="exportSignage()" style="margin:1rem 0 1rem 12px;">&#128250; Digital Signage Export</button>
 
@@ -1757,6 +1758,7 @@ function process() {
   document.getElementById('save-btn').style.display = 'none';
   document.getElementById('audit-btn').style.display = 'none';
   document.getElementById('evm-report-btn').style.display = 'none';
+  document.getElementById('evm-program-select').style.display = 'none';
   document.getElementById('vac-export-btn').style.display = 'none';
   mobileAuditOrders = [];
   mobileAuditGates = [];
@@ -2132,6 +2134,45 @@ function process() {
   if (Object.keys(peabodyData).length > 0) {
     document.getElementById('evm-report-btn').style.display = 'inline-block';
     document.getElementById('vac-export-btn').style.display = 'inline-block';
+    // Populate per-program filter dropdown. Preserve prior selection if it still exists.
+    var _evmSel = document.getElementById('evm-program-select');
+    var _evmPrev = _evmSel.value;
+    _evmSel.innerHTML = '<option value="__ALL__">All Programs</option>';
+    // Programs from active WOs
+    for (var _epi = 0; _epi < allPrograms.length; _epi++) {
+      var _epn = allPrograms[_epi];
+      var _epOpt = document.createElement('option');
+      _epOpt.value = _epn;
+      _epOpt.textContent = _epn;
+      _evmSel.appendChild(_epOpt);
+    }
+    // Delivered bucket (only if at least one delivered part rendered)
+    if (typeof closedWosByPart !== 'undefined') {
+      var _epActive = {};
+      for (var _epi2 = 0; _epi2 < allPrograms.length; _epi2++) {
+        // walk active partNos
+      }
+      var _epDelivered = false;
+      // Cheap heuristic: at least one closed WO whose part is not in evmResults (i.e., all-closed)
+      var _evmActiveParts = {};
+      for (var _ew in evmResults) _evmActiveParts[evmResults[_ew].partNo] = true;
+      for (var _epp in closedWosByPart) {
+        if (!_evmActiveParts[_epp] && closedWosByPart[_epp].length > 0) { _epDelivered = true; break; }
+      }
+      if (_epDelivered) {
+        var _epDelOpt = document.createElement('option');
+        _epDelOpt.value = '(Delivered — No Active WOs)';
+        _epDelOpt.textContent = '(Delivered — No Active WOs)';
+        _evmSel.appendChild(_epDelOpt);
+      }
+    }
+    // Restore prior selection if still valid; else default to "All Programs"
+    var _epRestored = false;
+    for (var _epoi = 0; _epoi < _evmSel.options.length; _epoi++) {
+      if (_evmSel.options[_epoi].value === _evmPrev) { _evmSel.value = _evmPrev; _epRestored = true; break; }
+    }
+    if (!_epRestored) _evmSel.value = '__ALL__';
+    _evmSel.style.display = 'inline-block';
   }
 
   // ==== Pre-parse audit CSV for order locations (used in Detail View) ====
@@ -4885,8 +4926,14 @@ function exportVacLog() {
 }
 
 // ---- Manager EVM Report Snapshot ----
-function saveEvmReport() {
+// programFilter: '__ALL__' / undefined / '' = include every program.
+//                Any other value filters every section (VAC trends, Bench Cost summary,
+//                Estimated Completion, and Variance/Performance bar chart) to that program.
+function saveEvmReport(programFilter) {
   if (Object.keys(evmResults).length === 0) { alert('No EVM data. Ensure the Decoder Ring has "Labor Hours" and "Earnable Hours Flag" columns. Load P File(s) and Process first.'); return; }
+
+  // Normalize the filter: empty / '__ALL__' / unset all mean "no filter".
+  var _filterProg = (programFilter && programFilter !== '__ALL__') ? programFilter : null;
 
   // Also export the VAC tracker log CSV
   exportVacLog();
@@ -4910,11 +4957,11 @@ function saveEvmReport() {
   html += '<meta charset="UTF-8">\n';
   html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
   html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\'; img-src \'self\' data:;">\n';
-  html += '<title>Manager EVM Report - ' + dateStr + '</title>\n';
+  html += '<title>Manager EVM Report' + (_filterProg ? ' — ' + _filterProg : '') + ' - ' + dateStr + '</title>\n';
   html += '<style>\n' + css + '\n</style>\n';
   html += '</head>\n<body>\n';
   html += '<div style="background:#fef3c7;border:2px solid #f59e0b;padding:8px 14px;text-align:center;font-weight:bold;font-size:0.9rem;color:#92400e;margin-bottom:1rem;border-radius:4px;">Proprietary &mdash; Internal Use Only</div>\n';
-  html += '<h1>Manager EVM Report <span style="font-size:0.6em;color:#666;">(Snapshot)</span></h1>\n';
+  html += '<h1>Manager EVM Report' + (_filterProg ? ' <span style="font-size:0.7em;color:#7c3aed;">— ' + esc(_filterProg) + '</span>' : '') + ' <span style="font-size:0.6em;color:#666;">(Snapshot)</span></h1>\n';
   html += '<p style="font-size:0.85rem;color:#555;margin-bottom:0.25rem;">P File Data As Of: ' + peabodyDateStr + '</p>\n';
   html += '<p style="font-size:0.85rem;color:#555;margin-bottom:1rem;">Report Generated: ' + timeStr + '</p>\n';
   html += '<button id="print-btn" onclick="printPage()" style="display:inline-block;">Print / Export PDF</button>\n';
@@ -4970,6 +5017,8 @@ function saveEvmReport() {
     var lpcNoteInput = livePlotContainers[lpc].querySelector('.vac-plot-note-input');
     // Determine program: use the first active WO's, or the synthetic "(Delivered)" bucket.
     var lpcProgram = lpcOrderNos.length > 0 ? (evmResults[lpcOrderNos[0]].program || 'Unknown') : '(Delivered \u2014 No Active WOs)';
+    // Per-program export filter: skip plots that don't match the selected program.
+    if (_filterProg && lpcProgram !== _filterProg) continue;
     // F-186: pre-compute seriesExtras for the embed (only meaningful for multi-member groups).
     var _lpcSeriesExtras = null;
     if (_lpcGrp && _lpcGrp.members.length >= 2) {
@@ -5015,7 +5064,8 @@ function saveEvmReport() {
       pprogPlots.sort(function(a, b) { return a.partNo < b.partNo ? -1 : a.partNo > b.partNo ? 1 : 0; });
 
       // Delivered section stays collapsed by default (matches live view — #1).
-      var _isDelivered = pprogName.indexOf('Delivered') === 0;
+      // Program label is '(Delivered — No Active WOs)' (leading '('), so anchor on indexOf > -1.
+      var _isDelivered = pprogName.indexOf('Delivered') !== -1;
       html += '<details' + (_isDelivered ? '' : ' open') + ' style="border:1px solid #94a3b8;border-radius:4px;padding:12px;margin-bottom:12px;">\n';
       html += '<summary style="margin:0 0 8px 0;font-size:1rem;color:#334155;font-weight:600;cursor:pointer;">' + esc(pprogName) + '</summary>\n';
       html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(600px,1fr));gap:16px;margin-top:8px;">\n';
@@ -5064,6 +5114,8 @@ function saveEvmReport() {
   var summaryByProg = {};
   for (var swo in evmResults) {
     var sevm = evmResults[swo];
+    // Per-program export filter: skip WOs that don't match the selected program.
+    if (_filterProg && sevm.program !== _filterProg) continue;
     var _sKey = partToGroupId[sevm.partNo] || sevm.partNo;
     if (!summaryByProg[sevm.program]) summaryByProg[sevm.program] = {};
     if (!summaryByProg[sevm.program][_sKey]) summaryByProg[sevm.program][_sKey] = [];
@@ -5181,7 +5233,12 @@ function saveEvmReport() {
   html += '</div>\n'; // end summary container
 
   // === Estimated Work Package Completion ===
-  var bundleNames = Object.keys(bundleVelocityMap);
+  // Per-program filter: drop bundles whose .program doesn't match the selected program.
+  var bundleNames = Object.keys(bundleVelocityMap).filter(function(_bn) {
+    if (!_filterProg) return true;
+    var _bvp = bundleVelocityMap[_bn];
+    return _bvp && _bvp.program === _filterProg;
+  });
   if (bundleNames.length > 0) {
     bundleNames.sort();
     html += '<div style="border:2px solid #334155;border-radius:6px;padding:16px;margin:1.5rem 0;">\n';
@@ -5305,6 +5362,77 @@ function saveEvmReport() {
     }
     html += '</tbody></table>\n';
     html += '</div>\n'; // end bundle completion section
+  }
+
+  // === Variance & Performance by Part (current P File only) ===
+  // Build per-program rollup of every group: ΣVAC, avgVAC (= ΣVAC / woCount), simple-avg CPI.
+  // Grouping mirrors Bench Cost Performance Summary: partToGroupId for sibling groups, else partNo.
+  var varPerfByProg = {};   // program -> { groupKey -> { label, sumVac, woCount, cpiSum, cpiCount } }
+  for (var _vpwo in evmResults) {
+    var _vpev = evmResults[_vpwo];
+    if (_filterProg && _vpev.program !== _filterProg) continue;
+    var _vpgKey = partToGroupId[_vpev.partNo] || _vpev.partNo;
+    if (!varPerfByProg[_vpev.program]) varPerfByProg[_vpev.program] = {};
+    var _vpgBucket = varPerfByProg[_vpev.program];
+    if (!_vpgBucket[_vpgKey]) {
+      var _vpgGrp = siblingGroups[_vpgKey];
+      var _vpgLabel;
+      if (_vpgGrp && _vpgGrp.members.length >= 2) {
+        _vpgLabel = _vpgGrp.rootPN + '-x' + (_vpgGrp.name ? ' (' + _vpgGrp.name + ')' : '');
+      } else {
+        var _vpgName = partNamesGlobal[_vpev.partNo] || '';
+        _vpgLabel = _vpev.partNo + (_vpgName ? ' — ' + _vpgName : '');
+      }
+      _vpgBucket[_vpgKey] = { label: _vpgLabel, sumVac: 0, woCount: 0, cpiSum: 0, cpiCount: 0 };
+    }
+    var _vpRow = _vpgBucket[_vpgKey];
+    if (typeof _vpev.vac === 'number' && isFinite(_vpev.vac)) {
+      _vpRow.sumVac += _vpev.vac;
+      _vpRow.woCount++;
+    }
+    if (_vpev.cpi != null && isFinite(_vpev.cpi)) {
+      _vpRow.cpiSum += _vpev.cpi;
+      _vpRow.cpiCount++;
+    }
+  }
+  // Flatten + sort each program's groups worst-VAC-first.
+  var varPerfFinal = {};   // program -> [{ label, sumVac, avgVac, avgCpi, woCount }, ...]
+  for (var _vppgName in varPerfByProg) {
+    var _vpRows = [];
+    for (var _vpgK in varPerfByProg[_vppgName]) {
+      var _r = varPerfByProg[_vppgName][_vpgK];
+      if (_r.woCount === 0) continue;
+      _vpRows.push({
+        label: _r.label,
+        sumVac: _r.sumVac,
+        avgVac: _r.sumVac / _r.woCount,
+        avgCpi: _r.cpiCount > 0 ? (_r.cpiSum / _r.cpiCount) : null,
+        woCount: _r.woCount
+      });
+    }
+    _vpRows.sort(function(a, b) { return a.sumVac - b.sumVac; });   // most negative first
+    if (_vpRows.length > 0) varPerfFinal[_vppgName] = _vpRows;
+  }
+  var varPerfProgs = Object.keys(varPerfFinal).sort();
+  if (varPerfProgs.length > 0) {
+    html += '<div id="var-perf-section" style="border:2px solid #334155;border-radius:6px;padding:16px;margin:1.5rem 0;">\n';
+    html += '<h2 style="margin:0 0 4px 0;font-size:1.2rem;color:#1e293b;">Variance &amp; Performance by Part</h2>\n';
+    html += '<p style="margin:0 0 10px 0;font-size:0.82rem;color:#64748b;">Current P File only. Bars show <strong>&Sigma; VAC</strong> across each part&apos;s active WOs (red &lt; 0, green &ge; 0). Line shows simple-average CPI across the same WOs. Sorted worst-VAC-first.</p>\n';
+    html += '<label style="display:inline-block;font-size:0.85rem;color:#334155;margin-bottom:10px;cursor:pointer;user-select:none;"><input type="checkbox" id="var-perf-toggle-labels" checked style="margin-right:6px;vertical-align:middle;">Show average-VAC labels on bars</label>\n';
+    for (var _vpi = 0; _vpi < varPerfProgs.length; _vpi++) {
+      var _vpProg = varPerfProgs[_vpi];
+      var _vpItems = varPerfFinal[_vpProg];
+      // Canvas width scales with bar count; floor 800, then 70px per bar after 10 bars.
+      var _vpCanvasW = Math.max(800, 200 + _vpItems.length * 70);
+      var _vpCanvasH = 380;
+      html += '<details open style="border:1px solid #94a3b8;border-radius:4px;padding:12px;margin-bottom:12px;">\n';
+      html += '<summary style="margin:0 0 8px 0;font-size:1rem;color:#334155;font-weight:600;cursor:pointer;">' + esc(_vpProg) + ' &mdash; ' + _vpItems.length + ' part group(s)</summary>\n';
+      html += '<div style="overflow-x:auto;">\n';
+      html += '<canvas class="var-perf-canvas" data-program="' + esc(_vpProg) + '" width="' + _vpCanvasW + '" height="' + _vpCanvasH + '" style="display:block;background:#fff;"></canvas>\n';
+      html += '</div>\n';
+      html += '</details>\n';
+    }
+    html += '</div>\n';
   }
 
   // Detail View (visible by default, no toggle needed)
@@ -5442,6 +5570,142 @@ function saveEvmReport() {
   html += '  var searchInput = document.getElementById("part-search-input");\n';
   html += '  if (searchInput) { searchInput.addEventListener("input", searchParts); }\n';
   html += '})();\n';
+
+  // --- Variance & Performance by Part: data + renderer ---
+  var varPerfDataJson = JSON.stringify(varPerfFinal).replace(/\x3c/g, '\\u003c');
+  html += 'var __varPerfData = ' + varPerfDataJson + ';\n';
+  html += 'var __varPerfShowLabels = true;\n\n';
+  html += 'function renderVarPerfChart(canvas, items, showLabels) {\n';
+  html += '  var ctx = canvas.getContext("2d");\n';
+  html += '  var W = canvas.width, H = canvas.height;\n';
+  html += '  var PAD_L = 70, PAD_R = 70, PAD_T = 50, PAD_B = 110;\n';
+  html += '  var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;\n';
+  html += '  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);\n';
+  html += '  if (!items || items.length === 0) {\n';
+  html += '    ctx.fillStyle = "#999"; ctx.font = "14px Arial"; ctx.textAlign = "center";\n';
+  html += '    ctx.fillText("No data", W/2, H/2); return;\n';
+  html += '  }\n';
+  html += '  var minVac = 0, maxVac = 0;\n';
+  html += '  for (var i = 0; i < items.length; i++) {\n';
+  html += '    if (items[i].sumVac < minVac) minVac = items[i].sumVac;\n';
+  html += '    if (items[i].sumVac > maxVac) maxVac = items[i].sumVac;\n';
+  html += '  }\n';
+  html += '  var vacRange = maxVac - minVac;\n';
+  html += '  if (vacRange === 0) { minVac = -10; maxVac = 10; vacRange = 20; }\n';
+  html += '  var vacPad = vacRange * 0.18;\n';
+  html += '  minVac -= vacPad; maxVac += vacPad;\n';
+  html += '  var minCpi = Infinity, maxCpi = -Infinity, hasCpi = false;\n';
+  html += '  for (var ci = 0; ci < items.length; ci++) {\n';
+  html += '    if (items[ci].avgCpi != null && isFinite(items[ci].avgCpi)) {\n';
+  html += '      hasCpi = true;\n';
+  html += '      if (items[ci].avgCpi < minCpi) minCpi = items[ci].avgCpi;\n';
+  html += '      if (items[ci].avgCpi > maxCpi) maxCpi = items[ci].avgCpi;\n';
+  html += '    }\n';
+  html += '  }\n';
+  html += '  if (!hasCpi) { minCpi = 0.5; maxCpi = 1.5; }\n';
+  html += '  else {\n';
+  html += '    if (minCpi > 0.9) minCpi = 0.9;\n';
+  html += '    if (maxCpi < 1.1) maxCpi = 1.1;\n';
+  html += '    var cpiPad = (maxCpi - minCpi) * 0.1;\n';
+  html += '    minCpi -= cpiPad; maxCpi += cpiPad;\n';
+  html += '  }\n';
+  html += '  function yVac(v) { return PAD_T + (1 - (v - minVac) / (maxVac - minVac)) * plotH; }\n';
+  html += '  function yCpi(c) { return PAD_T + (1 - (c - minCpi) / (maxCpi - minCpi)) * plotH; }\n';
+  html += '  function xCenter(i) { return PAD_L + (i + 0.5) * (plotW / items.length); }\n';
+  html += '  ctx.fillStyle = "#475569"; ctx.font = "11px Arial"; ctx.textAlign = "right";\n';
+  html += '  var vacTicks = 5;\n';
+  html += '  for (var t = 0; t <= vacTicks; t++) {\n';
+  html += '    var vt = minVac + (maxVac - minVac) * t / vacTicks;\n';
+  html += '    var ty = yVac(vt);\n';
+  html += '    ctx.beginPath(); ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1;\n';
+  html += '    ctx.moveTo(PAD_L, ty); ctx.lineTo(PAD_L + plotW, ty); ctx.stroke();\n';
+  html += '    ctx.fillStyle = "#475569"; ctx.fillText(Math.round(vt) + "h", PAD_L - 6, ty + 4);\n';
+  html += '  }\n';
+  html += '  ctx.textAlign = "left"; ctx.fillStyle = "#2563eb";\n';
+  html += '  for (var ct = 0; ct <= vacTicks; ct++) {\n';
+  html += '    var cv = minCpi + (maxCpi - minCpi) * ct / vacTicks;\n';
+  html += '    var cty = yCpi(cv);\n';
+  html += '    ctx.fillText(cv.toFixed(2), PAD_L + plotW + 6, cty + 4);\n';
+  html += '  }\n';
+  html += '  var zeroY = yVac(0);\n';
+  html += '  if (0 >= minVac && 0 <= maxVac) {\n';
+  html += '    ctx.beginPath(); ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);\n';
+  html += '    ctx.moveTo(PAD_L, zeroY); ctx.lineTo(PAD_L + plotW, zeroY); ctx.stroke();\n';
+  html += '    ctx.setLineDash([]);\n';
+  html += '  }\n';
+  html += '  if (1.0 >= minCpi && 1.0 <= maxCpi) {\n';
+  html += '    var oneY = yCpi(1.0);\n';
+  html += '    ctx.beginPath(); ctx.strokeStyle = "#2563eb"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;\n';
+  html += '    ctx.globalAlpha = 0.5;\n';
+  html += '    ctx.moveTo(PAD_L, oneY); ctx.lineTo(PAD_L + plotW, oneY); ctx.stroke();\n';
+  html += '    ctx.globalAlpha = 1.0; ctx.setLineDash([]);\n';
+  html += '  }\n';
+  html += '  ctx.save(); ctx.translate(18, PAD_T + plotH/2); ctx.rotate(-Math.PI/2);\n';
+  html += '  ctx.textAlign = "center"; ctx.fillStyle = "#334155"; ctx.font = "bold 12px Arial";\n';
+  html += '  ctx.fillText("Σ VAC (hours)", 0, 0); ctx.restore();\n';
+  html += '  ctx.save(); ctx.translate(W - 18, PAD_T + plotH/2); ctx.rotate(Math.PI/2);\n';
+  html += '  ctx.textAlign = "center"; ctx.fillStyle = "#2563eb"; ctx.font = "bold 12px Arial";\n';
+  html += '  ctx.fillText("avg CPI", 0, 0); ctx.restore();\n';
+  html += '  var barW = Math.min(60, (plotW / items.length) * 0.55);\n';
+  html += '  for (var bi = 0; bi < items.length; bi++) {\n';
+  html += '    var it = items[bi];\n';
+  html += '    var xc = xCenter(bi);\n';
+  html += '    var bx = xc - barW / 2;\n';
+  html += '    var topY, barH;\n';
+  html += '    if (it.sumVac >= 0) { topY = yVac(it.sumVac); barH = zeroY - topY; }\n';
+  html += '    else { topY = zeroY; barH = yVac(it.sumVac) - zeroY; }\n';
+  html += '    ctx.fillStyle = it.sumVac >= 0 ? "rgba(22, 163, 74, 0.78)" : "rgba(220, 38, 38, 0.78)";\n';
+  html += '    ctx.fillRect(bx, topY, barW, barH);\n';
+  html += '    ctx.strokeStyle = it.sumVac >= 0 ? "#15803d" : "#b91c1c"; ctx.lineWidth = 1;\n';
+  html += '    ctx.strokeRect(bx + 0.5, topY + 0.5, barW - 1, barH - 1);\n';
+  html += '    if (showLabels) {\n';
+  html += '      var labelText = "avg VAC: " + (it.avgVac >= 0 ? "+" : "") + Math.round(it.avgVac) + "h";\n';
+  html += '      ctx.fillStyle = "#0f172a"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";\n';
+  html += '      var labelY = topY - 6;\n';
+  html += '      if (labelY < PAD_T + 12) labelY = topY + barH + 14;\n';
+  html += '      ctx.fillText(labelText, xc, labelY);\n';
+  html += '    }\n';
+  html += '    ctx.save(); ctx.translate(xc, PAD_T + plotH + 8);\n';
+  html += '    ctx.rotate(-Math.PI/4); ctx.textAlign = "right";\n';
+  html += '    ctx.fillStyle = "#334155"; ctx.font = "10px Arial";\n';
+  html += '    var lbl = it.label; if (lbl.length > 28) lbl = lbl.slice(0, 27) + "…";\n';
+  html += '    ctx.fillText(lbl, 0, 0); ctx.restore();\n';
+  html += '  }\n';
+  html += '  if (hasCpi) {\n';
+  html += '    ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.beginPath();\n';
+  html += '    var firstCpi = true;\n';
+  html += '    for (var ci2 = 0; ci2 < items.length; ci2++) {\n';
+  html += '      if (items[ci2].avgCpi == null || !isFinite(items[ci2].avgCpi)) continue;\n';
+  html += '      var cxc = xCenter(ci2), cyc = yCpi(items[ci2].avgCpi);\n';
+  html += '      if (firstCpi) { ctx.moveTo(cxc, cyc); firstCpi = false; } else ctx.lineTo(cxc, cyc);\n';
+  html += '    }\n';
+  html += '    ctx.stroke();\n';
+  html += '    for (var ci3 = 0; ci3 < items.length; ci3++) {\n';
+  html += '      if (items[ci3].avgCpi == null || !isFinite(items[ci3].avgCpi)) continue;\n';
+  html += '      var mxc = xCenter(ci3), myc = yCpi(items[ci3].avgCpi);\n';
+  html += '      ctx.fillStyle = "#2563eb"; ctx.beginPath();\n';
+  html += '      ctx.arc(mxc, myc, 4, 0, 2 * Math.PI); ctx.fill();\n';
+  html += '      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();\n';
+  html += '    }\n';
+  html += '  }\n';
+  html += '  ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;\n';
+  html += '  ctx.strokeRect(PAD_L, PAD_T, plotW, plotH);\n';
+  html += '}\n\n';
+  html += 'function __renderAllVarPerf() {\n';
+  html += '  var cs = document.querySelectorAll("canvas.var-perf-canvas");\n';
+  html += '  for (var i = 0; i < cs.length; i++) {\n';
+  html += '    var prog = cs[i].dataset.program;\n';
+  html += '    var items = __varPerfData[prog] || [];\n';
+  html += '    try { renderVarPerfChart(cs[i], items, __varPerfShowLabels); }\n';
+  html += '    catch(err) { console.warn("var-perf render failed for", prog, err); }\n';
+  html += '  }\n';
+  html += '}\n';
+  html += '__renderAllVarPerf();\n';
+  html += '(function() {\n';
+  html += '  var tgl = document.getElementById("var-perf-toggle-labels");\n';
+  html += '  if (tgl) tgl.addEventListener("change", function() { __varPerfShowLabels = tgl.checked; __renderAllVarPerf(); });\n';
+  html += '})();\n';
+
   html += '<\/script>\n';
   html += '</body>\n</html>';
 
@@ -5449,7 +5713,16 @@ function saveEvmReport() {
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = 'evm-report-' + dateStr + '.html';
+  // Sanitize the program name for use in a filename (strip filesystem-unsafe chars, collapse spaces).
+  var _filenameProgSlug = '';
+  if (_filterProg) {
+    _filenameProgSlug = '-' + _filterProg
+      .replace(/[\/\\:*?"<>|]/g, '')   // drop filesystem-unsafe chars
+      .replace(/\s+/g, '_')              // spaces → underscores
+      .replace(/_+/g, '_')                // collapse repeats
+      .replace(/^[-_]+|[-_]+$/g, '');     // trim leading/trailing dashes/underscores
+  }
+  a.download = 'evm-report' + _filenameProgSlug + '-' + dateStr + '.html';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }

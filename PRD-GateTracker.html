@@ -79,10 +79,14 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Tracker &mdash; Work Order Gate Progress Visualization Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>10.2</td></tr>
-    <tr><td class="label">Date:</td><td>April 28, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>10.3</td></tr>
+    <tr><td class="label">Date:</td><td>May 19, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>REVISED &mdash; <strong>QA chip color extended to IN QUEUE; snapshot Empty Gates collapsed group; snapshot VAC plot canvas-to-image fix (v10.2). Prior pass: EVM Manager Report usability pass (v10.0) + interactive-report re-architecture (v10.1).</strong>
+    <tr><td class="label">Status:</td><td>REVISED &mdash; <strong>Manager EVM Report enhancements (v10.3): Delivered-section default-collapse fix in exported report, per-program export filter, and new Variance &amp; Performance by Part bar-chart section. Prior pass: QA chip color extended to IN QUEUE; snapshot Empty Gates collapsed group; snapshot VAC plot canvas-to-image fix (v10.2).</strong>
+      <p style="margin:0.4em 0;"><strong>Three feature changes (v10.3)</strong>, all scoped to the Manager EVM Report:
+      (1) the &ldquo;(Delivered &mdash; No Active WOs)&rdquo; section in the exported report is now collapsed by default &mdash; fixing a regression introduced when the live-view <code>&lt;details&gt;</code> collapse (v10.0 #1) was mirrored into the export with a broken <code>indexOf(&quot;Delivered&quot;) === 0</code> check that always returned false because the program label starts with a literal <code>(</code> (see F-221);
+      (2) a per-program filter dropdown sits next to the &ldquo;Save Manager EVM Report&rdquo; button, populated on Process with &ldquo;All Programs&rdquo; + every program in <code>allPrograms</code> + the Delivered bucket (when present). When a single program is selected, every section of the export &mdash; VAC Trend Plots, Bench Cost Performance Summary, Estimated Work Package Completion, and the new Variance &amp; Performance bar chart &mdash; is filtered to that program, the H1 title gains a coloured program suffix, and the download filename becomes <code>evm-report-&lt;Program&gt;-YYYY-MM-DD.html</code> with filesystem-unsafe characters stripped (see F-222);
+      (3) a new <strong>Variance &amp; Performance by Part</strong> section is appended after Estimated Work Package Completion and before Detail View. One hand-drawn dual-axis canvas chart per program: bars show <strong>&Sigma; VAC</strong> across each part group&rsquo;s active WOs (red &lt; 0, green &ge; 0); a blue line+marker series shows the <strong>simple-average CPI</strong> across the same WOs on a right-axis; bars are sorted worst-VAC-first; each bar carries a floating &ldquo;avg VAC: &plusmn;42h&rdquo; text label (toggleable live via a checkbox at the top of the section). Grouping mirrors Bench Cost Performance Summary (<code>partToGroupId[partNo]</code> for sibling groups, else <code>partNo</code>). Data source is <code>evmResults</code> only &mdash; current P File, no historical VAC log involvement (see F-223).</p>
       <p style="margin:0.4em 0;"><strong>Ten feature changes (v10.0)</strong>, all scoped to the VAC trend plots and the Bench Cost Performance Summary:
       (1) the &ldquo;(Delivered &mdash; No Active WOs)&rdquo; program section is now collapsed by default and rendered as a <code>&lt;details&gt;</code> element;
       (2) delivered-part plots with zero variance in both CPI and VAC across their entire history are omitted entirely with the count surfaced in the collapsible header;
@@ -919,7 +923,7 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
   <tr>
     <td class="req-id">F-181</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Manager EVM Report (2nd snapshot):</strong> A separate &ldquo;Save Manager EVM Report&rdquo; button generates a self-contained HTML file (<code>evm-report-YYYY-MM-DD.html</code>) containing: Bench Cost Performance Summary table, VAC trend plots grouped by program, and Detail View with EVM rows. Omits Gate View. Only includes parts present in the Decoder Ring.</td>
+    <td><strong>Manager EVM Report (2nd snapshot):</strong> A separate &ldquo;Save Manager EVM Report&rdquo; button generates a self-contained HTML file (<code>evm-report-YYYY-MM-DD.html</code>, or <code>evm-report-&lt;Program&gt;-YYYY-MM-DD.html</code> when the per-program filter F-222 is set) containing: Bench Cost Performance Summary table, VAC trend plots grouped by program, Estimated Work Package Completion bundles, Variance &amp; Performance by Part bar chart (F-223), and Detail View with EVM rows. Omits Gate View. Only includes parts present in the Decoder Ring.</td>
   </tr>
   <tr>
     <td class="req-id">F-182</td>
@@ -981,6 +985,45 @@ The Decoder Ring is currently maintained manually. A more efficient approach wou
         <li><strong>Delivered (all-closed) branch:</strong> Sibling grouping also applies to the synthetic &ldquo;(Delivered &mdash; No Active WOs)&rdquo; program section. Variance-filtering happens at the group level; one plot per delivered group; legend follows the same dash-suffix rule.</li>
       </ul>
       <strong>Implementation:</strong> <code>getRootPartNo(pn)</code> returns substring before last <code>-</code> (or whole string if no dash / leading dash). <code>getDashSuffix(pn)</code> returns substring after last <code>-</code>. <code>buildSiblingGroups()</code> runs once per <code>process()</code> after <code>evmPartHasHours</code>, <code>allPartNos</code>, and <code>partToPrograms</code> are finalized, producing <code>siblingGroups[gid]</code> = <code>{rootPN, name, program, members:[pn]}</code> and <code>partToGroupId[pn]</code> = gid. Members sorted by dash-suffix numerically where possible, else lexicographically. Helpers <code>keyHasHours</code>, <code>getProgramsForKey</code>, <code>bcpsAnchorFor</code>, and <code>siblingHeadingText</code> centralize the gid-vs-partNo branching so existing 3-state chip logic and section filtering work unchanged.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-221</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Delivered-section default-collapse fix in exported EVM Report (v10.3):</strong> In the exported Manager EVM Report, the synthetic &ldquo;(Delivered &mdash; No Active WOs)&rdquo; program section under VAC Trend Plots is now collapsed by default, matching the live-view behaviour added in v10.0 #1. <strong>Bug fixed:</strong> the prior check <code>pprogName.indexOf('Delivered') === 0</code> always returned <code>false</code> because the program label begins with a literal <code>(</code>, so <code>Delivered</code> appears at index 1, not 0. The check is replaced with <code>pprogName.indexOf('Delivered') !== -1</code>, which correctly matches the synthetic Delivered bucket without colliding with any real program name.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-222</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Per-program Manager EVM Report export (v10.3):</strong> A <code>&lt;select id=&quot;evm-program-select&quot;&gt;</code> dropdown is rendered immediately next to the &ldquo;Save Manager EVM Report&rdquo; button. It is populated during <code>process()</code> with the literal value <code>__ALL__</code> (labelled &ldquo;All Programs&rdquo;), every entry in <code>allPrograms</code>, and the synthetic &ldquo;(Delivered &mdash; No Active WOs)&rdquo; option when at least one part has only closed WOs. Selection is preserved across re-processings when the program still exists; otherwise the dropdown resets to <code>__ALL__</code>. The button onclick now reads <code>saveEvmReport(document.getElementById('evm-program-select').value)</code>.
+      <br><br>When <code>programFilter</code> is set to a real program (i.e., not <code>__ALL__</code> / empty), every section of the export is filtered to that program:
+      <ul style="margin:6px 0 6px 18px;">
+        <li><strong>VAC Trend Plots:</strong> the live-plot harvest loop skips any plot whose resolved <code>lpcProgram</code> doesn&rsquo;t match.</li>
+        <li><strong>Bench Cost Performance Summary:</strong> the <code>summaryByProg</code> builder filters WOs whose <code>evm.program</code> doesn&rsquo;t match.</li>
+        <li><strong>Estimated Work Package Completion:</strong> <code>bundleNames</code> is filtered to bundles whose <code>bundleVelocityMap[bn].program</code> matches.</li>
+        <li><strong>Variance &amp; Performance by Part</strong> (F-223): the rollup loop skips non-matching WOs.</li>
+      </ul>
+      The H1 banner shows a purple program suffix (<code>&mdash; &lt;Program&gt;</code>) when filtered; the <code>&lt;title&gt;</code> tag and the download filename also receive the program name. Filename sanitization strips <code>/\:*?"&lt;&gt;|</code> and collapses whitespace to underscores: <code>evm-report-&lt;sanitized-program&gt;-YYYY-MM-DD.html</code>. With <code>__ALL__</code> the filename remains <code>evm-report-YYYY-MM-DD.html</code>, identical to pre-v10.3 behaviour.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-223</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Variance &amp; Performance by Part section (v10.3):</strong> A new section <code>#var-perf-section</code> is appended after Estimated Work Package Completion and before Detail View in the exported Manager EVM Report. Source data is <code>evmResults</code> only (current P File) &mdash; the historical VAC log plays no role in this section.
+      <br><br><strong>Rollup:</strong> WOs are grouped by program, then by <code>partToGroupId[partNo] || partNo</code> (i.e., sibling-group rootPN where one exists per F-220, else the full partNo). For each group:
+      <ul style="margin:6px 0 6px 18px;">
+        <li><strong>&Sigma; VAC</strong> = sum of <code>evm.vac</code> across all member WOs (renders as the bar height).</li>
+        <li><strong>avg VAC</strong> = &Sigma; VAC / <em>woCount</em> (renders as the floating &ldquo;avg VAC: &plusmn;42h&rdquo; bar label).</li>
+        <li><strong>avg CPI</strong> = simple mean of <code>evm.cpi</code> across WOs where CPI is finite and non-null (renders as the right-axis line+marker series).</li>
+      </ul>
+      <strong>Layout:</strong> one collapsible <code>&lt;details open&gt;</code> block per program (header: <code>&lt;Program&gt; &mdash; N part group(s)</code>). Inside each block, a hand-drawn dual-axis canvas (no Chart.js dependency; matches the existing VAC trend-plot rendering style):
+      <ul style="margin:6px 0 6px 18px;">
+        <li><strong>Bars:</strong> green <code>rgba(22,163,74,0.78)</code> when <code>&Sigma; VAC &ge; 0</code>; red <code>rgba(220,38,38,0.78)</code> when negative. Sorted worst-VAC-first (most negative on the left).</li>
+        <li><strong>Left axis:</strong> &Sigma; VAC (hours), auto-scaled with 18% padding above/below, dashed zero line.</li>
+        <li><strong>Right axis:</strong> avg CPI, auto-scaled with the 1.0 baseline forced into view, dashed blue 1.0 reference line.</li>
+        <li><strong>Bar text label:</strong> &ldquo;avg VAC: &plusmn;Nh&rdquo; floats just above each bar&rsquo;s upper edge; falls back to below-bar when the canvas top is too tight. Globally toggleable via a checkbox at the top of the section (<code>#var-perf-toggle-labels</code>, default checked) &mdash; the change handler flips a module-level <code>__varPerfShowLabels</code> flag and re-renders every canvas.</li>
+        <li><strong>X-axis labels:</strong> the group&rsquo;s display label (rootPN-x or partNo &mdash; name), rotated 45&deg;, truncated to 28 chars with ellipsis.</li>
+        <li><strong>Canvas width:</strong> <code>max(800, 200 + nBars &times; 70)</code> in a horizontally-scrollable wrapper so dense programs stay readable.</li>
+      </ul>
+      <strong>Per-program export interaction:</strong> when <code>programFilter</code> is set (F-222), only the matching program&rsquo;s rollup is built and rendered; the section header reflects the single program. With <code>__ALL__</code>, one canvas appears per program with programs in alphabetical order.</td>
   </tr>
 </table>
 
