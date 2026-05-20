@@ -180,7 +180,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.7 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.8 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -650,6 +650,16 @@ function parseEarnedFile(file) {
           for (const r of required) idx[r] = colIndex(headers, r);
           const missing = required.filter(n => idx[n] < 0);
           if (missing.length > 0) throw new Error('Hours Earned CSV missing columns: ' + missing.join(', '));
+          // v1.8: operation-scope filter. Hours Earned exports now carry an `Oper Type`
+          // column distinguishing MFG ops from QA / engineering / others. The charge .xlsx
+          // files are manufacturing-only, so non-MFG earned rows have no charges to join
+          // against — they would either drop into the F-50 unmatched bucket OR (worse)
+          // pull earned credit away from MFG ops via F-05's pro-rata split. Keep MFG only
+          // when the column is present; pass through with a missing-column warning when
+          // absent (legacy export).
+          const iOperType = colIndex(headers, 'Oper Type');
+          const operTypeColPresent = iOperType >= 0;
+          let nonMfgSkipped = 0;
 
           const rows = [];
           let badHours = 0;
@@ -661,6 +671,10 @@ function parseEarnedFile(file) {
             const yr = parseInt(r[idx['Year of Actual End Date']], 10);
             const mo = parseMonth(r[idx['Month of Actual End Date']]);
             if (!orderNo || !operNo || isNaN(yr) || !mo) continue;
+            if (operTypeColPresent) {
+              const operType = String(r[iOperType] || '').trim().toUpperCase();
+              if (operType !== 'MFG') { nonMfgSkipped++; continue; }
+            }
             let hours = parseFloat(String(r[idx['Hours Earned']]).replace(/,/g, ''));
             if (isNaN(hours)) { hours = 0; badHours++; }
             rows.push({
@@ -670,7 +684,7 @@ function parseEarnedFile(file) {
               hoursEarned: hours
             });
           }
-          resolve({ rows, badHours });
+          resolve({ rows, badHours, nonMfgSkipped, operTypeColPresent });
         } catch (err) {
           reject(err);
         }
@@ -774,7 +788,24 @@ fileInputs.earned.addEventListener('change', async (e) => {
   try {
     const res = await parseEarnedFile(file);
     earnedParsed = res;
-    setStatus('earned-status', res.rows.length + ' rows' + (res.badHours ? ' (' + res.badHours + ' non-numeric Hours Earned treated as 0)' : ''));
+    // v1.8: extend the status line so the Oper Type filter outcome is visible
+    // immediately. Two cases surfaced here AND in the validation panel later:
+    //   present + skipped -> "N non-MFG rows excluded"
+    //   absent             -> WARNING (filter inactive)
+    let msg = res.rows.length + ' rows';
+    if (res.badHours) msg += ' (' + res.badHours + ' non-numeric Hours Earned treated as 0)';
+    if (res.operTypeColPresent && res.nonMfgSkipped > 0) {
+      msg += ' — ' + res.nonMfgSkipped + ' non-MFG row(s) excluded by Oper Type filter';
+    }
+    let isError = false;
+    if (!res.operTypeColPresent) {
+      msg += ' — WARNING: Oper Type column not found, operation-scope filter INACTIVE';
+      // setStatus's 2nd arg is the "error" flag; we don't have a warning channel here,
+      // so re-use the error styling — the message text makes it clear it's a warning
+      // not a fatal error, and the validation panel will also surface it with full copy.
+      isError = true;
+    }
+    setStatus('earned-status', msg, isError);
   } catch (err) {
     setStatus('earned-status', 'ERROR: ' + err.message, true);
     earnedParsed = null;
@@ -818,7 +849,10 @@ document.getElementById('analyze-btn').addEventListener('click', () => {
 
 function runAnalyze() {
   // Reset
-  State.validation = { fileSummaries: [], chargeFileFailures: chargeFileFailures.slice(), dedupCount: 0, negativeDiffs: 0, missingNames: [], zeroChargeRows: 0, badEarnedHours: earnedParsed ? earnedParsed.badHours : 0, earnedRowsTotal: 0, evRowsTotal: 0, evDuplicates: 0 };
+  State.validation = { fileSummaries: [], chargeFileFailures: chargeFileFailures.slice(), dedupCount: 0, negativeDiffs: 0, missingNames: [], zeroChargeRows: 0, badEarnedHours: earnedParsed ? earnedParsed.badHours : 0, earnedRowsTotal: 0, evRowsTotal: 0, evDuplicates: 0,
+    // v1.8: Oper Type filter telemetry surfaced in renderValidation()
+    nonMfgSkipped: earnedParsed ? (earnedParsed.nonMfgSkipped || 0) : 0,
+    operTypeColPresent: earnedParsed ? !!earnedParsed.operTypeColPresent : false };
 
   // 1. Concat all charge rows
   const allCharges = [];
@@ -2207,6 +2241,12 @@ function renderValidation() {
   if (v.negativeDiffs) html += '<li>Clamped <b>' + v.negativeDiffs + '</b> negative incremental diffs to 0 (cumulative correction in source)</li>';
   if (v.zeroChargeRows) html += '<li>' + v.zeroChargeRows + ' CLOSE rows had Total Hours = 0 (no actual charge against this employee)</li>';
   if (v.badEarnedHours) html += '<li>' + v.badEarnedHours + ' Hours Earned rows had non-numeric values (treated as 0)</li>';
+  // v1.8: Oper Type filter outcome — green note when active+filtering, amber when absent.
+  if (v.operTypeColPresent && v.nonMfgSkipped > 0) {
+    html += '<li style="color:#065f46;"><b>Oper Type filter active:</b> ' + v.nonMfgSkipped + ' non-MFG row(s) excluded from the earned join (operation-scope alignment with the manufacturing-only charge files).</li>';
+  } else if (!v.operTypeColPresent) {
+    html += '<li style="color:#92400e;background:#fffbeb;border-left:4px solid #f59e0b;padding:4px 8px;list-style:none;margin-left:-1.5rem;"><b>Operation-scope filter INACTIVE.</b> The Hours Earned CSV has no <code>Oper Type</code> column. Earned hours for non-manufacturing ops (QA, engineering, ...) are being included even though the charge files cover only manufacturing — this can inflate CPI. Re-export with the <code>Oper Type</code> column to engage the safeguard.</li>';
+  }
   if (State.earnedNoCharge.length) {
     html += '<li><b>' + State.earnedNoCharge.length + '</b> Hours Earned rows have no matching charge (operation closed but no employee charges in your files):';
     html += '<ul style="font-size:0.85rem;">';

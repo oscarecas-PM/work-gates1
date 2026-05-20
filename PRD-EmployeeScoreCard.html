@@ -28,7 +28,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Employee Score Card</p>
 <p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
-<p class="version">Version 1.7 | May 1, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.8 | May 19, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
@@ -89,6 +89,7 @@ li { margin: 0.3rem 0; }
 
 <h3>5.2 Hours Earned CSV (required)</h3>
 <p>Identical format to <code>PRD-EarnedHourAnalysis.html</code> &sect;5.1. Required columns: <code>Order No</code>, <code>Year of Actual End Date</code>, <code>Month of Actual End Date</code>, <code>Oper No</code>, <code>Hours Earned</code>. The optional <code>Actual End Date</code> column is preserved but not required.</p>
+<p><strong>(v1.8) Optional <code>Oper Type</code> column:</strong> when present, the parser keeps only rows whose value (case-insensitive, trimmed) equals <code>MFG</code>. All other rows are dropped before the F-05 pro-rata split sees them, so non-manufacturing earned credit can never be allocated to manufacturing techs (or land in F-50's unmatched bucket). When the column is absent (legacy export), all rows pass through unchanged and the validation panel surfaces an amber "Operation-scope filter INACTIVE" warning. See &sect;6.1 F-04a and &sect;11.6.</p>
 <p>Each row represents one closed operation. The Earned Hour Analysis tool aggregates these rows to (Order No, Month) for its bundle view; this tool keeps them at (Order No, Oper No, Month) grain so per-operation pro-rata splits are possible.</p>
 
 <h3>5.3 EV Details CSV (optional, multiple files)</h3>
@@ -103,6 +104,7 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-02a</span> <strong>Per-file resilience.</strong> The charge-file ingest loop processes each .xlsx independently. A failure in one file (missing header, missing required columns, read error) does not abort the batch &mdash; remaining files continue to parse. The status line shows <code>N of M file(s) parsed</code>, and failed files are listed by name in both the status line and the validation panel (with the underlying error message). Analyze remains enabled as long as at least one charge file parsed successfully and the Hours Earned CSV is loaded.</p>
 <p><span class="req">F-03</span> Convert cumulative <code>Total Hours</code> to incremental per-week charges. For each <code>(Badge, Order No, Oper No)</code> series, sort by <code>Week Ending</code> ascending and compute <code>incremental[i] = Total Hours[i] - Total Hours[i-1]</code> (incremental[0] = Total Hours[0]). Negative diffs (corrections / re-categorizations upstream) are clamped to 0 and counted in the validation panel.</p>
 <p><span class="req">F-04</span> Parse the Hours Earned CSV with the same column-tolerance and <code>parseMonth()</code> logic used in <code>earned-hour-analysis-1.html</code>. Non-numeric <code>Hours Earned</code> values treated as 0 with a warning.</p>
+<p><span class="req">F-04a</span> <strong>(v1.8) Operation-scope filter.</strong> <code>parseEarnedFile()</code> looks up an optional <code>Oper Type</code> column (case- and punctuation-tolerant via <code>colIndex()</code> / <code>normHeader()</code>). When the column is present, the row loop skips any row whose value (after trim + uppercase) is not <code>MFG</code> and increments a <code>nonMfgSkipped</code> counter; excluded rows never reach F-05's pro-rata split. The parser returns <code>{rows, badHours, nonMfgSkipped, operTypeColPresent}</code>. <code>nonMfgSkipped</code> and <code>operTypeColPresent</code> are persisted into <code>State.validation</code> and surfaced by the validation panel: green note "Oper Type filter active: N non-MFG row(s) excluded" when filtering happened, amber block "Operation-scope filter INACTIVE — Hours Earned CSV has no Oper Type column" when the column is absent. The file-input status line mirrors both states. No bypass toggle &mdash; the filter is always on when the column is present (user decision, 2026-05-19). See &sect;11.6.</p>
 <p><span class="req">F-05</span> <strong>Pro-rata split.</strong> For each row in the Hours Earned CSV (one closed operation = one earned-hours value):
   <span class="formula">total_charged = &Sigma; incremental_charges over all badges on (Order No, Oper No)<br>earned_share[badge] = Hours Earned &times; (charge[badge] / total_charged)</span>
   <ul>
@@ -364,6 +366,22 @@ li { margin: 0.3rem 0; }
   <li>Limit the tool to current-only views and live with the lack of historical depth.</li>
 </ul>
 <p>The tool is no longer gated on this question for current-month / current-quarter use. Historical depth simply scales with how far back exports are available.</p>
+
+<h3>11.6 Operation-scope filter — Oper Type = MFG (v1.8)</h3>
+<p>Score Card joins Hours Earned to charges by <code>(Order No, Oper No)</code> via F-05's pro-rata split. The join is symmetric in name only: <strong>charge files are manufacturing-only</strong>, while <strong>Hours Earned exports historically included every operation type</strong> (manufacturing, QA, engineering, ...). The asymmetry has two effects on Score Card output:</p>
+<ol>
+  <li>When a non-MFG op closes and produces earned hours, the F-05 join finds no charges (because no MFG tech ever charged that op). The earned credit goes to F-50's "Charges Without Earned Credit" amber report &mdash; backwards labeling, since it's actually <em>earned without charges</em>. Either way, the credit is dropped from per-employee CPI.</li>
+  <li>Worse: occasionally a non-MFG operation does happen to share an Oper No with a manufacturing op on the same WO (the labor system sometimes reuses operation numbers across departments). When that happens, the non-MFG earned hours land in the F-05 split and inflate manufacturing-tech CPI without any matching actual hours.</li>
+</ol>
+<p>This was first flagged on 2026-05-18 during vac-backfill-tool v1.4 work and tracked in <code>memory/investigation_score_card_cumulative_vs_incremental.md</code> as the second concern. v1.8 closes it: the Hours Earned export now carries an <code>Oper Type</code> column distinguishing <code>MFG</code> from other operation types. The parser (F-04a) keeps only <code>MFG</code> rows when the column is present and surfaces an amber "filter INACTIVE" warning when the column is absent (legacy export). The validation panel was extended to show both states explicitly.</p>
+<p><strong>Design choices, matching the parallel changes in EHA v1.9 and VAC Backfill v1.8:</strong></p>
+<ul>
+  <li>Backward-compatible: legacy files still parse, with a prominent missing-column warning. Old runs aren't blocked, but the user knows the safeguard is off.</li>
+  <li>No bypass toggle: filtering is always on when the column is present. A toggle invites the bias back.</li>
+  <li>Filter happens BEFORE F-05's pro-rata split, so excluded rows never appear in earned shares, in F-50's report, or in any per-employee totals.</li>
+  <li>Test fixture (<code>_make_score_card_test.py</code>) emits one <code>Oper Type = QA</code> row on WO-300's unmatched bucket so every regression run exercises the filter without changing the documented per-employee CPI expectations (Alice 0.80, Bob 1.06, Charlie 0.69, Diana 1.00).</li>
+</ul>
+<p>This resolves half of the open investigation. The companion F-03 cumulative-vs-incremental concern remains open and is unaffected by this change.</p>
 
 </body>
 </html>
