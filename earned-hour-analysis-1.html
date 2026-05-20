@@ -143,7 +143,7 @@ License: MIT
 </head>
 <body>
 
-<h1>Earned Hour Analysis <span>v1.9</span></h1>
+<h1>Earned Hour Analysis <span>v1.10</span></h1>
 <p class="description">Upload hours earned and bundle definition CSVs, then click Analyze to view aggregated earned hours by work order, grouped by bundle, with trend charts.</p>
 
 <div class="file-inputs">
@@ -227,7 +227,7 @@ License: MIT
 
 <script>
 /* ================================================================
-   Earned Hour Analysis v1.9 — Application Logic
+   Earned Hour Analysis v1.10 — Application Logic
    ================================================================ */
 
 // --- Globals ---
@@ -965,9 +965,9 @@ function getCpiLegendInfoTooltip() {
   tip.id = 'cpi-legend-info-tooltip';
   tip.style.cssText = 'position:fixed;background:#1f2937;color:#fff;padding:9px 12px;border-radius:5px;font-size:0.82rem;line-height:1.55;max-width:360px;z-index:9999;display:none;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,0.28);font-family:Arial,sans-serif;';
   tip.innerHTML = '<div style="font-weight:bold;color:#fcd34d;margin-bottom:4px;">CPI</div>' +
-    'Each month: <span style="background:#374151;padding:1px 5px;border-radius:3px;color:#fcd34d;font-family:Consolas,monospace;font-size:0.78rem;">Σ EarnedHrs<sub>wo,m</sub> &divide; Σ ActualHrs<sub>wo,m</sub></span><br>' +
-    '<span style="color:#cbd5e1;">ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>, where CPI<sub>wo,m</sub> carries forward from the latest VAC sample dated on or before end-of-month. WOs with no earned hours that month, or no qualifying CPI sample, are excluded from both sums.</span>' +
-    '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #374151;color:#cbd5e1;"><strong style="color:#fcd34d;">Coverage %</strong> in the marker tooltip shows what fraction of the in-scope earned hours has a qualifying CPI sample. A coverage well below 100% means the displayed CPI is computed on an incomplete slice of the month\'s work.</div>';
+    '<span style="color:#cbd5e1;">Each month\'s CPI is an earned-hours-weighted average of the per-WO CPI samples from the uploaded VAC tracker log. Each WO\'s CPI carries forward from the latest sample dated on or before the end of that month. WOs with no earned hours that month, or no qualifying CPI sample, are excluded.</span>' +
+    '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #374151;color:#cbd5e1;"><strong style="color:#fcd34d;">Coverage %</strong> in the marker tooltip shows what fraction of the in-scope earned hours has a qualifying CPI sample. A coverage well below 100% means the displayed CPI is computed on an incomplete slice of the month\'s work.</div>' +
+    '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #374151;color:#94a3b8;font-size:0.78rem;">CPI values come from the VAC tracker log as Gate Tracker computed them. Use the line for trend / change-over-time, not for an absolute level.</div>';
   document.body.appendChild(tip);
   _cpiLegendInfoTip = tip;
   return tip;
@@ -1088,13 +1088,17 @@ function attachCpiOverlay(datasetMap, allWos, months, hoursMap, options, dataset
     }
     var sums = computeMonthlyEarnedActual(visibleWos, mk, meta.hoursMap);
     if (sums.earned <= 0) return base;
-    // v1.8: coverage % tells the user how much of the in-scope earned hours that month
-    // actually has a qualifying CPI sample. Always shown — 100% is reassuring, anything
-    // less is a signal that the CPI value above is computed on an incomplete slice.
-    var lines = [
-      '  Earned Hours: ' + sums.earned.toFixed(1),
-      '  Actual Hours: ' + sums.actual.toFixed(1)
-    ];
+    // v1.10: Earned Hours / Actual Hours lines removed from the tooltip.
+    //   - Earned Hours is already displayed by the bars/lines on the chart, so duplicating
+    //     it in the CPI tooltip was redundant.
+    //   - Actual Hours was DERIVED as Earned_CSV / CPI_VAClog. Since the VAC tracker's CPI
+    //     is computed by Gate Tracker as `Percent Complete × Baseline / Total Actual Hours`
+    //     (a Peabody field-driven formula), the derived "Actual" mixed two different EV
+    //     pipelines and could be off by 2× or more from the real Peabody Total Actual.
+    //     Surfacing a misleading derived number was worse than not surfacing it at all.
+    // Coverage stays — it's computed purely from earned-hours sums (no CPI in numerator
+    // or denominator) so it doesn't inherit any of the EV-formula bias.
+    var lines = [];
     if (sums.coverage !== null && isFinite(sums.coverage)) {
       lines.push('  Coverage: ' + (sums.coverage * 100).toFixed(0) + '%');
     }
@@ -1788,9 +1792,12 @@ function saveSnapshot() {
     // Capture takeaway text if present
     var takeawayEl = document.getElementById('takeaway-' + key);
     var takeawayText = takeawayEl ? takeawayEl.value.trim() : '';
-    // v1.6: precompute per-month earned + actual for the CPI tooltip so the snapshot
-    // can show them without retaining the live WO objects + hoursMap. The numbers are
-    // frozen at save time — consistent with how the CPI line itself behaves in snapshots.
+    // v1.6/v1.10: precompute Coverage % for the CPI tooltip so the snapshot can show
+    // it without retaining the live WO objects + hoursMap. Frozen at save time —
+    // consistent with how the CPI line itself behaves in snapshots. v1.10 removed the
+    // earned/actual fields the snapshot used to inline (see PRD §6.14) — those lines
+    // no longer render in the tooltip, so there's nothing to freeze. Coverage stays
+    // because it's the only annotation left on the marker tooltip.
     var cpiTooltipData = null;
     if (chart._cpiMeta) {
       var m = chart._cpiMeta;
@@ -1802,8 +1809,7 @@ function saveSnapshot() {
       cpiTooltipData = m.months.map(function(mk) {
         var sums = computeMonthlyEarnedActual(allWos, mk, m.hoursMap);
         if (sums.earned <= 0) return null;
-        var slot = { earned: +sums.earned.toFixed(1), actual: +sums.actual.toFixed(1) };
-        // v1.8: precompute integer coverage % so the snapshot doesn't carry the float
+        var slot = {};
         if (sums.coverage !== null && isFinite(sums.coverage)) slot.coverage = Math.round(sums.coverage * 100);
         return slot;
       });
@@ -1928,9 +1934,12 @@ function saveSnapshot() {
   // v1.7: legend hover -> show true-aggregate CPI formula tooltip; legend leave -> hide it.
   h += '    var _legendOnHover = _hasCpi ? function(event, legendItem){ if (legendItem && legendItem.text === "CPI" && event && event.native) showCpiLegendInfoTip(event.native.clientX, event.native.clientY); } : undefined;\n';
   h += '    var _legendOnLeave = _hasCpi ? function(event, legendItem){ if (legendItem && legendItem.text === "CPI") hideCpiLegendInfoTip(); } : undefined;\n';
-  // v1.6: tooltip afterBody -> append Earned Hours / Actual Hours when CPI dataset is in tooltip items
+  // v1.10: tooltip afterBody now only appends Coverage. Earned Hours was redundant with
+  // the visible bars/lines; Actual Hours was derived as Earned_CSV / CPI_VAClog and could
+  // mislead because the VAC tracker's CPI uses a `Percent Complete × Baseline` numerator
+  // that doesn't equal Σ Hours Earned for closed ops. See PRD §6.13/§6.14.
   h += '    var _cpiTipData = cfg.cpiTooltipData || null;\n';
-  h += '    var _tooltipCallbacks = _hasCpi && _cpiTipData ? { afterBody: function(items){ if (!items || !items.length) return []; var cpiItem = null; for (var i = 0; i < items.length; i++) { if (items[i].dataset && items[i].dataset.label === "CPI") { cpiItem = items[i]; break; } } if (!cpiItem) return []; var slot = _cpiTipData[cpiItem.dataIndex]; if (!slot) return []; var lines = ["  Earned Hours: " + slot.earned.toFixed(1), "  Actual Hours: " + slot.actual.toFixed(1)]; if (slot.coverage != null) lines.push("  Coverage: " + slot.coverage + "%"); return lines; } } : undefined;\n';
+  h += '    var _tooltipCallbacks = _hasCpi && _cpiTipData ? { afterBody: function(items){ if (!items || !items.length) return []; var cpiItem = null; for (var i = 0; i < items.length; i++) { if (items[i].dataset && items[i].dataset.label === "CPI") { cpiItem = items[i]; break; } } if (!cpiItem) return []; var slot = _cpiTipData[cpiItem.dataIndex]; if (!slot) return []; var lines = []; if (slot.coverage != null) lines.push("  Coverage: " + slot.coverage + "%"); return lines; } } : undefined;\n';
   h += '    var chart = new Chart(canvas, { type: "line", data: { labels: cfg.labels, datasets: cfg.datasets },\n';
   h += '      options: { responsive: true, maintainAspectRatio: false,\n';
   h += '        plugins: { title: { display: true, text: cfg.titleText, font: { size: 14, weight: "bold" }, color: "#1e3a5f" },\n';
