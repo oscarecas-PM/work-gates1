@@ -143,7 +143,7 @@ License: MIT
 </head>
 <body>
 
-<h1>Earned Hour Analysis <span>v1.8</span></h1>
+<h1>Earned Hour Analysis <span>v1.9</span></h1>
 <p class="description">Upload hours earned and bundle definition CSVs, then click Analyze to view aggregated earned hours by work order, grouped by bundle, with trend charts.</p>
 
 <div class="file-inputs">
@@ -227,7 +227,7 @@ License: MIT
 
 <script>
 /* ================================================================
-   Earned Hour Analysis v1.8 — Application Logic
+   Earned Hour Analysis v1.9 — Application Logic
    ================================================================ */
 
 // --- Globals ---
@@ -333,7 +333,15 @@ document.getElementById('hours-input').addEventListener('change', function(e) {
         hoursData = null; checkReady(); return;
       }
       hoursData = result.data;
-      showStatus('hours-status', 'Loaded ' + (result.data.length - 1) + ' data rows', false);
+      // v1.9: surface the Oper Type column presence at upload time so the user knows
+      // immediately whether the operation-scope filter will engage on Analyze.
+      var hasOperType = colIndex(hdr, 'Oper Type') >= 0;
+      var statusMsg = 'Loaded ' + (result.data.length - 1) + ' data rows';
+      if (hasOperType) {
+        showStatus('hours-status', statusMsg + ' — Oper Type column found, MFG filter will apply on Analyze', false, false);
+      } else {
+        showStatus('hours-status', statusMsg + ' — WARNING: no Oper Type column, operation-scope filter INACTIVE (CPI may be biased by non-MFG earned hours)', false, true);
+      }
       checkReady();
     } catch(err) { showStatus('hours-status', 'Error: ' + err.message, true); }
   };
@@ -465,6 +473,14 @@ function aggregateHours(rows) {
   var iYear = colIndex(hdr, 'Year of Actual End Date');
   var iMonth = colIndex(hdr, 'Month of Actual End Date');
   var iHours = colIndex(hdr, 'Hours Earned');
+  // v1.9: operation-scope filter. The Hours Earned export now carries an optional
+  // `Oper Type` column. When present, keep only MFG rows so the aggregations match
+  // the manufacturing-only scope of every downstream chart and the CPI overlay.
+  // When absent (legacy export), pass through with a missing-column warning so the
+  // user knows the safeguard is inactive.
+  var iOperType = colIndex(hdr, 'Oper Type');
+  var operTypeColPresent = iOperType >= 0;
+  var nonMfgSkipped = 0;
   var hoursMap = {};
   var warnings = [];
   var badHours = 0, badDates = 0;
@@ -472,6 +488,10 @@ function aggregateHours(rows) {
     var r = rows[i];
     var orderNo = (r[iOrder] || '').trim();
     if (!orderNo) continue;
+    if (operTypeColPresent) {
+      var operType = String(r[iOperType] || '').trim().toUpperCase();
+      if (operType !== 'MFG') { nonMfgSkipped++; continue; }
+    }
     var year = (r[iYear] || '').trim();
     var month = (r[iMonth] || '').trim();
     var hrs = parseFloat(r[iHours]);
@@ -484,7 +504,9 @@ function aggregateHours(rows) {
   }
   if (badDates > 0) warnings.push(badDates + ' row(s) had invalid Year/Month values (skipped)');
   if (badHours > 0) warnings.push(badHours + ' row(s) had non-numeric Hours Earned values (treated as 0)');
-  return { hoursMap: hoursMap, warnings: warnings };
+  if (operTypeColPresent && nonMfgSkipped > 0) warnings.push(nonMfgSkipped + ' non-MFG row(s) excluded by Oper Type filter');
+  if (!operTypeColPresent) warnings.push('Operation-scope filter INACTIVE — Hours Earned CSV has no Oper Type column. Earned hours for non-manufacturing ops (QA, engineering, ...) are being included; CPI may be biased upward. Re-export with the Oper Type column to engage the filter.');
+  return { hoursMap: hoursMap, warnings: warnings, nonMfgSkipped: nonMfgSkipped, operTypeColPresent: operTypeColPresent };
 }
 
 // v1.4: Parse the VAC Tracker Log into { wo -> sorted [{ts, cpi}] }. ts is ms epoch from the

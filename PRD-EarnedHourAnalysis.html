@@ -27,7 +27,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Work-Order Hours Earned Bundle Viewer (Earned Hour Analysis)</p>
 <p><strong>File:</strong> <code>earned-hour-analysis-1.html</code></p>
-<p class="version">Version 1.8 | May 14, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.9 | May 19, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application to upload and process work-order hours earned data along with bundle definitions, presenting detailed tables and visual charts. Supports grouping work orders into bundles with metadata, sorting, and generating printable/exportable reports with charts.</p>
@@ -73,6 +73,7 @@ li { margin: 0.3rem 0; }
   <tr><td>Year of Actual End Date</td><td>Integer</td><td>e.g., 2025</td></tr>
   <tr><td>Month of Actual End Date</td><td>String/Integer</td><td>Month name ("January") or number (1). <code>parseMonth()</code> handles both.</td></tr>
   <tr><td>Oper No</td><td>String</td><td>Not used directly; multiple operations per WO per month are summed</td></tr>
+  <tr><td>Oper Type</td><td>String (optional, v1.9)</td><td>Operation-type label. When present, <code>aggregateHours()</code> keeps only rows whose value (case-insensitive, trimmed) equals <code>MFG</code> &mdash; matching the manufacturing-only scope of downstream charge/labor sources. When absent (legacy export), all rows pass through and the tool surfaces a prominent warning that the operation-scope filter is INACTIVE. See &sect;6.13.</td></tr>
   <tr><td>Actual End Date</td><td>Date</td><td>Not used directly</td></tr>
   <tr><td>Hours Earned</td><td>Numeric</td><td>Final numeric column; non-numeric values treated as 0 with warning</td></tr>
 </table>
@@ -247,6 +248,22 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-137</span> When the user hovers the CPI item in the chart legend, an HTML tooltip is positioned near the cursor describing the aggregation: &quot;Each month: &Sigma; EarnedHrs<sub>wo,m</sub> &divide; &Sigma; ActualHrs<sub>wo,m</sub>&quot; with a follow-on note that ActualHrs<sub>wo,m</sub> = EarnedHrs<sub>wo,m</sub> &divide; CPI<sub>wo,m</sub>, plus the carry-forward and exclusion rules. The tooltip is hidden when the user leaves the legend item.</p>
 <p><span class="req">F-138</span> Both tooltip augmentations are inlined into snapshot HTML. The tooltip&apos;s earned + actual numbers are precomputed at snapshot save time (consistent with the snapshot-as-frozen-view semantics already established for the CPI line itself); legend toggle / cycle interactions in the snapshot do not recompute them.</p>
 <p><span class="req">F-139</span> (v1.8) <strong>Coverage indicator.</strong> The CPI marker tooltip appends a third line: <code>  Coverage: NN%</code>. Computed as &Sigma; EarnedHrs<sub>wo,m</sub> over WOs that have a qualifying CPI sample &divide; &Sigma; EarnedHrs<sub>wo,m</sub> over <strong>all</strong> in-scope WOs (including those WITHOUT a qualifying CPI sample). Earned-hours-weighted; rounded to the nearest integer percent. Always shown when finite (including 100%, which reassures the read is complete). Recomputes live with the legend cycle and program chip filter; precomputed at snapshot save time and stored on <code>chartConfigs[i].cpiTooltipData[i].coverage</code> as an integer.</p>
+
+<h3>6.14 Operation-Scope Filter — Oper Type = MFG (v1.9)</h3>
+<p><em>EHA is the primary consumer of the Hours Earned CSV across the tool suite, so EHA owns the canonical contract for the new <code>Oper Type</code> column. Score Card and VAC Backfill both honor the same column with parallel filter logic.</em></p>
+<p><span class="req">F-140</span> (v1.9) <strong>Optional <code>Oper Type</code> column in the Hours Earned CSV.</strong> <code>aggregateHours()</code> looks up the column via <code>colIndex()</code>. When present, the row loop drops every row whose value (after <code>String().trim().toUpperCase()</code>) is not <code>MFG</code> and increments a <code>nonMfgSkipped</code> counter. Excluded rows never enter <code>hoursMap</code> and therefore never appear in any chart, table, CPI tooltip, or snapshot. When the column is absent (legacy export), all rows pass through unchanged for backward compatibility, and a prominent warning is surfaced at both upload time AND in the validation panel.</p>
+<p><span class="req">F-141</span> (v1.9) <strong>Upload-time status.</strong> The file-input handler probes the header row for <code>Oper Type</code> the instant the user picks a file (before Analyze runs). Two states:</p>
+<ul>
+  <li><strong>Column present:</strong> green/loaded status &mdash; <code>"Loaded N data rows — Oper Type column found, MFG filter will apply on Analyze"</code>.</li>
+  <li><strong>Column absent:</strong> yellow/warning status &mdash; <code>"Loaded N data rows — WARNING: no Oper Type column, operation-scope filter INACTIVE (CPI may be biased by non-MFG earned hours)"</code>.</li>
+</ul>
+<p><span class="req">F-142</span> (v1.9) <strong>Analyze-time validation panel.</strong> Two warning lines may surface in the validation panel via the existing <code>aggWarnings</code> array returned by <code>aggregateHours()</code>:</p>
+<ul>
+  <li><code>"N non-MFG row(s) excluded by Oper Type filter"</code> when the column was present and rows were filtered. Informational.</li>
+  <li><code>"Operation-scope filter INACTIVE — Hours Earned CSV has no Oper Type column. Earned hours for non-manufacturing ops (QA, engineering, ...) are being included; CPI may be biased upward. Re-export with the Oper Type column to engage the filter."</code> when the column is absent. Renders even when no other warnings exist.</li>
+</ul>
+<p><span class="req">F-143</span> (v1.9) <strong>No bypass toggle.</strong> When the <code>Oper Type</code> column is present, the filter is always engaged. There is no UI control to disable it. This is intentional &mdash; the bias the filter prevents is steady and invisible to per-row sanity checks, so allowing it to be turned off would re-open the failure mode it was added to close (user decision, 2026-05-19).</p>
+<p><span class="req">F-144</span> (v1.9) <strong>Filter happens BEFORE</strong> the date/hours parsing in the row loop, so excluded rows don't contribute to <code>badDates</code> or <code>badHours</code> counters. The aggregations on the Earned-Hour-Analysis side never see non-MFG hours; CPI, bundle totals, unbundled totals, and snapshot exports are all consistent.</p>
 
 <h2>7. Visual & UI Requirements</h2>
 <p><span class="req">V-01</span> Navy/gray color palette: #1e3a5f (headings), #334155 (table headers), #2563eb (primary buttons), #f5f5f5 (background).</p>
