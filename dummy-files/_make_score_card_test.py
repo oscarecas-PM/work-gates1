@@ -132,12 +132,19 @@ make_xlsx("test-charges-5x-and-999.xlsx", file_b_rows, "5*-* wildcard + 999-* pa
 # Hours Earned CSV
 # ----------------------------------------------------------------------------
 earned_lines = [
-    "Order No,Year of Actual End Date,Month of Actual End Date,Oper No,Actual End Date,Hours Earned",
-    "WO-100,2026,March,0010,3/7/2026,60",
-    "WO-200,2026,April,0010,4/4/2026,40",
-    "WO-400,2026,March,0010,3/21/2026,25",
-    "WO-500,2026,April,0010,4/11/2026,25",
-    "WO-600,2026,April,0010,4/4/2026,8",
+    "Order No,Year of Actual End Date,Month of Actual End Date,Oper No,Oper Type,Actual End Date,Hours Earned",
+    "WO-100,2026,March,0010,MFG,3/7/2026,60",
+    "WO-200,2026,April,0010,MFG,4/4/2026,40",
+    "WO-400,2026,March,0010,MFG,3/21/2026,25",
+    "WO-500,2026,April,0010,MFG,4/11/2026,25",
+    "WO-600,2026,April,0010,MFG,4/4/2026,8",
+    # Oper Type filter test: non-MFG row that all three consumers must skip.
+    # Placed on WO-300/0080 (a QA op) -- WO-300 is the unmatched bucket, so this
+    # row would not have produced any earned credit even WITHOUT the filter
+    # (no charges to join against). That keeps PRD-VacBackfillTool §11.11 and
+    # Score Card's per-employee CPI expectations unchanged while still
+    # exercising the parser's filtering path and excluded-count counter.
+    "WO-300,2026,March,0080,QA,3/15/2026,12",
     # Note: WO-100/0020 and WO-300/0030 deliberately absent -> unmatched test
 ]
 (OUT / "test-hours-earned.csv").write_text("\n".join(earned_lines), encoding="utf-8")

@@ -108,14 +108,14 @@ License: MIT
 </head>
 <body>
 
-<h1>VAC Tracker Backfill Tool <span>v1.7</span></h1>
+<h1>VAC Tracker Backfill Tool <span>v1.8</span></h1>
 <p class="description">
   One-shot tool to backfill the VAC tracker for periods missing P-File history. Computes weekly cumulative actual and earned hours per work order from the
   tech-charges <code>.xlsx</code> exports + the Hours Earned CSV, then emits a CSV in the exact Gate Tracker <code>exportVacLog()</code> format
   (<code>Date, WO, Part #, VAC, CPI</code>). Optionally upload your live VAC tracker to compare overlapping rows and surface any wild inconsistencies before merging.
 </p>
-<p class="description" style="background:#fffbeb;border-left:4px solid #f59e0b;padding:0.6rem 0.9rem;color:#92400e;font-size:0.88rem;margin-bottom:1.5rem;">
-  <strong>Tip &mdash; operation scope alignment:</strong> CPI is only meaningful when your Hours Earned data and your tech-charges data cover the same set of operations. If your earned hours include ALL ops (manufacturing, quality, engineering, etc.) but your charges only include manufacturing, the tool will systematically over-state earned vs actual and inflate CPI. Make sure the two inputs are filtered to the same scope before comparing.
+<p class="description" style="background:#ecfdf5;border-left:4px solid #10b981;padding:0.6rem 0.9rem;color:#065f46;font-size:0.88rem;margin-bottom:1.5rem;">
+  <strong>v1.8 &mdash; operation scope alignment (now enforced in code):</strong> The Hours Earned CSV should include an <code>Oper Type</code> column. When present, this tool keeps only rows where <code>Oper Type = MFG</code>, matching the manufacturing-only scope of the tech-charge files. The excluded-row count is surfaced in the status line and the validation panel. If you upload a legacy export <em>without</em> the <code>Oper Type</code> column, the tool runs anyway but shows an amber warning that the operation-scope safeguard is inactive &mdash; in that case, CPI may be biased upward by earned credit from non-MFG ops (QA, engineering, ...). Re-export with <code>Oper Type</code> included to engage the filter.
 </p>
 
 <div class="file-inputs">
@@ -166,7 +166,7 @@ License: MIT
 
 <script>
 // =====================================================================
-// VAC Tracker Backfill Tool — v1.7
+// VAC Tracker Backfill Tool — v1.8
 // =====================================================================
 // Inputs:
 //   1. Tech charge .xlsx files (one or more) — schema per Score Card §5.1
@@ -185,6 +185,7 @@ License: MIT
 // --- Globals ---
 var chargeFilesParsed = [];     // [{name, rows, headerIdx, error?}]
 var earnedRowsParsed = null;    // [{orderNo, effectiveDate (Date), hoursEarned}]
+var earnedMeta = null;          // v1.8: {nonMfgSkipped, operTypeColPresent, fallbackCount} — surfaced in validation panel
 var vacRowsParsed = null;       // [{date (Date), wo, cpi}] — optional comparison input
 var lastBackfillRows = null;    // computed output rows
 var lastComparison = null;      // computed comparison result
@@ -400,6 +401,15 @@ function parseEarnedFile(file) {
           var iMonth = colIndex(headers, 'Month of Actual End Date');
           var iHours = colIndex(headers, 'Hours Earned');
           var iActualEnd = colIndex(headers, 'Actual End Date');
+          // v1.8: operation-scope filter. Hours Earned exports now carry an `Oper Type`
+          // column distinguishing MFG ops (which match the manufacturing-only scope of
+          // the tech-charge .xlsx files) from QA / engineering / other ops (which earn
+          // but produce no charges, biasing CPI upward). When present, keep MFG only.
+          // When absent (legacy export), pass through with a missing-column warning so
+          // the user knows the safeguard is inactive for this run.
+          var iOperType = colIndex(headers, 'Oper Type');
+          var operTypeColPresent = iOperType >= 0;
+          var nonMfgSkipped = 0;
           var missing = [];
           if (iOrder < 0) missing.push('Order No');
           if (iYear < 0) missing.push('Year of Actual End Date');
@@ -412,6 +422,10 @@ function parseEarnedFile(file) {
             var r = data[i];
             var orderNo = String(r[iOrder] || '').trim();
             if (!orderNo) continue;
+            if (operTypeColPresent) {
+              var operType = String(r[iOperType] || '').trim().toUpperCase();
+              if (operType !== 'MFG') { nonMfgSkipped++; continue; }
+            }
             var hrs = parseFloat(r[iHours]);
             if (isNaN(hrs)) hrs = 0;
             var effDate = null;
@@ -427,7 +441,7 @@ function parseEarnedFile(file) {
             if (!effDate) continue;
             rows.push({ orderNo: orderNo, effDate: effDate, effTs: effDate.getTime(), hoursEarned: hrs });
           }
-          resolve({ rows: rows, fallbackCount: fallbackCount });
+          resolve({ rows: rows, fallbackCount: fallbackCount, nonMfgSkipped: nonMfgSkipped, operTypeColPresent: operTypeColPresent });
         } catch (err) {
           reject(err);
         }
@@ -439,15 +453,30 @@ function parseEarnedFile(file) {
 
 document.getElementById('earned-input').addEventListener('change', function(e) {
   var file = (e.target.files || [])[0];
-  if (!file) { earnedRowsParsed = null; setStatus('earned-status', ''); checkReady(); return; }
+  if (!file) { earnedRowsParsed = null; earnedMeta = null; setStatus('earned-status', ''); checkReady(); return; }
   parseEarnedFile(file).then(function(res) {
     earnedRowsParsed = res.rows;
+    earnedMeta = { nonMfgSkipped: res.nonMfgSkipped, operTypeColPresent: res.operTypeColPresent, fallbackCount: res.fallbackCount };
     var msg = 'Loaded ' + res.rows.length + ' Hours Earned row(s)';
+    // v1.8: surface Oper Type filter outcome in the status line so the user can see
+    // immediately whether the operation-scope safeguard ran. Yellow warning when the
+    // column is absent (filter inactive); blue/loaded otherwise.
+    if (res.operTypeColPresent && res.nonMfgSkipped > 0) {
+      msg += '; ' + res.nonMfgSkipped + ' non-MFG row(s) excluded by Oper Type filter';
+    }
     if (res.fallbackCount > 0) msg += '; ' + res.fallbackCount + ' fell back to end-of-month date';
-    setStatus('earned-status', msg, res.fallbackCount > 0 ? 'warning' : 'loaded');
+    var statusKind = 'loaded';
+    if (!res.operTypeColPresent) {
+      msg += ' — WARNING: Oper Type column not found, operation-scope filter INACTIVE';
+      statusKind = 'warning';
+    } else if (res.fallbackCount > 0) {
+      statusKind = 'warning';
+    }
+    setStatus('earned-status', msg, statusKind);
     checkReady();
   }).catch(function(err) {
     earnedRowsParsed = null;
+    earnedMeta = null;
     setStatus('earned-status', 'Error: ' + err.message, 'error');
     checkReady();
   });
@@ -856,6 +885,17 @@ function renderValidation(diagnostics, parseErrors) {
   var panel = document.getElementById('validation');
   var bits = [];
   parseErrors.forEach(function(e) { bits.push('<div class="val-error"><strong>Parse error:</strong> ' + esc(e) + '</div>'); });
+  // v1.8: Oper Type filter outcome surfaced as a standalone panel note so it stays
+  // visible even when no other validation issues exist. Two cases:
+  //   (a) column present + rows filtered  -> green/info note with excluded count
+  //   (b) column absent (legacy export)   -> amber warning that the filter is INACTIVE
+  if (earnedMeta) {
+    if (!earnedMeta.operTypeColPresent) {
+      bits.push('<div class="val-error" style="background:#fef3c7;border-left-color:#f59e0b;color:#78350f;"><strong>Operation-scope filter INACTIVE.</strong> The uploaded Hours Earned CSV does not contain an <code>Oper Type</code> column. Without it, earned hours from non-manufacturing operations (QA, engineering, ...) are mixed with the manufacturing-only charge data, which can inflate CPI. Re-export from the labor system with Oper Type included to engage the safeguard.</div>');
+    } else if (earnedMeta.nonMfgSkipped > 0) {
+      bits.push('<div class="val-error" style="background:#ecfdf5;border-left-color:#10b981;color:#065f46;"><strong>Operation-scope filter active.</strong> ' + earnedMeta.nonMfgSkipped + ' non-MFG row(s) excluded by the <code>Oper Type</code> = MFG filter.</div>');
+    }
+  }
   var noteCount = diagnostics.zeroEarned.length + diagnostics.unmatchedWosCharges.length +
                   diagnostics.earnedOnlyNoCharges.length +
                   (diagnostics.sanityFlagged ? diagnostics.sanityFlagged.length : 0);
