@@ -302,7 +302,10 @@
   </div>
   <div class="file-group">
     <h3>8. Scanned Data <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional &mdash; select or add multiple files)</span></h3>
-    <p>Columns: Work Order ID, Date Time, Location. Each upload <strong>appends</strong> to the existing pool &mdash; you can add files across several picks. Click <em>Clear</em> to reset.</p>
+    <p>Accepts either schema (auto-detected):<br>
+      &bull; <strong>Tableau export</strong>: <code>Order No, Last Day in Gate, Location Name, Days in Gate</code><br>
+      &bull; <strong>Legacy asset-mgmt export</strong>: <code>Work Order ID, Date Time, Location</code><br>
+      Each upload <strong>appends</strong> to the existing pool (all files in a session must share one schema). Click <em>Clear</em> to reset.</p>
     <input type="file" id="scan-data-input" accept=".csv" multiple>
     <div id="scan-data-status" class="status"></div>
   </div>
@@ -386,6 +389,7 @@ let masterGatesData = null;
 let auditCsvData = null;
 let historyLogData = null;
 let scannedFileData = null;
+let scanDataSchema = null;  // 'old' | 'new' — locked by first uploaded file; cleared by clearScanData()
 let peabodyData = {};       // { WO: { totalActualHours, baseline, percentComplete } }
 let peabodyDate = null;     // Date object from Peabody "As of" cell
 let vacLogData = [];        // Parsed VAC tracker log rows
@@ -465,11 +469,55 @@ var scannedFileCount = 0;
 
 function clearScanData() {
   scannedFileData = null;
+  scanDataSchema = null;
   scannedFileCount = 0;
   document.getElementById('scan-data-input').value = '';
   var el = document.getElementById('scan-data-status');
   el.textContent = '';
   el.className = 'status';
+}
+
+// Canonical header for Scanned Data after normalization. Always 4 columns regardless of source schema.
+var SCAN_CANONICAL_HEADER = ['Work Order ID', 'Date Time', 'Location', 'Days in Gate'];
+
+function normalizeScanHeader(s) {
+  return String(s || '').replace(/^﻿/, '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// Detect schema from a header row. Returns 'new' (Tableau export), 'old' (legacy asset-mgmt), or 'unknown'.
+function detectScanSchema(headerRow) {
+  var norm = (headerRow || []).map(normalizeScanHeader);
+  var hasNew = norm.indexOf('order no') >= 0 && norm.indexOf('last day in gate') >= 0 && norm.indexOf('location name') >= 0;
+  if (hasNew) return 'new';
+  var hasOld = norm.indexOf('work order id') >= 0 && norm.indexOf('date time') >= 0 && norm.indexOf('location') >= 0;
+  if (hasOld) return 'old';
+  return 'unknown';
+}
+
+// Rewrite a parsed file's rows into the canonical 4-column shape.
+// Returns { header: SCAN_CANONICAL_HEADER, rows: [...] } or null if a required column is missing.
+function normalizeScanRows(headerRow, dataRows, schema) {
+  var norm = (headerRow || []).map(normalizeScanHeader);
+  var idxOf = function(name) { return norm.indexOf(normalizeScanHeader(name)); };
+  var wantIdxs;
+  if (schema === 'new') {
+    wantIdxs = [idxOf('Order No'), idxOf('Last Day in Gate'), idxOf('Location Name'), idxOf('Days in Gate')];
+    if (wantIdxs[0] < 0 || wantIdxs[1] < 0 || wantIdxs[2] < 0) return null;
+    // Days in Gate is optional in case the dashboard ever drops it; we'll synthesize blanks.
+  } else if (schema === 'old') {
+    wantIdxs = [idxOf('Work Order ID'), idxOf('Date Time'), idxOf('Location'), -1];
+    if (wantIdxs[0] < 0 || wantIdxs[1] < 0 || wantIdxs[2] < 0) return null;
+  } else {
+    return null;
+  }
+  var out = [];
+  for (var r = 0; r < dataRows.length; r++) {
+    var src = dataRows[r];
+    var row = new Array(4);
+    for (var c = 0; c < 4; c++) row[c] = wantIdxs[c] >= 0 ? (src[wantIdxs[c]] || '') : '';
+    out.push(row);
+  }
+  return { header: SCAN_CANONICAL_HEADER.slice(), rows: out };
 }
 
 // Return a column-index map {originalIdx -> canonicalIdx} that maps the incoming file's columns
@@ -521,10 +569,21 @@ document.getElementById('scan-data-input').addEventListener('change', function(e
   });
 
   function finishScanUpload(parsed) {
-    // Establish the canonical header. If we already have scan data loaded, reuse its header;
-    // otherwise adopt the header from the first new file.
+    // Detect schema from the first file; if a session is already in progress, every new file
+    // must match the locked schema. Normalize each file's rows into the canonical 4-column shape
+    // so downstream code never has to branch on schema for column lookups.
     var hasExisting = scannedFileData && scannedFileData.length > 0;
-    var canonical = hasExisting ? scannedFileData[0] : parsed[0].rows[0];
+    var sessionSchema = hasExisting ? scanDataSchema : detectScanSchema(parsed[0].rows[0]);
+    if (sessionSchema === 'unknown') {
+      showStatus('scan-data-status',
+        'Error: header in "' + parsed[0].name + '" matches neither schema. ' +
+        'Expected Tableau columns (Order No, Last Day in Gate, Location Name, Days in Gate) ' +
+        'or legacy columns (Work Order ID, Date Time, Location). Nothing appended.',
+        true);
+      return;
+    }
+
+    var canonical = hasExisting ? scannedFileData[0] : SCAN_CANONICAL_HEADER.slice();
     var combined = hasExisting ? scannedFileData : [canonical];
     var addedRows = 0;
     var mismatches = [];
@@ -532,36 +591,44 @@ document.getElementById('scan-data-input').addEventListener('change', function(e
     for (var f = 0; f < parsed.length; f++) {
       var fileEntry = parsed[f];
       var fileHeader = fileEntry.rows[0];
-      var map = buildScanHeaderMap(canonical, fileHeader);
-      if (!map) {
+      var fileSchema = detectScanSchema(fileHeader);
+      if (fileSchema !== sessionSchema) {
+        mismatches.push(fileEntry.name + ' (schema: ' + fileSchema + ')');
+        continue;
+      }
+      var normalized = normalizeScanRows(fileHeader, fileEntry.rows.slice(1), fileSchema);
+      if (!normalized) {
         mismatches.push(fileEntry.name);
         continue;
       }
-      for (var r = 1; r < fileEntry.rows.length; r++) {
-        var src = fileEntry.rows[r];
-        var reordered = new Array(canonical.length);
-        for (var c = 0; c < canonical.length; c++) reordered[c] = src[map[c]] || '';
-        combined.push(reordered);
+      for (var r = 0; r < normalized.rows.length; r++) {
+        combined.push(normalized.rows[r]);
         addedRows++;
       }
     }
 
     if (mismatches.length > 0) {
+      var expectedCols = sessionSchema === 'new'
+        ? 'Order No, Last Day in Gate, Location Name, Days in Gate'
+        : 'Work Order ID, Date Time, Location';
       showStatus('scan-data-status',
         'Error: header mismatch in ' + mismatches.length + ' file(s): ' + mismatches.join(', ') +
-        '. Expected columns: ' + canonical.join(', ') + '. Nothing appended.',
+        '. Session schema is "' + sessionSchema + '" — expected columns: ' + expectedCols + '. Nothing appended.',
         true);
       return;
     }
+
+    scanDataSchema = sessionSchema;
 
     scannedFileData = combined;
     scannedFileCount += parsed.length;
     var totalRows = scannedFileData.length - 1;
     var el = document.getElementById('scan-data-status');
     el.className = 'status loaded';
+    var schemaLabel = scanDataSchema === 'new' ? 'Tableau' : 'legacy';
     el.textContent = 'Loaded ' + totalRows + ' rows from ' + scannedFileCount +
       ' file' + (scannedFileCount === 1 ? '' : 's') +
-      ' (+' + addedRows + ' this upload) \u2022 ';
+      ' (+' + addedRows + ' this upload) \u2022 schema: ' + schemaLabel + ' \u2022 ';
     var clearLink = document.createElement('a');
     clearLink.href = '#';
     clearLink.textContent = 'Clear';
@@ -1692,6 +1759,12 @@ function parseScanDateTime(raw) {
   if (m24) {
     return { month: m24[1], day: m24[2], year: m24[3], hours24: parseInt(m24[4]), minutes: parseInt(m24[5]),
       calendarDate: m24[3] + '-' + m24[1].padStart(2, '0') + '-' + m24[2].padStart(2, '0') };
+  }
+  // Date-only (Tableau "Last Day in Gate"): M/D/YYYY — treat as start of day so dedup/header logic still works.
+  var mDate = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mDate) {
+    return { month: mDate[1], day: mDate[2], year: mDate[3], hours24: 0, minutes: 0,
+      calendarDate: mDate[3] + '-' + mDate[1].padStart(2, '0') + '-' + mDate[2].padStart(2, '0') };
   }
   return null;
 }
@@ -3051,6 +3124,9 @@ function process() {
     const sWoIdx = colIndex(sHeaders, 'Work Order ID');
     const sDateIdx = colIndex(sHeaders, 'Date Time');
     const sLocIdx = colIndex(sHeaders, 'Location');
+    const sDaysIdx = colIndex(sHeaders, 'Days in Gate');  // present only for new (Tableau) schema
+    const isNewSchema = scanDataSchema === 'new';
+    const useFileDaysInGate = isNewSchema && sDaysIdx >= 0 && !(historyLogData && historyLogData.length > 1);
 
     if (sWoIdx < 0 || sDateIdx < 0 || sLocIdx < 0) {
       var missingS = [];
@@ -3075,7 +3151,8 @@ function process() {
         }
         var dtObj = new Date(parseInt(dtParsed.year), parseInt(dtParsed.month) - 1, parseInt(dtParsed.day), dtParsed.hours24, dtParsed.minutes);
         var calendarDate = dtParsed.calendarDate;
-        scanEntries.push({ orderNo: sWo, dateTime: dtObj, calendarDate: calendarDate, location: sLoc, dateRaw: sDateRaw });
+        var daysInGateRaw = sDaysIdx >= 0 ? (sr[sDaysIdx] || '').trim() : '';
+        scanEntries.push({ orderNo: sWo, dateTime: dtObj, calendarDate: calendarDate, location: sLoc, dateRaw: sDateRaw, daysInGateRaw: daysInGateRaw });
       }
       // Add date warnings to validation
       for (var sw = 0; sw < scanDateWarnings.length; sw++) {
@@ -3096,12 +3173,15 @@ function process() {
         if (dedupedEntries[ld].calendarDate > latestDate) latestDate = dedupedEntries[ld].calendarDate;
       }
 
-      // 4. Filter to latest date only
-      var latestEntries = dedupedEntries.filter(function(e) { return e.calendarDate === latestDate; });
+      // 4. Filter to latest date only — but skip this for the new (Tableau) schema, which is
+      //    already a one-row-per-WO snapshot whose "Last Day in Gate" values can legitimately differ.
+      var latestEntries = isNewSchema
+        ? dedupedEntries
+        : dedupedEntries.filter(function(e) { return e.calendarDate === latestDate; });
 
-      // Format scan date for display
+      // Format scan date for display. Suppressed for new schema since rows may carry different dates.
       var scanDateDisplay = '';
-      if (latestDate) {
+      if (latestDate && !isNewSchema) {
         var ldParts = latestDate.split('-');
         scanDateDisplay = parseInt(ldParts[1]) + '/' + parseInt(ldParts[2]) + '/' + ldParts[0];
       }
@@ -3149,7 +3229,7 @@ function process() {
             }
             var daily = dailyLookup[woId];
             var isMissing = !daily;
-            scanGateBuckets[mappedGate].orders.push({
+            var mappedOrder = {
               orderNo: woId,
               partNo: daily ? daily.partNo : '',
               serialNo: daily ? daily.serialNo : '',
@@ -3162,7 +3242,12 @@ function process() {
               missing: isMissing,
               techName: '',
               scanLocation: entry.location
-            });
+            };
+            if (useFileDaysInGate) {
+              var dgParsed = parseInt(entry.daysInGateRaw, 10);
+              if (!isNaN(dgParsed)) mappedOrder.daysAtGate = dgParsed;
+            }
+            scanGateBuckets[mappedGate].orders.push(mappedOrder);
             // Track for multi-gate detection
             var gateLabel = isHold ? (techFileGateNames[mappedGate] || mappedGate) : 'Gate ' + mappedGate;
             if (!scanMultiGateInfo[woId]) scanMultiGateInfo[woId] = [];
@@ -3176,7 +3261,7 @@ function process() {
               unmappedBuckets[entry.location] = { location: entry.location, orders: [] };
               unmappedOrder.push(entry.location);
             }
-            unmappedBuckets[entry.location].orders.push({
+            var unmappedOrderObj = {
               orderNo: woId,
               partNo: dailyU.partNo,
               serialNo: dailyU.serialNo,
@@ -3189,7 +3274,12 @@ function process() {
               missing: false,
               techName: '',
               scanLocation: entry.location
-            });
+            };
+            if (useFileDaysInGate) {
+              var dgParsedU = parseInt(entry.daysInGateRaw, 10);
+              if (!isNaN(dgParsedU)) unmappedOrderObj.daysAtGate = dgParsedU;
+            }
+            unmappedBuckets[entry.location].orders.push(unmappedOrderObj);
             // Track for multi-gate detection
             if (!scanMultiGateInfo[woId]) scanMultiGateInfo[woId] = [];
             scanMultiGateInfo[woId].push({ gateKey: 'UNMAPPED_' + entry.location, label: entry.location + ' (unmapped)' });
