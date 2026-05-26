@@ -5840,7 +5840,7 @@ function saveSnapshot() {
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n';
   html += '<meta charset="UTF-8">\n';
   html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
-  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\'; img-src \'self\' data:;">\n';
   html += '<title>Gate Tracker Snapshot - ' + dateStr + '</title>\n';
   html += '<style>\n' + css + '\n</style>\n';
   html += '</head>\n<body>\n';
@@ -5983,7 +5983,7 @@ function saveSnapshot() {
   html += '  var h = "<!DOCTYPE html>\\n<html lang=\\"en\\">\\n<head>\\n";\n';
   html += '  h += \'<meta charset="UTF-8">\\n\';\n';
   html += '  h += \'<meta name="viewport" content="width=device-width, initial-scale=1.0">\\n\';\n';
-  html += '  h += \'<meta http-equiv="Content-Security-Policy" content="default-src \\\'self\\\' \\\'unsafe-inline\\\';"/>\\n\';\n';
+  html += '  h += \'<meta http-equiv="Content-Security-Policy" content="default-src \\\'self\\\' \\\'unsafe-inline\\\'; img-src \\\'self\\\' data:;"/>\\n\';\n';
   html += '  h += "<title>Gate Tracker Comments - " + ds2 + "<\\/title>\\n";\n';
   html += '  h += "<style>\\n" + cssT + "\\n<\\/style>\\n";\n';
   html += '  h += "<\\/head>\\n<body>\\n";\n';
