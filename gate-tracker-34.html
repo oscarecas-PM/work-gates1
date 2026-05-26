@@ -3420,6 +3420,9 @@ function process() {
           }
         }
         if (order.missing) tip += '\n\nNot found on daily upload';
+        if (order.daysAtGate !== undefined && order.daysAtGate !== null) {
+          tip += '\nDays at Gate: ' + order.daysAtGate;
+        }
         if (scanSplitInfo[order.orderNo]) {
           var otherTip = scanSplitInfo[order.orderNo]
             .filter(function(g) { return g.gateKey !== currentGateKey; })
@@ -3450,6 +3453,9 @@ function process() {
           if (otherGates.length > 0) {
             cardHtml += '<div class="gv-multi-gate">\u26a0 Also at ' + esc(otherGates.join(', ')) + '</div>';
           }
+        }
+        if (order.daysAtGate !== undefined && order.daysAtGate !== null) {
+          cardHtml += '<div class="gv-gate-age">' + order.daysAtGate + ' days at gate</div>';
         }
         cardHtml += '</div>';
         return cardHtml;
