@@ -3528,6 +3528,8 @@ function process() {
         mode: 'scan',
         gateBuckets: scanGateBuckets,
         gateOrder: scanGateOrder,
+        unmappedBuckets: unmappedBuckets,
+        unmappedOrder: unmappedOrder,
         notFoundOrders: scanNotFound,
         programColorMap: programColorMap,
         programColorFallbacks: programColorFallbacks,
@@ -4600,19 +4602,21 @@ function _wireVacPlotInteractivity(canvas, partNo, orderNos, vacHistory, evmResu
 }
 
 // ---- Digital Signage Export (1920x1080 PNG) ----
-function exportSignage() {
-  if (!signageDataGlobal) {
-    alert('No gate view data. Load data and click Process first.');
-    return;
-  }
+// Pure renderer: returns a fully-drawn 1920x1080 canvas. Caller handles download.
+// payload shape:
+//   { gateBuckets, gateOrder, notFoundOrders, programColorMap, programColorFallbacks,
+//     partNames, scanDateDisplay, title?, subtitle?, tierOverride? }
+function drawSignageCanvas(payload) {
   var W = 1920, H = 1080;
   var canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   var ctx = canvas.getContext('2d');
-  var data = signageDataGlobal;
+  var data = payload;
   var PAD = 30;
   var FONT = 'system-ui, -apple-system, sans-serif';
+  var title = payload.title || 'Gate Tracker';
+  var subtitle = payload.subtitle || '';
 
   // Background
   ctx.fillStyle = '#f1f5f9';
@@ -4647,7 +4651,14 @@ function exportSignage() {
   ctx.font = 'bold 38px ' + FONT;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('Gate Tracker', PAD, PAD);
+  ctx.fillText(title, PAD, PAD);
+
+  // Subtitle (e.g. "Unmapped Locations — page 2 of 3") — directly under title when present
+  if (subtitle) {
+    ctx.font = '20px ' + FONT;
+    ctx.fillStyle = '#475569';
+    ctx.fillText(subtitle, PAD, PAD + 44);
+  }
 
   // Dates — right-aligned
   ctx.font = '20px ' + FONT;
@@ -4662,7 +4673,8 @@ function exportSignage() {
   ctx.textAlign = 'left';
 
   // ---- LEGEND ----
-  var legendY = PAD + 58;
+  // Subtitle pushes the legend (and grid) down to avoid overlap.
+  var legendY = subtitle ? PAD + 80 : PAD + 58;
   // Legend background box
   rrect(PAD, legendY, W - PAD * 2, 40, 6, '#ffffff', '#d1d5db', 1);
   ctx.font = 'bold 16px ' + FONT;
@@ -4732,11 +4744,15 @@ function exportSignage() {
     }
   }
 
-  // Adaptive sizing tiers
+  // Adaptive sizing tiers (or forced densest tier when paginating)
   var gateCount = gates.length;
   var CARD_W, CARD_H, CARD_GAP, HDR_H, HOLD_H, SEC_GAP, FONT_ORDER, FONT_PART, FONT_SN, FONT_LABEL, FONT_DAYS, FONT_HDR, cols;
 
-  if (gateCount <= 6 && totalOrders <= 30) {
+  if (payload.tierOverride === 'dense') {
+    // Used by unmapped-location pages so pagination stays consistent page-to-page.
+    cols = 4; CARD_W = 128; CARD_H = 62; CARD_GAP = 4; HDR_H = 22; HOLD_H = 22; SEC_GAP = 5;
+    FONT_ORDER = 12; FONT_PART = 10; FONT_SN = 9; FONT_LABEL = 8; FONT_DAYS = 8; FONT_HDR = 14;
+  } else if (gateCount <= 6 && totalOrders <= 30) {
     cols = 2; CARD_W = 160; CARD_H = 85; CARD_GAP = 6; HDR_H = 28; HOLD_H = 28; SEC_GAP = 10;
     FONT_ORDER = 15; FONT_PART = 12; FONT_SN = 11; FONT_LABEL = 10; FONT_DAYS = 10; FONT_HDR = 18;
   } else if (gateCount <= 12 && totalOrders <= 80) {
@@ -4877,9 +4893,15 @@ function exportSignage() {
   // ---- Draw gate section ----
   function drawGateSection(cx, cy, gate) {
     var bkt = gate.bucket;
-    var headerText = bkt.isHold
-      ? (bkt.gateName || bkt.gateNumber) + ' (' + bkt.orders.length + ' orders)'
-      : bkt.gateNumber + '. ' + bkt.gateName + ' (' + bkt.orders.length + ' orders)';
+    var headerText;
+    if (bkt.isHold) {
+      headerText = (bkt.gateName || bkt.gateNumber) + ' (' + bkt.orders.length + ' orders)';
+    } else if (bkt.gateNumber) {
+      headerText = bkt.gateNumber + '. ' + bkt.gateName + ' (' + bkt.orders.length + ' orders)';
+    } else {
+      // Unmapped-location bucket: no gate number, just the location name
+      headerText = (bkt.gateName || '(unknown)') + ' (' + bkt.orders.length + ' orders)';
+    }
 
     // Header bar
     var hdrColor = bkt.isHold ? '#991b1b' : '#334155';
@@ -4938,16 +4960,142 @@ function exportSignage() {
     ctx.textAlign = 'left';
   }
 
-  // ---- Download PNG ----
+  return canvas;
+}
+
+// Trigger a browser download of the given canvas as a PNG.
+function downloadCanvas(canvas, filename) {
   var dataUrl = canvas.toDataURL('image/png');
   var a = document.createElement('a');
   a.href = dataUrl;
-  a.download = 'gate-signage-' + now.getFullYear() + '-' +
-    String(now.getMonth() + 1).padStart(2, '0') + '-' +
-    String(now.getDate()).padStart(2, '0') + '.png';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+// Pack unmapped-location sections into pages, each fitting in `gridH` at the densest tier.
+// Each section: { gateNumber:'', gateName, isHold:false, orders:[...], _location:'...' }.
+// Greedy: add each section to the shortest of 4 simulated columns; if doing so would
+// overflow gridH, finalize the current page and start a new one.
+function paginateUnmappedSections(sections, gridH) {
+  var W = 1920, PAD = 30, colGap = 14, cols = 4;
+  var usableW = W - PAD * 2;
+  var colW = (usableW - (cols - 1) * colGap) / cols;
+  var CARD_W = 128, CARD_H = 62, CARD_GAP = 4, HDR_H = 22, SEC_GAP = 5;
+
+  function calcHeight(sec) {
+    var cardsPerRow = Math.max(1, Math.floor((colW - 12) / (CARD_W + CARD_GAP)));
+    var rows = Math.ceil(sec.orders.length / cardsPerRow);
+    return HDR_H + 8 + rows * (CARD_H + CARD_GAP) + 4;
+  }
+  for (var i = 0; i < sections.length; i++) sections[i].height = calcHeight(sections[i]);
+
+  var pages = [];
+  var currentPage = [];
+  var currentColH = [0, 0, 0, 0];
+
+  for (var si = 0; si < sections.length; si++) {
+    var s = sections[si];
+    var shortest = 0;
+    for (var ci = 1; ci < cols; ci++) {
+      if (currentColH[ci] < currentColH[shortest]) shortest = ci;
+    }
+    var newH = currentColH[shortest] + s.height + SEC_GAP;
+    if (newH > gridH && currentPage.length > 0) {
+      pages.push(currentPage);
+      currentPage = [s];
+      currentColH = [0, 0, 0, 0];
+      currentColH[0] = s.height + SEC_GAP;
+    } else {
+      currentPage.push(s);
+      currentColH[shortest] = newH;
+    }
+  }
+  if (currentPage.length > 0) pages.push(currentPage);
+  return pages;
+}
+
+// Orchestrator wired to the Digital Signage Export button.
+// Always emits the mapped PNG; in scan mode with unmapped buckets, additionally emits
+// one or more unmapped-locations PNGs (paginated when content overflows 1920x1080).
+function exportSignage() {
+  if (!signageDataGlobal) {
+    alert('No gate view data. Load data and click Process first.');
+    return;
+  }
+  var data = signageDataGlobal;
+  var now = new Date();
+  var dateStr = now.getFullYear() + '-' +
+    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+    String(now.getDate()).padStart(2, '0');
+
+  // --- 1. Mapped PNG (existing behavior, unchanged appearance) ---
+  var mappedCanvas = drawSignageCanvas({
+    gateBuckets: data.gateBuckets,
+    gateOrder: data.gateOrder,
+    notFoundOrders: data.notFoundOrders,
+    programColorMap: data.programColorMap,
+    programColorFallbacks: data.programColorFallbacks,
+    partNames: data.partNames,
+    scanDateDisplay: data.scanDateDisplay,
+    title: 'Gate Tracker'
+  });
+  downloadCanvas(mappedCanvas, 'gate-signage-' + dateStr + '.png');
+
+  // --- 2. Unmapped-locations PNG(s) — scan mode only, paginated ---
+  if (data.unmappedOrder && data.unmappedOrder.length > 0) {
+    // Wrap each unmapped location as a gate-like section so drawGateSection renders it unchanged.
+    var sections = [];
+    for (var ui = 0; ui < data.unmappedOrder.length; ui++) {
+      var loc = data.unmappedOrder[ui];
+      var ubkt = data.unmappedBuckets[loc];
+      if (!ubkt || !ubkt.orders || ubkt.orders.length === 0) continue;
+      sections.push({
+        gateNumber: '',
+        gateName: loc,
+        isHold: false,
+        orders: ubkt.orders,
+        _location: loc
+      });
+    }
+    if (sections.length === 0) return;
+
+    // Compute usable grid height assuming subtitle is present (it always is for unmapped pages).
+    var W = 1920, H = 1080, PAD = 30;
+    var legendYWithSubtitle = PAD + 80;
+    var gridTop = legendYWithSubtitle + 52;
+    var footerY = H - 36;
+    var gridH = footerY - 10 - gridTop;
+
+    var pages = paginateUnmappedSections(sections, gridH);
+    for (var pi = 0; pi < pages.length; pi++) {
+      var pageBuckets = {};
+      var pageOrder = [];
+      for (var psi = 0; psi < pages[pi].length; psi++) {
+        var sec = pages[pi][psi];
+        var key = '_unmapped_' + sec._location;
+        pageBuckets[key] = sec;
+        pageOrder.push(key);
+      }
+      var subtitle = 'Unmapped Locations' +
+        (pages.length > 1 ? ' — page ' + (pi + 1) + ' of ' + pages.length : '');
+      var pageCanvas = drawSignageCanvas({
+        gateBuckets: pageBuckets,
+        gateOrder: pageOrder,
+        notFoundOrders: [],
+        programColorMap: data.programColorMap,
+        programColorFallbacks: data.programColorFallbacks,
+        partNames: data.partNames,
+        scanDateDisplay: data.scanDateDisplay,
+        title: 'Gate Tracker',
+        subtitle: subtitle,
+        tierOverride: 'dense'
+      });
+      var suffix = pages.length > 1 ? '-p' + (pi + 1) : '';
+      downloadCanvas(pageCanvas, 'gate-signage-unmapped-' + dateStr + suffix + '.png');
+    }
+  }
 }
 
 // ---- Export VAC Tracker Log ----
