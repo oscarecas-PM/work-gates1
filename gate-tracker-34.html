@@ -1739,6 +1739,18 @@ function calculateDaysAtGate(historyByOrder, orderNo, currentGateNumber, todaySt
   return diffDays > 0 ? diffDays : 1;
 }
 
+// Gate View card ordering: oldest (most days at gate) first, then part number asc, then WO number asc.
+// Cards with no days-at-gate value (e.g. Not Scanned) sort last via -Infinity.
+function gvCardSort(a, b) {
+  var ad = (a.daysAtGate === undefined || a.daysAtGate === null) ? -Infinity : a.daysAtGate;
+  var bd = (b.daysAtGate === undefined || b.daysAtGate === null) ? -Infinity : b.daysAtGate;
+  if (ad !== bd) return bd - ad;
+  var ap = a.partNo || '', bp = b.partNo || '';
+  if (ap !== bp) return ap < bp ? -1 : 1;
+  var ao = a.orderNo || '', bo = b.orderNo || '';
+  return ao < bo ? -1 : (ao > bo ? 1 : 0);
+}
+
 function cleanLocation(s) {
   return s.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD\u00A0\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -2298,14 +2310,18 @@ function process() {
 
   // ==== Pre-parse scan data for order locations (used in Detail View) ====
   const orderScanLocations = {}; // orderNo → Set of gate labels or raw location strings
+  const orderScanDaysAtGate = {}; // orderNo → number (Tableau "Days in Gate"); new schema + no History Log
   const scanPreMode = scannedFileData && scannedFileData.length > 1;
   if (scanPreMode) {
     const spH = scannedFileData[0];
     const spWoIdx = colIndex(spH, 'Work Order ID');
     const spDateIdx = colIndex(spH, 'Date Time');
     const spLocIdx = colIndex(spH, 'Location');
+    const spDaysIdx = colIndex(spH, 'Days in Gate');
+    // Mirror the gate-view rule (F-225): the Tableau "Days in Gate" drives the detail-view age
+    // only for the new schema and only when no History Log is loaded (else the audit path wins).
+    const spUseFileDays = (scanDataSchema === 'new') && spDaysIdx >= 0 && !(historyLogData && historyLogData.length > 1);
     if (spWoIdx >= 0 && spDateIdx >= 0 && spLocIdx >= 0) {
-      // Re-parse to get latest date entries (same logic as gate view)
       var spEntries = [];
       for (var spi = 1; spi < scannedFileData.length; spi++) {
         var spr = scannedFileData[spi];
@@ -2316,7 +2332,8 @@ function process() {
         var spParsed = parseScanDateTime(spDateRaw);
         if (!spParsed) continue;
         var spCalDate = spParsed.calendarDate;
-        spEntries.push({ orderNo: spWo, calendarDate: spCalDate, location: spLoc, dateRaw: spDateRaw });
+        var spDaysRaw = spDaysIdx >= 0 ? (spr[spDaysIdx] || '').trim() : '';
+        spEntries.push({ orderNo: spWo, calendarDate: spCalDate, location: spLoc, dateRaw: spDateRaw, daysRaw: spDaysRaw });
       }
       // Dedup
       var spDeduped = {};
@@ -2325,16 +2342,21 @@ function process() {
         if (!spDeduped[spdk]) spDeduped[spdk] = spEntries[spd];
       }
       var spDedupArr = Object.values(spDeduped);
-      // Find latest date
-      var spLatest = '';
-      for (var spl = 0; spl < spDedupArr.length; spl++) {
-        if (spDedupArr[spl].calendarDate > spLatest) spLatest = spDedupArr[spl].calendarDate;
+      // New (Tableau) schema is a one-row-per-WO snapshot — render every row (matches gate view,
+      // F-225/v10.5). Legacy schema keeps the latest-calendar-date filter.
+      var spRenderArr;
+      if (scanDataSchema === 'new') {
+        spRenderArr = spDedupArr;
+      } else {
+        var spLatest = '';
+        for (var spl = 0; spl < spDedupArr.length; spl++) {
+          if (spDedupArr[spl].calendarDate > spLatest) spLatest = spDedupArr[spl].calendarDate;
+        }
+        spRenderArr = spDedupArr.filter(function(e) { return e.calendarDate === spLatest; });
       }
-      // Filter to latest date
-      var spLatestArr = spDedupArr.filter(function(e) { return e.calendarDate === spLatest; });
       // Group by WO
-      for (var spg = 0; spg < spLatestArr.length; spg++) {
-        var spEnt = spLatestArr[spg];
+      for (var spg = 0; spg < spRenderArr.length; spg++) {
+        var spEnt = spRenderArr[spg];
         var mappedG = scannedLocToGate[spEnt.location.toLowerCase()];
         var locLabel;
         if (mappedG) {
@@ -2346,6 +2368,10 @@ function process() {
         }
         if (!orderScanLocations[spEnt.orderNo]) orderScanLocations[spEnt.orderNo] = new Set();
         orderScanLocations[spEnt.orderNo].add(locLabel);
+        if (spUseFileDays && orderScanDaysAtGate[spEnt.orderNo] === undefined) {
+          var spDg = parseInt(spEnt.daysRaw, 10);
+          if (!isNaN(spDg)) orderScanDaysAtGate[spEnt.orderNo] = spDg;
+        }
       }
     }
   }
@@ -2704,7 +2730,9 @@ function process() {
         html += '<div class="field"><span class="label">Order </span>' + priorityMark + '<span class="value">' + esc(orderNo) + '</span><a href="#" class="top-link" onclick="window.scrollTo({top:0,behavior:\'smooth\'});return false;">(Back to top)</a></div>';
         html += '<div class="field"><span class="label">S/N </span><span class="value">' + esc(firstRow.serialNo) + '</span></div>';
         html += renderAuditLoc(orderNo);
-        // Feature 5: Days at gate per order in detail view (use audit gate, not decoder ring gate)
+        // Feature 5 / F-228: Days at gate per order in detail view, under the location line.
+        // Audit mode (history log) uses calculateDaysAtGate; scan mode (Tableau, no history log)
+        // uses the "Days in Gate" value captured in orderScanDaysAtGate.
         if (historyByOrderGlobal) {
           var auditGateNums = orderAuditGateNums[orderNo];
           var gateNumForDays = auditGateNums && auditGateNums.size > 0 ? Array.from(auditGateNums)[0] : (auditedGateNumbers.size > 0 ? Array.from(auditedGateNumbers)[0] : null);
@@ -2718,6 +2746,8 @@ function process() {
               }
             }
           }
+        } else if (scanPreMode && orderScanDaysAtGate[orderNo] !== undefined) {
+          html += '<div class="detail-days-at-gate">' + orderScanDaysAtGate[orderNo] + ' days at gate</div>';
         }
         if (orderHoldText) {
           html += '<div class="field"><span class="hold-flag">' + esc(orderHoldText) + '</span></div>';
@@ -3307,6 +3337,11 @@ function process() {
         }
       }
 
+      // F-227: sort each gate's cards oldest-first (days desc), tiebreak part# then WO#.
+      // Sorting the bucket arrays here propagates to the snapshot (DOM clone) and signage PNG.
+      for (var sgk2 in scanGateBuckets) scanGateBuckets[sgk2].orders.sort(gvCardSort);
+      for (var umk in unmappedBuckets) unmappedBuckets[umk].orders.sort(gvCardSort);
+
       // Sort gate keys: Hold gates first, then master file order or numeric
       scanGateOrder.sort(function(a, b) {
         var aHold = a.toUpperCase().startsWith('HOLD');
@@ -3493,8 +3528,8 @@ function process() {
         var totalUnmapped = 0;
         for (var uc = 0; uc < unmappedOrder.length; uc++) totalUnmapped += unmappedBuckets[unmappedOrder[uc]].orders.length;
         gvHtml += '<div class="gv-gate-section">';
-        gvHtml += '<div class="gv-gate-header unmapped-gate" onclick="toggleUnmappedLocs()">Unmapped Locations (' + totalUnmapped + ' orders)<span class="nf-collapse-icon" id="unmapped-locs-icon">&#9660;</span></div>';
-        gvHtml += '<div class="gv-cards-row" id="unmapped-locs-row" style="flex-direction:column;">';
+        gvHtml += '<div class="gv-gate-header unmapped-gate" onclick="toggleUnmappedLocs()">Unmapped Locations (' + totalUnmapped + ' orders)<span class="nf-collapse-icon" id="unmapped-locs-icon">&#9654;</span></div>';
+        gvHtml += '<div class="gv-cards-row nf-collapsed" id="unmapped-locs-row" style="flex-direction:column;">';
         for (var ui = 0; ui < unmappedOrder.length; ui++) {
           var uLoc = unmappedOrder[ui];
           var uBucket = unmappedBuckets[uLoc];
@@ -3692,12 +3727,10 @@ function process() {
         }
       }
 
-      // Within each gate: tech-bench orders (with techName) first, then rest in CSV order
+      // F-227: sort each gate's cards oldest-first (days desc), tiebreak part# then WO#.
+      // (v10.7: this replaces the prior tech-bench-first ordering — see PRD F-227.)
       for (const gKey of gateOrder) {
-        const orders = gateViewBuckets[gKey].orders;
-        const withTech = orders.filter(function(o) { return o.techName; });
-        const withoutTech = orders.filter(function(o) { return !o.techName; });
-        gateViewBuckets[gKey].orders = withTech.concat(withoutTech);
+        gateViewBuckets[gKey].orders.sort(gvCardSort);
       }
 
       // ==== Detect orders appearing in multiple gates ====
