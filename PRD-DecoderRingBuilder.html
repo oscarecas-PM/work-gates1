@@ -79,13 +79,13 @@
   <h1>Product Requirements Document</h1>
   <div class="subtitle">Gate Decoder Ring Builder &mdash; Visual Gate Assignment Tool</div>
   <table class="meta-table">
-    <tr><td class="label">Document Version:</td><td>1.1</td></tr>
-    <tr><td class="label">Date:</td><td>March 11, 2026</td></tr>
+    <tr><td class="label">Document Version:</td><td>1.2</td></tr>
+    <tr><td class="label">Date:</td><td>May 27, 2026</td></tr>
     <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
-    <tr><td class="label">Status:</td><td>UPDATED &mdash; Added labor hours tallies, earnable hours summary, and hover action buttons for omit/ignore</td></tr>
-    <tr><td class="label">App File:</td><td>decoder-ring-builder-1.html</td></tr>
+    <tr><td class="label">Status:</td><td>UPDATED (v1.2) &mdash; <strong>Documents the tool at app v2.</strong> Added reverse-import of a Decoder Ring CSV (F-64) and stale-gate highlighting (F-65, V-13); corrected the gates input to the current <strong>Master Gates CSV</strong> schema (replacing the legacy &ldquo;Gate Technician CSV&rdquo;); corrected the export to its current <strong>10-column</strong> format (F-50). Prior pass (v1.1): labor-hours tallies, earnable-hours summary, hover omit/ignore buttons.</td></tr>
+    <tr><td class="label">App File:</td><td>decoder-ring-builder-2.html (in-tool badge v2)</td></tr>
     <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
-    <tr><td class="label">Related PRD:</td><td>PRD-GateTracker.html (v6.1) &mdash; consumes this tool&rsquo;s output</td></tr>
+    <tr><td class="label">Related PRD:</td><td>PRD-GateTracker.html (v10.7) &mdash; consumes this tool&rsquo;s output</td></tr>
   </table>
 </div>
 
@@ -127,8 +127,8 @@ The Decoder Ring is currently maintained by hand&mdash;a tedious, error-prone pr
 <p><span class="tag tag-explicit">EXPLICIT</span>
 This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <strong>consumes</strong> it. The two tools share:</p>
 <ul>
-  <li>The Decoder Ring CSV schema (Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier)</li>
-  <li>The Gate Technician CSV format (Gate Number, Gate Name, Tech Name, Priority)</li>
+  <li>The Decoder Ring CSV schema (Part No., Part Name, Gate Number, Gate Name, Oper No., Oper Title, Work Dept, Modifier, Labor Hours, Earnable Hours Flag &mdash; see F-50)</li>
+  <li>The Master Gates CSV format (Gate Number, Gate Name, &hellip;) &mdash; this tool reads only Gate Number + Gate Name</li>
   <li>Shared utility functions (CSV parser, XSS escaping, column lookup)</li>
   <li>Visual design conventions (color palette, header styles, card styling)</li>
 </ul>
@@ -179,20 +179,19 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
 <!-- ============================================================ -->
 <h2>3. Data Inputs</h2>
 
-<h3>3.1 Gate Technician CSV (Optional)</h3>
-<p><span class="tag tag-explicit">EXPLICIT</span> The same Gate Technician file used by the Gate Tracker. Provides the list of available gates for the dropdown.</p>
+<h3>3.1 Master Gates CSV (Optional)</h3>
+<p><span class="tag tag-explicit">EXPLICIT</span> The same Master Gates file used by the Gate Tracker. Provides the authoritative list of available gates for the dropdown. (Earlier versions of this tool called this the &ldquo;Gate Technician CSV&rdquo;; the input migrated to the Master Gates schema.)</p>
 
 <table class="data-table">
-  <tr><th>Column</th><th>Required</th><th>Description</th></tr>
-  <tr><td>Gate Number</td><td>Yes</td><td>Numeric gate identifier. Gates &ge;1 have fixed names; gate 0 is a catch-all for work outside the lab.</td></tr>
-  <tr><td>Gate Name</td><td>Yes</td><td>Descriptive gate name. The gate number&ndash;to&ndash;name pairing is extracted from this file and used to populate dropdowns.</td></tr>
-  <tr><td>Tech Name</td><td>Yes</td><td>Technician name (used by Gate Tracker but not by this tool directly).</td></tr>
-  <tr><td>Priority</td><td>Yes</td><td>Technician priority within the gate (used by Gate Tracker but not by this tool directly).</td></tr>
+  <tr><th>Column</th><th>Required</th><th>Used</th><th>Description</th></tr>
+  <tr><td>Gate Number</td><td>Yes</td><td>Yes</td><td>Gate identifier &mdash; the dropdown value and the decoder-ring key. Rows with an empty number are skipped with a warning.</td></tr>
+  <tr><td>Gate Name</td><td>Yes</td><td>Yes</td><td>Descriptive gate name. Rows with an empty name are skipped with a warning. Duplicate gate numbers overwrite (last wins, with a warning).</td></tr>
+  <tr><td>Technician 1&hellip;10, Scanned Location</td><td>No</td><td>No</td><td>Present in the Master Gates file (used by the Gate Tracker) but ignored by this tool.</td></tr>
 </table>
 
-<p><span class="tag tag-explicit">EXPLICIT</span> The gate number&ndash;to&ndash;name mapping is repeated across multiple rows (one per technician). This tool deduplicates to build a unique mapping. The user expressed a desire to define this pairing only once; however, adding a separate file was rejected to minimize the number of input files.</p>
+<p><span class="tag tag-explicit">EXPLICIT</span> <strong>Re-upload replaces (does not merge) the gate list.</strong> The most recently loaded Master Gates file is treated as the authoritative current gate list (<code>gateMap</code>); a gate that was present in an earlier file or seeded from an imported Decoder Ring but is absent from the new file falls out of the list and any lane still assigned to it is flagged stale (F-65). Re-uploading re-renders the board when operations are loaded.</p>
 
-<p><span class="tag tag-assumed">ASSUMED</span> If no Gate Technician CSV is uploaded, the user can still create gates on the fly via the &ldquo;New Gate&rdquo; option in the dropdown.</p>
+<p><span class="tag tag-assumed">ASSUMED</span> If no Master Gates CSV is uploaded, the user can still create gates on the fly via the &ldquo;New Gate&rdquo; option in the dropdown. (When a board is reconstructed via reverse-import without a Master Gates file, the gate list is seeded from the imported CSV &mdash; see F-64.)</p>
 
 <h3>3.2 MES Operations CSV</h3>
 <p><span class="tag tag-explicit">EXPLICIT</span> A downloaded listing of all operations for a single work order from the Manufacturing Execution System.</p>
@@ -223,7 +222,7 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   <tr>
     <td class="req-id">F-01</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td>The Gate Technician CSV is loaded first (optional). The application extracts unique gate number&ndash;to&ndash;name pairs and populates the gate assignment dropdown.</td>
+    <td>The Master Gates CSV is loaded first (optional). The application reads Gate Number + Gate Name into <code>gateMap</code> (replacing any prior list) and populates the gate assignment dropdown. Re-uploading a newer file re-renders the board and re-evaluates stale gates (F-65).</td>
   </tr>
   <tr>
     <td class="req-id">F-02</td>
@@ -292,7 +291,7 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
     <td>Each gate outline has a <strong>dropdown</strong> in its header to assign a gate number. The dropdown is populated with:
       <ol style="margin-top:4px;">
         <li>&ldquo;(select gate)&rdquo; &mdash; default, unassigned</li>
-        <li>All unique gate entries from the Gate Technician CSV, formatted as &ldquo;Gate N: Name&rdquo;</li>
+        <li>All current gate entries from the Master Gates CSV (<code>gateMap</code>), formatted as &ldquo;Gate N: Name&rdquo; &mdash; only gates in the current Master Gates list are offered (a stale assignment is shown in the lane&rsquo;s red header, not as a dropdown option; see F-65)</li>
         <li>&ldquo;+ New Gate&hellip;&rdquo; &mdash; for creating a gate not in the CSV</li>
       </ol>
     </td>
@@ -454,7 +453,7 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   <tr>
     <td class="req-id">F-50</td>
     <td><span class="tag tag-explicit">EXPLICIT</span></td>
-    <td><strong>Export Decoder Ring CSV:</strong> Generates a CSV file with columns: Part No., Part Name, Gate Number, Gate Name, Oper No., Work Dept, Modifier. Rows follow the <strong>workspace left-to-right order</strong> (not sorted by gate number), preserving gate re-entry sequences. Within each gate outline, operations are sorted by Oper No ascending. The same gate number may appear multiple times in the output.</td>
+    <td><strong>Export Decoder Ring CSV:</strong> Generates a CSV with <strong>ten columns</strong> in order: <code>Part No., Part Name, Gate Number, Gate Name, Oper No., Oper Title, Work Dept, Modifier, Labor Hours, Earnable Hours Flag</code>. Rows follow the <strong>workspace left-to-right order</strong> (not sorted by gate number), preserving gate re-entry sequences. Within each gate outline, operations are sorted by Oper No ascending. The same gate number may appear multiple times in the output. Omitted operations (F-46) and lanes with no gate number (F-51) are excluded.</td>
   </tr>
   <tr>
     <td class="req-id">F-51</td>
@@ -490,6 +489,31 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
     <td class="req-id">F-63</td>
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td>The user can export CSV and save further snapshots from within a loaded snapshot, enabling iterative refinement without starting from scratch.</td>
+  </tr>
+</table>
+
+
+<h3>4.8 Reverse Import &amp; Stale Gates (v2)</h3>
+<table class="req-table">
+  <tr><th style="width:50px;">ID</th><th style="width:70px;">Source</th><th>Requirement</th></tr>
+  <tr>
+    <td class="req-id">F-64</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Import Decoder Ring CSV (reverse of export):</strong> A fourth input, &ldquo;Import Decoder Ring CSV&rdquo;, reconstructs the builder from a previously-exported Decoder Ring CSV (<code>importDecoderRing()</code>). Behavior:
+      <ul style="margin-top:4px;">
+        <li><strong>Single part only.</strong> If the CSV contains more than one distinct <code>Part No.</code>, the import is rejected with an error and no state change.</li>
+        <li><strong>Required columns:</strong> <code>Gate Number</code> and <code>Oper No.</code> (others are read when present).</li>
+        <li><strong>Lane reconstruction preserves re-entry:</strong> rows are walked top-to-bottom and a new lane starts whenever the <code>(Gate Number, Gate Name)</code> pair changes, so a gate that recurs (e.g. 3 &rarr; 5 &rarr; 3) rebuilds as separate lanes in order.</li>
+        <li><strong>Restores</strong> Part No./Name, the <code>ignore</code> modifier, Labor Hours, and Earnable Hours Flag per operation.</li>
+        <li><strong>Gate-list seeding:</strong> when no Master Gates CSV is loaded yet, <code>gateMap</code> is seeded from the imported CSV&rsquo;s gates so the rebuilt board is not falsely all-stale; a later Master Gates upload replaces it (F-01) and re-evaluates staleness.</li>
+        <li><strong>Lossy by construction</strong> <span class="tag tag-explicit">EXPLICIT</span>: only operations that were assigned to a gate and not omitted are present in the CSV, so unassigned/omitted operations cannot be recovered; <code>Oper Type</code> is not an export column and is not restored. The full-state &ldquo;Save for Editing&rdquo; snapshot (F-60) remains the lossless persistence path.</li>
+      </ul>
+      Resolves Open Question #5.</td>
+  </tr>
+  <tr>
+    <td class="req-id">F-65</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Stale-gate detection &amp; highlighting:</strong> A lane assigned to a gate number that is <strong>not present in the current <code>gateMap</code></strong> (i.e. removed from the Master Gates file since the ring was authored) is flagged <em>stale</em>: red lane header + dashed red border + a &ldquo;&#9888; not in current Master Gates&rdquo; warning sub-line (V-13). The lane&rsquo;s dropdown continues to offer only current Master Gates entries + &ldquo;New Gate&rdquo; (showing &ldquo;(select gate)&rdquo; until the planner reassigns it), so a stale lane can be corrected onto a valid gate. Because Master Gates upload <strong>replaces</strong> <code>gateMap</code> (F-01), staleness always reflects the newest file &mdash; the intended workflow when reconciling a decoder ring against an updated Master Gates file.</td>
   </tr>
 </table>
 
@@ -565,6 +589,11 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
     <td><span class="tag tag-assumed">ASSUMED</span></td>
     <td><strong>Hover action buttons:</strong> Two 20&times;16px rounded buttons (3px radius), semi-transparent dark background (rgba 0,0,0,0.35), white text, 0.6rem font. Darker on hover. Positioned absolute top-right of card. IGN active state: amber (rgba 180,120,0,0.8). Omit active state: red (rgba 180,0,0,0.7).</td>
   </tr>
+  <tr>
+    <td class="req-id">V-13</td>
+    <td><span class="tag tag-explicit">EXPLICIT</span></td>
+    <td><strong>Stale-gate styling (v2):</strong> A stale lane (F-65) renders its header in red (<code>#dc2626</code>) instead of slate, its outline border in red, and a high-contrast warning sub-line (&ldquo;&#9888; not in current Master Gates&rdquo;, white text on a translucent dark plate) beneath the gate label.</td>
+  </tr>
 </table>
 
 
@@ -632,8 +661,8 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
   </tr>
   <tr>
     <td>5</td>
-    <td><span class="tag tag-future">FUTURE</span></td>
-    <td><strong>Import existing Decoder Ring:</strong> Could the tool import an existing Decoder Ring CSV to edit previously defined gate mappings, rather than only creating new ones?</td>
+    <td><span class="tag tag-resolved">RESOLVED</span></td>
+    <td><strong>Import existing Decoder Ring:</strong> <span style="color:#3730a3;">Shipped in app v2 (F-64).</span> The tool imports a previously-exported single-part Decoder Ring CSV and reconstructs the board (lanes, re-entry, ignore modifier, hours/flags). Paired with stale-gate highlighting (F-65) so a ring can be reconciled against an updated Master Gates file.</td>
   </tr>
   <tr>
     <td>6</td>
@@ -664,7 +693,7 @@ This tool <strong>produces</strong> the Decoder Ring CSV; the Gate Tracker <stro
 <p>Application state consists of five globals:</p>
 <ul>
   <li><code>partInfo</code> &mdash; { partNo, partName }</li>
-  <li><code>gateMap</code> &mdash; { gateNumber: gateName } from the Tech CSV + user-created gates</li>
+  <li><code>gateMap</code> &mdash; { gateNumber: gateName }, the authoritative current gate list, sourced from the Master Gates CSV (replaced on each upload), seeded from an imported Decoder Ring when no Master Gates file is loaded, and extended by user-created &ldquo;New Gate&rdquo; entries</li>
   <li><code>operations</code> &mdash; Array of operation objects, each with a <code>gateId</code> linking it to a gate outline</li>
   <li><code>gates</code> &mdash; Ordered array of gate outline objects { id, gateNumber, gateName }</li>
   <li><code>selectedOps</code> &mdash; Set of selected operation numbers for multi-select</li>
