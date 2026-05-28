@@ -2,7 +2,7 @@
 
 Designs the test scenarios from the implementation plan:
 - Two xlsx files with overlapping wildcards (dedup test)
-- Multi-week cumulative -> incremental conversion (Bob on WO-400)
+- Multi-week incremental charges (Bob on WO-400: 5, 7, 8 per week)
 - Split operation flagged (WO-100/0010, Alice + Bob, 60/40 of charges)
 - ACTIVE op with no Hours Earned row (WO-100/0020) -- unmatched
 - Whole new WO with no Hours Earned (WO-300) -- surfaces in unmatched report at top
@@ -66,7 +66,7 @@ CLEAN_CCC, CLEAN_WC = "TECH", "WC-CLEAN"
 # ----------------------------------------------------------------------------
 # Scenario coverage (unchanged from earlier versions, plus Diana's new WO-600):
 # Scenario 1: WO-100, Op 0010, "Wing Spar Machining", part 555-01 (SPLIT)
-#   Alice cumulative w1=10, w2=30 (incr 10, 20). Bob w2=20 (incr 20).
+#   Alice incremental w1=10, w2=20 (charges 30 total). Bob w2=20.
 #   Closes Mar 2026, Hours Earned = 60. -> Alice 36, Bob 24.
 # Scenario 2: WO-100, Op 0020 -- ACTIVE (no Hours Earned row). Alice 5h.
 # Scenario 3: WO-200, Op 0010, "Fuselage Drill", part 777-12. Charlie 50h.
@@ -74,7 +74,7 @@ CLEAN_CCC, CLEAN_WC = "TECH", "WC-CLEAN"
 # Scenario 4: WO-300, Op 0030, "Inspect", part 999-05. Alice 10h, Charlie 8h.
 #   ACTIVE forever. Unmatched.
 # Scenario 5: WO-400, Op 0010, "Sheet Metal Cut", part 555-02. Bob multi-week
-#   cumulative 5/12/20. Closes Mar 2026, Hours Earned 25. CPI 1.25.
+#   incremental 5/7/8 (20 total). Closes Mar 2026, Hours Earned 25. CPI 1.25.
 # Scenario 6: WO-500, Op 0010, "Test", part 555-01. Bob 30h. Closes Apr 2026,
 #   Hours Earned 25. CPI 0.83.
 # Scenario 7 (v1.7): WO-600, Op 0010, "Cleaning Bay 5", part 555-03.
@@ -83,18 +83,18 @@ CLEAN_CCC, CLEAN_WC = "TECH", "WC-CLEAN"
 
 # File A: covers parts 555-* and 777-*
 file_a_rows = [
-    # WO-100/0010 split op
+    # WO-100/0010 split op (incremental: Alice 10 + 20 = 30 total, Bob 20)
     ["WO-100", w(2, 28), "Alice Johnson", "B001", "555-01", "Wing Spar Machining", "0010", 10.0, "ACTIVE", TECH_CCC, TECH_WC],
-    ["WO-100", w(3, 7),  "Alice Johnson", "B001", "555-01", "Wing Spar Machining", "0010", 30.0, "CLOSE",  TECH_CCC, TECH_WC],
+    ["WO-100", w(3, 7),  "Alice Johnson", "B001", "555-01", "Wing Spar Machining", "0010", 20.0, "CLOSE",  TECH_CCC, TECH_WC],
     ["WO-100", w(3, 7),  "Bob Lee",       "B002", "555-01", "Wing Spar Machining", "0010", 20.0, "CLOSE",  TECH_CCC, TECH_WC],
 
     # WO-200/0010 Charlie alone (quality inspector charge)
     ["WO-200", w(4, 4),  "Charlie Mendez","B003", "777-12", "Fuselage Drill",      "0010", 50.0, "CLOSE",  QA_CCC,   QA_WC],
 
-    # WO-400/0010 Bob multi-week (cumulative)
+    # WO-400/0010 Bob multi-week (incremental: 5 + 7 + 8 = 20 total)
     ["WO-400", w(3, 7),  "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 5.0,  "ACTIVE", TECH_CCC, TECH_WC],
-    ["WO-400", w(3, 14), "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 12.0, "ACTIVE", TECH_CCC, TECH_WC],
-    ["WO-400", w(3, 21), "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 20.0, "CLOSE",  TECH_CCC, TECH_WC],
+    ["WO-400", w(3, 14), "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 7.0,  "ACTIVE", TECH_CCC, TECH_WC],
+    ["WO-400", w(3, 21), "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 8.0,  "CLOSE",  TECH_CCC, TECH_WC],
 
     # WO-500/0010 Bob alone (slow tech: actual > earned)
     ["WO-500", w(4, 11), "Bob Lee",       "B002", "555-01", "Wing Spar Machining", "0010", 30.0, "CLOSE",  TECH_CCC, TECH_WC],
@@ -105,7 +105,7 @@ file_a_rows = [
 file_b_rows = [
     # WO-100/0010 -- duplicates of File A's rows; dedup should keep them once
     ["WO-100", w(2, 28), "Alice Johnson", "B001", "555-01", "Wing Spar Machining", "0010", 10.0, "ACTIVE", TECH_CCC, TECH_WC],
-    ["WO-100", w(3, 7),  "Alice Johnson", "B001", "555-01", "Wing Spar Machining", "0010", 30.0, "CLOSE",  TECH_CCC, TECH_WC],
+    ["WO-100", w(3, 7),  "Alice Johnson", "B001", "555-01", "Wing Spar Machining", "0010", 20.0, "CLOSE",  TECH_CCC, TECH_WC],
     ["WO-100", w(3, 7),  "Bob Lee",       "B002", "555-01", "Wing Spar Machining", "0010", 20.0, "CLOSE",  TECH_CCC, TECH_WC],
 
     # WO-100/0020 -- Alice charges, never closes (unmatched)
@@ -116,7 +116,7 @@ file_b_rows = [
     ["WO-300", w(3, 14), "Charlie Mendez","B003", "999-05", "Final Inspection",    "0030", 8.0,  "ACTIVE", QA_CCC,   QA_WC],
 
     # WO-400/0010 again (duplicate of file A's last row)
-    ["WO-400", w(3, 21), "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 20.0, "CLOSE",  TECH_CCC, TECH_WC],
+    ["WO-400", w(3, 21), "Bob Lee",       "B002", "555-02", "Sheet Metal Cut",     "0010", 8.0,  "CLOSE",  TECH_CCC, TECH_WC],
 
     # WO-500/0010 again
     ["WO-500", w(4, 11), "Bob Lee",       "B002", "555-01", "Wing Spar Machining", "0010", 30.0, "CLOSE",  TECH_CCC, TECH_WC],

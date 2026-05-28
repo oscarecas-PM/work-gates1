@@ -180,7 +180,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.8 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.9 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -879,28 +879,17 @@ function runAnalyze() {
   State.validation.dedupCount = allCharges.length - dedupMap.size;
   const deduped = Array.from(dedupMap.values());
 
-  // 3. Convert cumulative→incremental per (badge, order, oper) sorted by week
-  const seriesMap = new Map();
+  // 3. Each charge row's Total Hours IS that week's incremental charge — used directly.
+  //    The real labor-system export is incremental, confirmed 2026-05-27: for the same
+  //    (Badge, Order No, Operation) the Total Hours DECREASES week-over-week, which is
+  //    impossible for a cumulative running total. (v1.9: removed the prior cumulative→
+  //    incremental successive-difference conversion. When fed incremental data it
+  //    subtracted each week from the prior week — undercounting actual hours, clamping the
+  //    resulting negatives to 0, and inflating CPI.)
   for (const r of deduped) {
-    const k = r.badge + '|' + r.orderNo + '|' + r.operNo;
-    if (!seriesMap.has(k)) seriesMap.set(k, []);
-    seriesMap.get(k).push(r);
+    r.incremental = r.totalHours;
   }
-  let negDiff = 0;
-  for (const arr of seriesMap.values()) {
-    arr.sort((a, b) => a.weekEnding - b.weekEnding);
-    let prev = 0;
-    for (const r of arr) {
-      let inc = r.totalHours - prev;
-      if (inc < 0) {
-        negDiff++;
-        inc = 0;
-      }
-      r.incremental = inc;
-      prev = r.totalHours;
-    }
-  }
-  State.validation.negativeDiffs = negDiff;
+  State.validation.negativeDiffs = 0; // retained for validation-shape stability; no longer computed
   State.chargeRows = deduped;
 
   // 4. Earned rows
@@ -2238,7 +2227,6 @@ function renderValidation() {
     html += '</ul></li>';
   }
   if (v.dedupCount) html += '<li>Deduped <b>' + v.dedupCount + '</b> overlapping rows across files (kept max Total Hours per (badge, order, oper, week))</li>';
-  if (v.negativeDiffs) html += '<li>Clamped <b>' + v.negativeDiffs + '</b> negative incremental diffs to 0 (cumulative correction in source)</li>';
   if (v.zeroChargeRows) html += '<li>' + v.zeroChargeRows + ' CLOSE rows had Total Hours = 0 (no actual charge against this employee)</li>';
   if (v.badEarnedHours) html += '<li>' + v.badEarnedHours + ' Hours Earned rows had non-numeric values (treated as 0)</li>';
   // v1.8: Oper Type filter outcome — green note when active+filtering, amber when absent.

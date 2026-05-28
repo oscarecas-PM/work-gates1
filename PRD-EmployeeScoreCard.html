@@ -28,7 +28,7 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> Employee Score Card</p>
 <p><strong>File:</strong> <code>employee-score-card-1.html</code></p>
-<p class="version">Version 1.8 | May 19, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.9 | May 27, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side web application that joins per-employee labor charges (xlsx exports from the labor-charge system) with the Hours Earned CSV (already produced for Earned Hour Analysis) to compute per-employee, per-month earned hours, actual hours, and CPI. When multiple employees charge the same operation, earned credit is split pro-rata by each employee's share of total charged hours on that operation. The tool surfaces both raw productivity (earned hours per technician) and efficiency (CPI), supports multiple distribution views to characterize disparity, and produces a ranked list of part numbers whose actual charges are not yet matched to earned hours so the user can prioritize follow-up exports.</p>
@@ -36,7 +36,7 @@ li { margin: 0.3rem 0; }
 <h2>2. Objectives</h2>
 <ul>
   <li>Ingest one or many .xlsx employee charge files (multi-file because the source system limits exports by part-number wildcard) and dedup overlapping rows</li>
-  <li>Convert cumulative <code>Total Hours</code> values to incremental per-week charges per (Employee, Order No, Operation)</li>
+  <li>Read each charge row's <code>Total Hours</code> as that week's incremental charge (the labor-system export is incremental, confirmed against real data 2026-05-27)</li>
   <li>Join charges to the Hours Earned CSV on (Order No, Oper No) and split each closed operation's earned hours pro-rata across the employees who charged on it</li>
   <li>Aggregate per-employee per-month: Total Earned Hours, Total Actual Hours, CPI</li>
   <li>Visualize the distribution of productivity across employees with multiple chart perspectives (ranked bar, histogram, monthly box plot, actual-vs-earned scatter)</li>
@@ -79,12 +79,12 @@ li { margin: 0.3rem 0; }
   <tr><td>Part No.</td><td>String</td><td>Used for the Unmatched Charges report grouping</td></tr>
   <tr><td>Part Description</td><td>String</td><td>Display only</td></tr>
   <tr><td>Operation</td><td>String</td><td>Operation number; secondary join key (Oper No) to Hours Earned CSV</td></tr>
-  <tr><td>Total Hours</td><td>Numeric</td><td>Cumulative-as-of-Week-Ending hours that this employee has charged against this operation. Non-numeric treated as 0 with warning.</td></tr>
+  <tr><td>Total Hours</td><td>Numeric</td><td><strong>Incremental</strong> hours this employee charged against this operation during the week ending on this date (despite the column name, it is <em>not</em> a running total). Confirmed incremental against real exports 2026-05-27: for a fixed (Badge, Order No, Operation) the value decreases week-over-week, which is impossible for a cumulative total. Used directly as the week's actual hours. Non-numeric treated as 0 with warning.</td></tr>
   <tr><td>Status</td><td>String</td><td><code>CLOSE</code> or <code>ACTIVE</code>. Operation-level status as of the Week Ending row.</td></tr>
   <tr><td>CCC</td><td>String (optional, v1.7)</td><td>Cost-center / category code used to bulk-exclude employee groups (e.g., quality inspectors). Surfaces as the &ldquo;Exclude CCC&rdquo; chip strip when present in any uploaded file.</td></tr>
   <tr><td>Work Center</td><td>String (optional, v1.7)</td><td>Work center name. Used in conjunction with CCC to disambiguate groups that share a CCC but live in different work centers (e.g., cleaning team vs. technicians). Surfaces as the &ldquo;Exclude Work Center&rdquo; chip strip when present.</td></tr>
 </table>
-<p>Multi-file ingest: rows are concatenated across files. Duplicates by composite key <code>(Badge, Order No, Oper No, Week Ending)</code> are deduplicated, keeping the row with the highest <code>Total Hours</code> (most recent snapshot wins).</p>
+<p>Multi-file ingest: rows are concatenated across files. Duplicates by composite key <code>(Badge, Order No, Oper No, Week Ending)</code> are deduplicated, keeping the row with the highest <code>Total Hours</code>. Because the source is incremental, genuine duplicates from overlapping/re-uploaded weekly exports carry identical values, so max-wins simply collapses the copies (it no longer means &ldquo;latest cumulative snapshot wins&rdquo;).</p>
 <p><b>Optional columns:</b> <code>CCC</code> and <code>Work Center</code> are looked up via <code>colIndex()</code> and captured per row when present; files without these columns ingest exactly as before, and the corresponding filter chip strips are simply hidden.</p>
 
 <h3>5.2 Hours Earned CSV (required)</h3>
@@ -102,7 +102,7 @@ li { margin: 0.3rem 0; }
 <p><span class="req">F-01a</span> Required-column lookups via <code>colIndex()</code> use the same <code>normHeader()</code> normalization, so headers like <code>Part No</code> vs <code>Part No.</code>, or <code>Total Hours</code> vs <code>Total  Hours</code>, all resolve to the same column.</p>
 <p><span class="req">F-02</span> After concatenating rows from all uploaded xlsx files, deduplicate by <code>(Badge, Order No, Oper No, Week Ending)</code>. When duplicates exist, retain the row with the maximum <code>Total Hours</code>. Surface dedup count in the validation panel.</p>
 <p><span class="req">F-02a</span> <strong>Per-file resilience.</strong> The charge-file ingest loop processes each .xlsx independently. A failure in one file (missing header, missing required columns, read error) does not abort the batch &mdash; remaining files continue to parse. The status line shows <code>N of M file(s) parsed</code>, and failed files are listed by name in both the status line and the validation panel (with the underlying error message). Analyze remains enabled as long as at least one charge file parsed successfully and the Hours Earned CSV is loaded.</p>
-<p><span class="req">F-03</span> Convert cumulative <code>Total Hours</code> to incremental per-week charges. For each <code>(Badge, Order No, Oper No)</code> series, sort by <code>Week Ending</code> ascending and compute <code>incremental[i] = Total Hours[i] - Total Hours[i-1]</code> (incremental[0] = Total Hours[0]). Negative diffs (corrections / re-categorizations upstream) are clamped to 0 and counted in the validation panel.</p>
+<p><span class="req">F-03</span> <strong>(v1.9 &mdash; incremental, no conversion.)</strong> Each charge row's <code>Total Hours</code> is the incremental hours charged that week and is used directly as that week's actual hours (<code>incremental = Total Hours</code>). <strong>Prior versions (v1.1&ndash;v1.8) performed a cumulative&rarr;incremental successive-difference conversion</strong> (<code>incremental[i] = Total Hours[i] &minus; Total Hours[i&minus;1]</code>, clamping negative diffs to 0). That was removed in v1.9 once real exports were confirmed incremental: feeding incremental data into the successive-difference formula subtracted each week from the prior week, undercounting per-employee actual hours, silently discarding every week-over-week decrease via the negative-diff clamp, and inflating CPI. The dedicated <code>(Badge, Order No, Oper No)</code> sort/series grouping and the negative-diff validation counter were retired with it.</p>
 <p><span class="req">F-04</span> Parse the Hours Earned CSV with the same column-tolerance and <code>parseMonth()</code> logic used in <code>earned-hour-analysis-1.html</code>. Non-numeric <code>Hours Earned</code> values treated as 0 with a warning.</p>
 <p><span class="req">F-04a</span> <strong>(v1.8) Operation-scope filter.</strong> <code>parseEarnedFile()</code> looks up an optional <code>Oper Type</code> column (case- and punctuation-tolerant via <code>colIndex()</code> / <code>normHeader()</code>). When the column is present, the row loop skips any row whose value (after trim + uppercase) is not <code>MFG</code> and increments a <code>nonMfgSkipped</code> counter; excluded rows never reach F-05's pro-rata split. The parser returns <code>{rows, badHours, nonMfgSkipped, operTypeColPresent}</code>. <code>nonMfgSkipped</code> and <code>operTypeColPresent</code> are persisted into <code>State.validation</code> and surfaced by the validation panel: green note "Oper Type filter active: N non-MFG row(s) excluded" when filtering happened, amber block "Operation-scope filter INACTIVE — Hours Earned CSV has no Oper Type column" when the column is absent. The file-input status line mirrors both states. No bypass toggle &mdash; the filter is always on when the column is present (user decision, 2026-05-19). See &sect;11.6.</p>
 <p><span class="req">F-05</span> <strong>Pro-rata split.</strong> For each row in the Hours Earned CSV (one closed operation = one earned-hours value):
@@ -211,9 +211,30 @@ li { margin: 0.3rem 0; }
 <p><span class="req">S-07</span> Anonymize toggle locks names/badges out of generated snapshots when ON, eliminating PII at the data layer (not just the display layer).</p>
 
 <h2>9. Known Issues</h2>
-<p style="font-size:0.9rem;color:#666;">No open issues. v1.7 (2026-05-01) ships six user-driven changes (CCC + Work Center exclude filters, Employees list rename / name-sort / full-width, Hypothetical Close toggle, Box Plot Ignore-Outliers toggle, Ranked Bar reference-line restyle, scatter label nudge, grid scroll arrows pinned side-by-side, split chip dropped from grid cells) plus doc/state hygiene (F-11 wording aligned to code, &sect;11.2 sourcing assumption (1) marked resolved). v1.6 reframed the Ranked Bar around per-month rate. v1.5 added collapsibility and the per-month rate metric. v1.4 added grid navigation and Box Plot clarity. v1.3 grid readability. v1.2 ingest defects. v1.1 first end-to-end verification.</p>
+<p style="font-size:0.9rem;color:#666;">No open issues. v1.9 (2026-05-27) removes the cumulative&rarr;incremental conversion in F-03 after real exports were confirmed incremental (see &sect;11.7) &mdash; this closes the last open item in the cumulative-vs-incremental investigation. v1.8 (2026-05-19) added the <code>Oper Type = MFG</code> operation-scope filter (&sect;11.6). v1.7 (2026-05-01) ships six user-driven changes (CCC + Work Center exclude filters, Employees list rename / name-sort / full-width, Hypothetical Close toggle, Box Plot Ignore-Outliers toggle, Ranked Bar reference-line restyle, scatter label nudge, grid scroll arrows pinned side-by-side, split chip dropped from grid cells) plus doc/state hygiene (F-11 wording aligned to code, &sect;11.2 sourcing assumption (1) marked resolved). v1.6 reframed the Ranked Bar around per-month rate. v1.5 added collapsibility and the per-month rate metric. v1.4 added grid navigation and Box Plot clarity. v1.3 grid readability. v1.2 ingest defects. v1.1 first end-to-end verification.</p>
 <table>
   <tr><th>Version</th><th>Date</th><th>Changes</th></tr>
+  <tr>
+    <td>1.9</td>
+    <td>2026-05-27</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-03 hard switch to incremental:</b> removed the cumulative&rarr;incremental successive-difference conversion. Each charge row's <code>Total Hours</code> is now used directly as that week's actual hours. Real exports were confirmed incremental on 2026-05-27 (same Badge/Order/Operation shows <code>Total Hours</code> decreasing week-over-week, impossible for a running total). The prior conversion had been undercounting actual hours and inflating CPI since v1.1. No cumulative/incremental toggle &mdash; hard switch per Oscar's decision. See &sect;11.7.</li>
+        <li><b>Retired the negative-diff clamp + counter</b> and the <code>(Badge, Order No, Oper No)</code> series sort/grouping that only existed to support the conversion. Validation panel no longer shows a "clamped negative diffs" line.</li>
+        <li><b>Test fixture regenerated</b> (<code>_make_score_card_test.py</code>) to emit incremental rows. Documented expectations unchanged (Alice 0.80, Bob 1.057, Charlie 0.69, Diana 1.00) because the new per-row values equal the increments the old conversion produced.</li>
+        <li>Closes the final open item in <code>memory/investigation_score_card_cumulative_vs_incremental.md</code>.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td>1.8</td>
+    <td>2026-05-19</td>
+    <td>
+      <ul style="margin:0;padding-left:1.2rem;">
+        <li><b>F-04a Operation-scope filter (<code>Oper Type = MFG</code>):</b> <code>parseEarnedFile()</code> keeps only <code>MFG</code> rows from the Hours Earned CSV when the optional <code>Oper Type</code> column is present, aligning earned scope with the manufacturing-only charge files. Amber "filter INACTIVE" warning when the column is absent (legacy export). No bypass toggle. Shipped in parallel with EHA v1.9 and VAC Backfill v1.8. See &sect;11.6.</li>
+      </ul>
+    </td>
+  </tr>
   <tr>
     <td>1.7</td>
     <td>2026-05-01</td>
@@ -347,7 +368,7 @@ li { margin: 0.3rem 0; }
 </ol>
 
 <h3>11.2 Historical Employee Charge data sourcing</h3>
-<p>The tool's primary input is <code>Employee Charge .xlsx</code> exports (per-employee, per-operation, per-week, cumulative <code>Total Hours</code>). This schema is materially different from any input we ingest elsewhere:</p>
+<p>The tool's primary input is <code>Employee Charge .xlsx</code> exports (per-employee, per-operation, per-week, <strong>incremental</strong> <code>Total Hours</code> &mdash; see &sect;5.1 and F-03). This schema is materially different from any input we ingest elsewhere:</p>
 <ul>
   <li><strong>P Files:</strong> WO-level cumulative actuals at a snapshot date. No employee breakdown. Cannot substitute.</li>
   <li><strong>VAC Tracker Log:</strong> WO-level cumulative VAC, Actual Hours, EV, and CPI per snapshot date. No employee breakdown. Cannot substitute.</li>
@@ -381,7 +402,12 @@ li { margin: 0.3rem 0; }
   <li>Filter happens BEFORE F-05's pro-rata split, so excluded rows never appear in earned shares, in F-50's report, or in any per-employee totals.</li>
   <li>Test fixture (<code>_make_score_card_test.py</code>) emits one <code>Oper Type = QA</code> row on WO-300's unmatched bucket so every regression run exercises the filter without changing the documented per-employee CPI expectations (Alice 0.80, Bob 1.06, Charlie 0.69, Diana 1.00).</li>
 </ul>
-<p>This resolves half of the open investigation. The companion F-03 cumulative-vs-incremental concern remains open and is unaffected by this change.</p>
+<p>This resolved the second of the two concerns in the investigation. The companion F-03 cumulative-vs-incremental concern is now <strong>also resolved</strong> &mdash; see &sect;11.7.</p>
+
+<h3>11.7 Cumulative-vs-incremental charge format — RESOLVED (v1.9, 2026-05-27)</h3>
+<p>The first concern in <code>memory/investigation_score_card_cumulative_vs_incremental.md</code> (open since 2026-05-15) is now closed. Oscar inspected a real charge export: for a single <code>(Badge, Order No, Operation)</code> across two weeks, the <code>Total Hours</code> value <strong>decreased</strong> over time &mdash; impossible for a cumulative running total, conclusively confirming the export is <strong>incremental</strong>.</p>
+<p><strong>Impact of the prior bug:</strong> F-03's successive-difference conversion (in place v1.1&ndash;v1.8) subtracted each week's hours from the prior week's, so per-employee Actual Hours were undercounted and CPI was correspondingly inflated for the entire deployment window. The negative-diff clamp silently discarded every week where hours dropped, compounding the undercount. Rankings stayed roughly ordered (the bias is monotonic-ish), but absolute hours and CPI values were not trustworthy &mdash; a credibility risk whenever Score Card numbers were compared against another source.</p>
+<p><strong>Fix (v1.9):</strong> F-03 now uses each row's <code>Total Hours</code> directly as the week's incremental charge; the conversion, the series sort/grouping, and the negative-diff validation counter were removed. Per Oscar's decision this is a <strong>hard switch</strong> &mdash; there is no cumulative/incremental toggle (unlike <code>vac-backfill-tool-1.html</code> v1.1, which kept one). The test fixture (<code>_make_score_card_test.py</code>) was regenerated to emit incremental rows; because the new per-row values equal the increments the old conversion used to produce, every documented expectation is unchanged (Alice 0.80, Bob 1.057, Charlie 0.69, Diana 1.00; split WO-100/0010 Alice 30 / Bob 20; unmatched 999-05 18h &gt; 555-01 5h).</p>
 
 </body>
 </html>
