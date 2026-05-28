@@ -52,8 +52,11 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
 .gate-outline.assigned { border-style: solid; border-color: #64748b; }
 
 .gate-header { background: #334155; color: #fff; padding: 6px 8px; border-radius: 3px 3px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.gate-header.stale { background: #dc2626; }
+.gate-outline.stale-gate { border-color: #dc2626; }
 .gate-header select { width: 100%; padding: 3px 4px; border-radius: 3px; font-size: 0.78rem; border: 1px solid #ccc; }
 .gate-label { font-size: 0.75rem; font-weight: bold; text-align: center; }
+.gate-stale-warn { font-size: 0.68rem; font-weight: bold; text-align: center; background: rgba(0,0,0,0.18); padding: 1px 4px; border-radius: 2px; }
 
 .gate-hours { font-size: 0.72rem; color: #64748b; text-align: center; padding: 2px 8px 4px; border-bottom: 1px solid #e2e8f0; }
 .gate-ops { padding: 6px; display: flex; flex-direction: column; gap: 4px; min-height: 40px; }
@@ -103,8 +106,8 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
 </head>
 <body>
 
-<h1>Gate Decoder Ring Builder <span>v1</span></h1>
-<p class="subtitle">Visually assign operations to gates, then export as a Decoder Ring CSV.</p>
+<h1>Gate Decoder Ring Builder <span>v2</span></h1>
+<p class="subtitle">Visually assign operations to gates, then export as a Decoder Ring CSV &mdash; or re-import a saved Decoder Ring CSV to rebuild the board.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. You can continue editing, upload a new Master Gates CSV, or export.</div>
 
@@ -127,6 +130,12 @@ h1 { margin: 0 0 0.3rem 0; } h1 span { font-size: 0.6em; color: #666; }
     <div class="hint">Must contain: Oper No, Oper Title, Work Dept</div>
     <input type="file" id="ops-file" accept=".csv,.txt">
     <div class="status" id="ops-status"></div>
+  </div>
+  <div class="file-group">
+    <label>4. Import Decoder Ring CSV <span style="font-weight:normal;color:#64748b;">(rebuild a saved ring)</span></label>
+    <div class="hint">Reverse of export. Single-part CSV: Part No., Gate Number, Oper No., &hellip; Upload a Master Gates CSV (#1) too to flag gates that have since been removed.</div>
+    <input type="file" id="ring-file" accept=".csv,.txt">
+    <div class="status" id="ring-status"></div>
   </div>
 </div>
 
@@ -240,6 +249,10 @@ document.getElementById('ops-file').addEventListener('change', function() {
   }, 'ops-status');
 });
 
+document.getElementById('ring-file').addEventListener('change', function() {
+  loadCSV(this.files[0], importDecoderRing, 'ring-status');
+});
+
 document.getElementById('part-no-input').addEventListener('input', checkReady);
 document.getElementById('part-name-input').addEventListener('input', checkReady);
 
@@ -261,6 +274,10 @@ function parseMasterGatesCSV(rows) {
   var count = 0;
   var warnings = [];
   var seen = {};
+  // Replace (don't merge): the Master Gates file is the authoritative current gate list.
+  // This lets stale-gate detection work after a reverse-import seeded gateMap from a ring CSV
+  // (gates absent from the newer Master Gates file then correctly fall out of gateMap).
+  gateMap = {};
   for (var r = 1; r < rows.length; r++) {
     var num = (rows[r][iNum] || '').trim();
     var name = (rows[r][iName] || '').trim();
@@ -348,6 +365,110 @@ function loadOperations() {
   render();
 }
 
+// ---- Import a previously-exported Decoder Ring CSV (reverse of exportCSV) ----
+function importDecoderRing(rows) {
+  var headers = rows[0];
+  var iPartNo = colIndex(headers, 'Part No.');
+  var iPartName = colIndex(headers, 'Part Name');
+  var iGateNum = colIndex(headers, 'Gate Number');
+  var iGateName = colIndex(headers, 'Gate Name');
+  var iOperNo = colIndex(headers, 'Oper No.');
+  var iOperTitle = colIndex(headers, 'Oper Title');
+  var iWorkDept = colIndex(headers, 'Work Dept');
+  var iModifier = colIndex(headers, 'Modifier');
+  var iLaborHrs = colIndex(headers, 'Labor Hours');
+  var iEarnable = colIndex(headers, 'Earnable Hours Flag');
+
+  if (iGateNum < 0 || iOperNo < 0) {
+    showStatus('ring-status', 'Error: not a Decoder Ring CSV — need "Gate Number" and "Oper No." columns.', true);
+    return;
+  }
+
+  // Single-part guard: this tool builds one part at a time.
+  var partsSeen = [];
+  for (var pr = 1; pr < rows.length; pr++) {
+    var pn = iPartNo >= 0 ? (rows[pr][iPartNo] || '').trim() : '';
+    if (pn !== '' && partsSeen.indexOf(pn) < 0) partsSeen.push(pn);
+  }
+  if (partsSeen.length > 1) {
+    showStatus('ring-status', 'Error: import a single-part decoder-ring CSV — found ' + partsSeen.length + ' part numbers: ' + partsSeen.join(', '), true);
+    return;
+  }
+
+  // Reset builder state
+  operations = [];
+  gates = [];
+  nextGateId = 0;
+  selectedOps = new Set();
+
+  // Part info (single part)
+  partInfo.partNo = partsSeen.length === 1 ? partsSeen[0] : '';
+  partInfo.partName = '';
+  if (iPartName >= 0) {
+    for (var fr = 1; fr < rows.length; fr++) {
+      var nm = (rows[fr][iPartName] || '').trim();
+      if (nm !== '') { partInfo.partName = nm; break; }
+    }
+  }
+  document.getElementById('part-no-input').value = partInfo.partNo;
+  document.getElementById('part-name-input').value = partInfo.partName;
+
+  // Seed the valid-gate list from the CSV ONLY when no Master Gates file is loaded yet,
+  // so the rebuilt board isn't falsely all-red. A later Master Gates upload replaces gateMap
+  // (see parseMasterGatesCSV) and re-computes staleness.
+  var seedGates = !techCsvRows;
+
+  // Rebuild lanes preserving CSV order + re-entry: a new lane starts whenever the
+  // (Gate Number, Gate Name) pair changes from the previous row.
+  var prevKey = null;
+  var curGateId = null;
+  var laneCount = 0, opCount = 0;
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var operNo = normOper(row[iOperNo] || '');
+    if (operNo === '' || operNo === '0') continue;
+    var gNum = (row[iGateNum] || '').trim();
+    var gName = iGateName >= 0 ? (row[iGateName] || '').trim() : '';
+    var key = gNum + '|' + gName;
+    if (key !== prevKey) {
+      curGateId = 'gate-' + nextGateId++;
+      gates.push({ id: curGateId, gateNumber: gNum, gateName: gName });
+      laneCount++;
+      prevKey = key;
+    }
+    if (seedGates && gNum !== '') gateMap[gNum] = gName;
+    var modRaw = iModifier >= 0 ? (row[iModifier] || '').trim().toLowerCase() : '';
+    operations.push({
+      operNo: operNo,
+      operTitle: iOperTitle >= 0 ? (row[iOperTitle] || '').trim() : '',
+      workDept: iWorkDept >= 0 ? (row[iWorkDept] || '').trim() : '',
+      operType: '',
+      laborHours: iLaborHrs >= 0 ? (row[iLaborHrs] || '').trim() : '',
+      earnableFlag: iEarnable >= 0 ? (row[iEarnable] || '').trim() : '',
+      gateId: curGateId,
+      modifier: modRaw === 'ignore' ? 'ignore' : '',
+      omitted: false
+    });
+    opCount++;
+  }
+
+  if (opCount === 0) {
+    showStatus('ring-status', 'Error: no operations found in the decoder-ring CSV.', true);
+    return;
+  }
+
+  // Reveal export/save buttons (mirror loadOperations)
+  document.getElementById('export-csv-btn').style.display = '';
+  document.getElementById('save-btn').style.display = '';
+
+  showStatus('ring-status',
+    'Imported ' + opCount + ' operation(s) into ' + laneCount + ' lane(s) for part ' + (partInfo.partNo || '(unknown)') +
+    (techCsvRows ? ' — gates checked against the loaded Master Gates file.' : ' — upload a Master Gates CSV (#1) to flag any gates removed since.'),
+    false);
+
+  render();
+}
+
 // ---- Color class ----
 function getColorClass(workDept) {
   if (workDept === 'SMART') return 'clr-green';
@@ -423,11 +544,14 @@ function render() {
     // Drop zone before each gate
     html += '<div class="drop-zone" data-insert-idx="' + gi + '"></div>';
 
-    // Gate outline
-    html += '<div class="gate-outline' + (isAssigned ? ' assigned' : '') + '" data-gateid="' + esc(g.id) + '">';
-    html += '<div class="gate-header">';
+    // Gate outline. A gate is "stale" when it's assigned but its number is not in the
+    // current Master Gates list (gateMap) — e.g. removed since this ring CSV was created.
+    var isStale = isAssigned && !gateMap[g.gateNumber];
+    html += '<div class="gate-outline' + (isAssigned ? ' assigned' : '') + (isStale ? ' stale-gate' : '') + '" data-gateid="' + esc(g.id) + '">';
+    html += '<div class="gate-header' + (isStale ? ' stale' : '') + '">';
     if (isAssigned) {
       html += '<div class="gate-label">Gate ' + esc(g.gateNumber) + ': ' + esc(g.gateName) + '</div>';
+      if (isStale) html += '<div class="gate-stale-warn">⚠ not in current Master Gates</div>';
     }
     html += '<select onchange="onGateSelect(\'' + esc(g.id) + '\', this.value)">' + gateDropdownHTML(g.gateNumber) + '</select>';
     html += '</div>';
