@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>PDVF — Dependency Gantt Builder</title>
+<style>
+* { box-sizing: border-box; }
+body { font-family: Arial, sans-serif; margin: 0; padding: 1rem; background: #f1f5f9; color: #1e293b; }
+h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-size: 0.55em; color: #64748b; }
+.subtitle { font-size: 0.82rem; color: #555; margin-bottom: 1rem; }
+
+.input-section { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 0.8rem; }
+.file-group { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.7rem 0.9rem; flex: 1 1 240px; min-width: 220px; }
+.file-group label { font-weight: bold; display: block; margin-bottom: 0.3rem; font-size: 0.85rem; }
+.file-group .hint { font-size: 0.72rem; color: #888; margin-bottom: 0.35rem; }
+.status { font-size: 0.78rem; margin-top: 0.25rem; min-height: 1em; }
+.status.loaded { color: #16a34a; } .status.error { color: #dc2626; } .status.warning { color: #b45309; }
+
+.action-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+.btn { padding: 7px 14px; border: none; border-radius: 4px; font-weight: bold; font-size: 0.82rem; cursor: pointer; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn-primary { background: #2563eb; color: #fff; } .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+.btn-green { background: #16a34a; color: #fff; } .btn-green:hover:not(:disabled) { background: #15803d; }
+.btn-slate { background: #334155; color: #fff; } .btn-slate:hover:not(:disabled) { background: #1e293b; }
+.btn-view { background: #7c3aed; color: #fff; min-width: 150px; } .btn-view:hover { background: #6d28d9; }
+
+.snapshot-notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; color: #1e40af; margin-bottom: 1rem; display: none; }
+
+/* Program section + Gantt */
+.prog-section { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 1.2rem; overflow: hidden; }
+.prog-title { background: #1e3a5f; color: #fff; font-weight: bold; padding: 7px 14px; font-size: 0.95rem; }
+.gantt { width: 100%; }
+.gantt-row, .gantt-head { display: flex; align-items: stretch; border-bottom: 1px solid #eef2f7; }
+.gantt-head { background: #f8fafc; border-bottom: 2px solid #cbd5e1; }
+.task-col { width: 360px; flex-shrink: 0; padding: 4px 8px; border-right: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; }
+.task-col.head { font-weight: bold; color: #475569; font-size: 0.78rem; }
+.time-col { flex: 1 1 auto; position: relative; min-height: 30px; }
+.time-col.head { min-height: 26px; }
+
+.caret { width: 14px; text-align: center; cursor: pointer; color: #64748b; user-select: none; flex-shrink: 0; }
+.caret.empty { visibility: hidden; }
+.node-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-label .wo { font-weight: bold; color: #1e293b; }
+.node-label .pn { color: #475569; }
+.node-label .pd { color: #94a3b8; font-size: 0.92em; }
+.node-date { border: 1px solid #cbd5e1; border-radius: 3px; font-size: 0.72rem; padding: 1px 3px; }
+.node-date.past { border-color: #dc2626; background: #fef2f2; }
+.row-btn { width: 18px; height: 18px; line-height: 16px; text-align: center; border: 1px solid #cbd5e1; border-radius: 3px; background: #fff; cursor: pointer; font-size: 0.72rem; font-weight: bold; color: #475569; flex-shrink: 0; }
+.row-btn:hover { background: #eff6ff; border-color: #2563eb; }
+.row-btn:disabled { opacity: 0.3; cursor: default; }
+.row-btn.del:hover { background: #fef2f2; border-color: #dc2626; color: #dc2626; }
+
+/* Time axis */
+.axis-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid #e2e8f0; }
+.axis-label { position: absolute; top: 4px; font-size: 0.68rem; color: #64748b; padding-left: 3px; white-space: nowrap; }
+
+/* Bars */
+.bar-wrap { position: absolute; left: 6px; right: 6px; top: 4px; bottom: 4px; }
+.bar { position: absolute; left: 0; top: 0; bottom: 0; min-width: 16px; display: flex; border-radius: 3px; overflow: hidden; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
+.bar-solid { flex: 1 1 auto; display: flex; align-items: center; padding: 0 8px; font-size: 0.72rem; color: #fff; font-weight: bold; white-space: nowrap; overflow: hidden; }
+.gate-seg { flex: 1 1 0; display: flex; align-items: center; justify-content: center; font-size: 0.66rem; color: #fff; font-weight: bold; border-right: 1px solid rgba(255,255,255,0.5); overflow: hidden; white-space: nowrap; padding: 0 3px; }
+.gate-seg:last-child { border-right: none; }
+.gate-seg.expanded { outline: 2px solid #111; outline-offset: -2px; }
+.bar.chips { background: #f8fafc; gap: 2px; padding: 2px; align-items: center; }
+.slip-flag { position: absolute; right: -4px; top: -2px; font-size: 0.7rem; color: #dc2626; }
+
+/* status colors (from Gate Tracker) */
+.c-green { background: #16a34a; color: #fff; }
+.c-yellow { background: #ca8a04; color: #fff; }
+.c-blue { background: #2563eb; color: #fff; }
+.c-pink { background: #db2777; color: #fff; }
+.c-purple { background: #7c3aed; color: #fff; }
+.c-gray { background: #e5e7eb; color: #6b7280; }
+.held { outline: 2px solid #dc2626; outline-offset: -2px; }
+
+.oper-chip { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 0.68rem; font-weight: bold; white-space: nowrap; }
+
+/* Reveal strip */
+.reveal-row { display: flex; border-bottom: 1px solid #eef2f7; background: #fafcff; }
+.reveal-body { flex: 1 1 auto; padding: 6px 10px 8px; }
+.reveal-gate { margin-bottom: 5px; }
+.reveal-gate-name { font-size: 0.72rem; font-weight: bold; color: #475569; margin-bottom: 2px; }
+.reveal-op { font-size: 0.72rem; color: #334155; padding: 1px 0; display: flex; gap: 6px; align-items: center; }
+.reveal-op .op-meta { color: #64748b; }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 0.72rem; color: #555; margin-bottom: 0.8rem; }
+.legend .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 3px; vertical-align: middle; }
+
+.empty-msg { padding: 2rem; text-align: center; color: #94a3b8; background: #fff; border: 1px dashed #cbd5e1; border-radius: 6px; }
+
+/* Gate Loading table */
+.loading-section { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 1.2rem; padding-bottom: 8px; overflow: hidden; }
+.loading-title { background: #1e3a5f; color: #fff; font-weight: bold; padding: 7px 14px; font-size: 0.95rem; }
+.lt-scroll { overflow-x: auto; }
+.loading-table { border-collapse: collapse; font-size: 0.72rem; width: 100%; }
+.loading-table th, .loading-table td { border: 1px solid #e2e8f0; padding: 4px 7px; text-align: left; vertical-align: top; }
+.loading-table thead th { background: #f8fafc; color: #475569; white-space: nowrap; }
+.lt-rowhead { background: #f1f5f9; font-weight: bold; color: #1e293b; white-space: nowrap; position: sticky; left: 0; z-index: 1; }
+.lt-lab { background: #eff6ff; }
+.lt-lab .lt-rowhead { background: #dbeafe; }
+.lt-cell { min-width: 92px; }
+.lt-gline { color: #334155; white-space: nowrap; }
+.lt-total { font-weight: bold; color: #1e3a5f; margin-top: 2px; border-top: 1px solid #e2e8f0; }
+.lt-rowtotal { font-weight: bold; background: #f8fafc; white-space: nowrap; }
+.lt-foot { font-size: 0.72rem; color: #b45309; padding: 6px 14px 0; }
+@media print { .lt-scroll { overflow: visible; } }
+
+/* Search modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: none; align-items: flex-start; justify-content: center; z-index: 1000; }
+.modal-overlay.open { display: flex; }
+.modal { background: #fff; border-radius: 8px; margin-top: 5vh; width: 560px; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+.modal-head { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+.modal-head h3 { margin: 0; font-size: 1rem; color: #1e3a5f; }
+.modal-x { cursor: pointer; font-size: 1.2rem; color: #94a3b8; border: none; background: none; }
+.modal-search { padding: 10px 16px; border-bottom: 1px solid #e2e8f0; }
+.modal-search input { width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.9rem; }
+.modal-results { overflow-y: auto; padding: 6px 16px; flex: 1 1 auto; }
+.part-block { margin-bottom: 8px; border: 1px solid #eef2f7; border-radius: 5px; }
+.part-head { background: #f8fafc; padding: 5px 9px; font-size: 0.8rem; font-weight: bold; color: #334155; }
+.part-head .pgm { color: #7c3aed; font-weight: normal; font-size: 0.92em; }
+.wo-opt { padding: 4px 9px; font-size: 0.8rem; display: flex; align-items: center; gap: 7px; border-top: 1px solid #f1f5f9; }
+.wo-opt.used { opacity: 0.5; }
+.wo-opt label { cursor: pointer; }
+.modal-foot { padding: 10px 16px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+.modal-foot .hint { font-size: 0.75rem; color: #64748b; }
+.modal-manual { padding: 8px 16px; border-bottom: 1px solid #e2e8f0; background: #fafcff; }
+.modal-manual .mm-title { font-size: 0.74rem; font-weight: bold; color: #475569; margin-bottom: 5px; }
+.modal-manual .mm-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.modal-manual .mm-row input { flex: 1 1 120px; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.82rem; }
+
+/* node identifier + placeholder gate shade */
+.node-label .ident { font-weight: bold; color: #1e293b; }
+.node-label.placeholder .ident { color: #7c3aed; }
+.c-plan { background: #cbd5e1; color: #475569; }
+.row-btn.link:hover { background: #ede9fe; border-color: #7c3aed; color: #7c3aed; }
+
+/* program group label + family comment */
+.prog-label-input { margin-left: 10px; padding: 2px 7px; border: 1px solid #41618a; border-radius: 3px; font-size: 0.8rem; background: #2c4a6e; color: #fff; width: 180px; }
+.prog-label-input::placeholder { color: #94a3b8; }
+.family-comment-row { display: flex; border-bottom: 1px solid #eef2f7; background: #fbfbf5; }
+.family-comment-row .fc-label { width: 360px; flex-shrink: 0; padding: 5px 8px; border-right: 1px solid #e2e8f0; font-size: 0.72rem; font-weight: bold; color: #92722a; }
+.family-comment-cell { flex: 1 1 auto; padding: 5px 8px; }
+.family-comment { width: 100%; min-height: 30px; resize: vertical; border: 1px solid #e5d8b0; border-radius: 4px; padding: 4px 7px; font-size: 0.78rem; font-family: inherit; background: #fffdf5; }
+</style>
+</head>
+<body>
+
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1</span></h1>
+<p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
+
+<div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
+
+<div class="input-section" id="input-section">
+  <div class="file-group">
+    <label>1. Daily Upload CSV (required)</label>
+    <div class="hint">Order No · Part Number · Part Description · Program · Serial · Operation No/Status · % Complete</div>
+    <input type="file" id="daily-file" accept=".csv,.txt">
+    <div class="status" id="daily-status"></div>
+  </div>
+  <div class="file-group">
+    <label>2. Decoder Ring CSV(s) (optional, multiple)</label>
+    <div class="hint">Part No. · Gate Number/Name · Oper No. · Labor Hours. Auto-matched to nodes by part number.</div>
+    <input type="file" id="ring-file" accept=".csv,.txt" multiple>
+    <div class="status" id="ring-status"></div>
+  </div>
+  <div class="file-group">
+    <label>3. Import Hierarchy CSV (optional)</label>
+    <div class="hint">Re-load a tree exported from this tool. Then re-upload a Daily Upload to refresh status.</div>
+    <input type="file" id="hier-file" accept=".csv,.txt">
+    <div class="status" id="hier-status"></div>
+  </div>
+</div>
+
+<div class="action-bar" id="action-bar">
+  <button class="btn btn-primary" id="add-root-btn" disabled onclick="openSearch('root', null)">+ Add Top Assembly</button>
+  <button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>
+  <button class="btn btn-green" id="export-csv-btn" disabled onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>
+  <button class="btn btn-slate" id="save-btn" disabled onclick="saveSnapshot()">Save for Editing</button>
+</div>
+
+<div class="legend" id="legend">
+  <span><span class="sw c-green"></span>Active</span>
+  <span><span class="sw c-purple"></span>Active (non-SMART)</span>
+  <span><span class="sw c-yellow"></span>In Queue</span>
+  <span><span class="sw c-blue"></span>QA</span>
+  <span><span class="sw c-pink"></span>Pending</span>
+  <span><span class="sw c-gray"></span>Complete / none</span>
+  <span><span class="sw held" style="background:#fff"></span>On hold</span>
+</div>
+
+<div id="board"></div>
+<div id="loading"></div>
+
+<!-- Search modal -->
+<div class="modal-overlay" id="search-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="search-title">Add node</h3><button class="modal-x" onclick="closeSearch()">&times;</button></div>
+    <div class="modal-search"><input type="text" id="search-input" placeholder="Search part number or description..." oninput="renderSearchResults()"></div>
+    <div class="modal-manual" id="search-manual">
+      <div class="mm-title">Or add a placeholder part (no work order yet)</div>
+      <div class="mm-row">
+        <input type="text" id="mm-part" placeholder="Part number">
+        <input type="text" id="mm-desc" placeholder="Description (optional)">
+        <input type="text" id="mm-prog" placeholder="Program" style="display:none">
+        <button class="btn btn-slate" onclick="addPlaceholderFromForm()">Add placeholder</button>
+      </div>
+    </div>
+    <div class="modal-results" id="search-results"></div>
+    <div class="modal-foot"><span class="hint" id="search-hint"></span><button class="btn btn-primary" onclick="confirmSearch()">Add Selected</button></div>
+  </div>
+</div>
+
+<script>
+// ============================== State ==============================
+var nodes = {};          // id -> { id, woNo, partNo, partDesc, program, serial, parentId, completion, manualDate, collapsed, opsExpanded, expandedGates }
+var rootIds = [];        // root node ids, in insertion order
+var nextNodeId = 0;
+var scheduleStart = '';  // ISO yyyy-mm-dd
+var globalView = 'gateblocks';   // 'bars' | 'gateblocks' | 'chips'
+var dailyIndex = {};     // partNo -> { partDesc, program, wos: [ {woNo, serial, program} ] }
+var woOps = {};          // woNo -> [ {operNo, status, dept, title, hold, pct, plannedHrs} ]
+var woMeta = {};         // woNo -> { partNo, partDesc, program, serial }
+var ringByPart = {};     // partNo -> { gateOrder: [gateNum...], gateName: {num:name}, operToGate: {operNo:num}, laborByOper: {operNo:hrs} }
+var programLabels = {};  // program -> short label (<=20 chars)
+var familyComments = {}; // root node id -> takeaway comment
+var pendingSearch = null;// { mode:'root'|'child'|'parent'|'link', nodeId, selected:{woNo:true} }
+var isSnapshot = false;
+
+var gStart = '', gMax = '';  // computed axis domain per render
+
+// ============================== Utilities (from gate-tracker / decoder-ring) ==============================
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s) { var v = s.trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+
+function parseCSV(text) {
+  var firstLine = text.split(/\r?\n/)[0] || '';
+  var tabCount = (firstLine.match(/\t/g) || []).length;
+  var commaCount = (firstLine.match(/,/g) || []).length;
+  var delim = (tabCount > commaCount) ? '\t' : ',';
+  var result = [], current = '', inQuotes = false, row = [];
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') { inQuotes = true; }
+      else if (ch === delim) { row.push(csvField(current)); current = ''; }
+      else if (ch === '\n' || (ch === '\r' && text[i + 1] === '\n')) {
+        row.push(csvField(current)); current = '';
+        if (row.length > 1 || row[0] !== '') result.push(row);
+        row = [];
+        if (ch === '\r') i++;
+      } else { current += ch; }
+    }
+  }
+  row.push(csvField(current));
+  if (row.length > 1 || row[0] !== '') result.push(row);
+  return result;
+}
+
+function colIndex(headers, name) {
+  function norm(s) { return String(s || '').replace(/^﻿/, '').replace(/\s+/g, ' ').toLowerCase().trim(); }
+  var n = norm(name);
+  for (var i = 0; i < headers.length; i++) if (norm(headers[i]) === n) return i;
+  return -1;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function normOper(s) { var n = String(s).replace(/^0+/, ''); return n === '' ? '0' : n; }
+
+function showStatus(id, msg, cls) { var el = document.getElementById(id); if (!el) return; el.textContent = msg; el.className = 'status ' + (cls || 'loaded'); }
+
+function loadCSV(file, callback, statusId) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var rows = parseCSV(ev.target.result);
+      if (rows.length < 2) throw new Error('File has no data rows');
+      callback(rows);
+    } catch (err) { showStatus(statusId, 'Error: ' + err.message, 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+// dates
+function pad(n) { return String(n).padStart(2, '0'); }
+function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+function todayISO() { return iso(new Date()); }
+function parseISO(s) { var p = String(s).split('-'); return new Date(+p[0], (+p[1])-1, +p[2]); }
+function addDays(s, n) { var d = parseISO(s); d.setDate(d.getDate()+n); return iso(d); }
+function daysBetween(a, b) { return Math.round((parseISO(b) - parseISO(a)) / 86400000); }
+
+// status -> color
+function operColorClass(status, dept) {
+  var s = (status||'').toUpperCase().trim(), d = (dept||'').toUpperCase().trim();
+  if ((s === 'IN QUEUE' || s === 'ACTIVE') && /_QA$/.test(d)) return 'c-blue';
+  if (s === 'IN QUEUE') return 'c-yellow';
+  if (s === 'ACTIVE') return d === 'SMART' ? 'c-green' : 'c-purple';
+  if (s === 'PENDING') return 'c-pink';
+  return 'c-gray';
+}
+function statusRank(status) {
+  var s = (status||'').toUpperCase().trim();
+  if (s === 'ACTIVE') return 0; if (s === 'IN QUEUE') return 1; if (s === 'PENDING') return 2; return 3;
+}
+function isHold(h) { var v = (h||'').trim().toUpperCase(); return v !== '' && v !== 'NONE' && v !== 'N'; }
+
+// ============================== File inputs ==============================
+function wireInputs() {
+  document.getElementById('daily-file').addEventListener('change', function() {
+    loadCSV(this.files[0], parseDailyUpload, 'daily-status');
+  });
+  document.getElementById('ring-file').addEventListener('change', function() {
+    var files = this.files; if (!files || !files.length) return;
+    var loaded = 0, total = files.length, parts0 = Object.keys(ringByPart).length;
+    for (var i = 0; i < files.length; i++) {
+      loadCSV(files[i], function(rows) {
+        parseDecoderRing(rows); loaded++;
+        if (loaded === total) {
+          var added = Object.keys(ringByPart).length - parts0;
+          showStatus('ring-status', 'Loaded ' + total + ' ring file(s) — ' + Object.keys(ringByPart).length + ' part(s) now mapped.', 'loaded');
+          render();
+        }
+      }, 'ring-status');
+    }
+  });
+  document.getElementById('hier-file').addEventListener('change', function() {
+    loadCSV(this.files[0], importHierarchy, 'hier-status');
+  });
+}
+
+// ============================== Parse Daily Upload ==============================
+function parseDailyUpload(rows) {
+  var h = rows[0];
+  var iOrder = colIndex(h, 'Order No');
+  var iPart = colIndex(h, 'Part Number');
+  var iDesc = colIndex(h, 'Part Description');
+  var iProg = colIndex(h, 'Program');
+  var iSerial = colIndex(h, 'Serial Numbers');
+  var iOper = colIndex(h, 'Operation No');
+  var iOperT = colIndex(h, 'Operation Title'); if (iOperT < 0) iOperT = colIndex(h, 'Operation title');
+  var iStatus = colIndex(h, 'Operation Status');
+  var iDept = colIndex(h, 'Work Department'); if (iDept < 0) iDept = colIndex(h, 'Work Center');
+  var iPct = colIndex(h, 'Oper Percent Complete');
+  var iPlan = colIndex(h, 'Median Planned Hrs');
+  var iHold = colIndex(h, 'Hold Status');
+
+  var missing = [];
+  if (iOrder < 0) missing.push('Order No');
+  if (iPart < 0) missing.push('Part Number');
+  if (iProg < 0) missing.push('Program');
+  if (missing.length) { showStatus('daily-status', 'Error: missing columns: ' + missing.join(', '), 'error'); return; }
+
+  dailyIndex = {}; woOps = {}; woMeta = {};
+  var seenOp = {}; // woNo|operNo
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var wo = (row[iOrder] || '').trim(); if (!wo) continue;
+    var part = (row[iPart] || '').trim();
+    var desc = iDesc >= 0 ? (row[iDesc] || '').trim() : '';
+    var prog = (row[iProg] || '').trim();
+    var serial = iSerial >= 0 ? (row[iSerial] || '').trim() : '';
+
+    if (!woMeta[wo]) woMeta[wo] = { partNo: part, partDesc: desc, program: prog, serial: serial };
+    if (!dailyIndex[part]) dailyIndex[part] = { partDesc: desc, program: prog, wos: [] };
+    if (!dailyIndex[part].wos.some(function(w){ return w.woNo === wo; })) {
+      dailyIndex[part].wos.push({ woNo: wo, serial: serial, program: prog });
+    }
+
+    if (iOper >= 0) {
+      var op = normOper(row[iOper] || '');
+      var key = wo + '|' + op;
+      if (op !== '0' && !seenOp[key]) {
+        seenOp[key] = true;
+        if (!woOps[wo]) woOps[wo] = [];
+        woOps[wo].push({
+          operNo: op,
+          status: iStatus >= 0 ? (row[iStatus] || '').trim() : '',
+          dept: iDept >= 0 ? (row[iDept] || '').trim() : '',
+          title: iOperT >= 0 ? (row[iOperT] || '').trim() : '',
+          hold: iHold >= 0 ? (row[iHold] || '').trim() : '',
+          pct: iPct >= 0 ? (parseFloat(row[iPct]) || 0) : 0,
+          plannedHrs: iPlan >= 0 ? (parseFloat(row[iPlan]) || 0) : 0
+        });
+      }
+    }
+  }
+  // sort each WO's ops by operNo
+  Object.keys(woOps).forEach(function(wo) {
+    woOps[wo].sort(function(a, b) { return parseInt(a.operNo) - parseInt(b.operNo); });
+  });
+
+  var partCount = Object.keys(dailyIndex).length, woCount = Object.keys(woMeta).length;
+  var warn = iPct < 0 || iOper < 0;
+  showStatus('daily-status', 'Loaded ' + woCount + ' work orders across ' + partCount + ' parts' +
+    (warn ? ' — note: no Operation/% columns found, operation detail unavailable.' : '.'), warn ? 'warning' : 'loaded');
+
+  if (!scheduleStart) scheduleStart = todayISO();
+  document.getElementById('add-root-btn').disabled = false;
+  // re-bind any imported nodes that lacked metadata
+  Object.keys(nodes).forEach(function(id) {
+    var n = nodes[id];
+    if (woMeta[n.woNo]) { var m = woMeta[n.woNo]; n.partNo = m.partNo; n.partDesc = m.partDesc; n.program = m.program; n.serial = m.serial; }
+  });
+  updateButtons();
+  render();
+}
+
+// ============================== Parse Decoder Ring (multi-part) ==============================
+function parseDecoderRing(rows) {
+  var h = rows[0];
+  var iPart = colIndex(h, 'Part No.'); if (iPart < 0) iPart = colIndex(h, 'Part Number');
+  var iGNum = colIndex(h, 'Gate Number');
+  var iGName = colIndex(h, 'Gate Name');
+  var iOper = colIndex(h, 'Oper No.'); if (iOper < 0) iOper = colIndex(h, 'Oper No');
+  var iLabor = colIndex(h, 'Labor Hours'); if (iLabor < 0) iLabor = colIndex(h, 'Labor Hours Per Unit');
+  if (iPart < 0 || iGNum < 0 || iOper < 0) {
+    showStatus('ring-status', 'Error: ring CSV needs Part No., Gate Number, Oper No. columns.', 'error'); return;
+  }
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var part = (row[iPart] || '').trim(); if (!part) continue;
+    var gnum = (row[iGNum] || '').trim(); if (!gnum) continue;
+    var gname = iGName >= 0 ? (row[iGName] || '').trim() : '';
+    var op = normOper(row[iOper] || ''); if (op === '0') continue;
+    var labor = iLabor >= 0 ? (parseFloat(row[iLabor]) || 0) : 0;
+    if (!ringByPart[part]) ringByPart[part] = { gateOrder: [], gateName: {}, operToGate: {}, laborByOper: {} };
+    var ring = ringByPart[part];
+    if (ring.gateOrder.indexOf(gnum) < 0) ring.gateOrder.push(gnum);
+    ring.gateName[gnum] = gname;
+    ring.operToGate[op] = gnum;
+    ring.laborByOper[op] = labor;
+  }
+}
+
+// ============================== Tree helpers ==============================
+function getChildren(id) {
+  var out = [];
+  Object.keys(nodes).forEach(function(k) { if (nodes[k].parentId === id) out.push(nodes[k]); });
+  return out;
+}
+function nodeLevel(id) { var lvl = 0, n = nodes[id]; while (n && n.parentId) { lvl++; n = nodes[n.parentId]; } return lvl; }
+function getRootOf(id) { var n = nodes[id]; while (n && n.parentId) n = nodes[n.parentId]; return n; }
+function collectSubtree(id, acc) { acc.push(id); getChildren(id).forEach(function(c){ collectSubtree(c.id, acc); }); return acc; }
+function treeMaxLevel(rootId) {
+  var ids = collectSubtree(rootId, []), mx = 0;
+  ids.forEach(function(id){ var l = nodeLevel(id); if (l > mx) mx = l; });
+  return mx;
+}
+
+// ============================== Date normalization (children <= parent) ==============================
+function normalizeDates() {
+  // top-down: clamp each child to <= its parent's completion
+  function walk(id) {
+    var n = nodes[id];
+    getChildren(id).forEach(function(c) {
+      if (c.completion && n.completion && daysBetween(n.completion, c.completion) > 0) {
+        c.completion = n.completion;
+      }
+      walk(c.id);
+    });
+  }
+  rootIds.forEach(walk);
+}
+
+function setCompletion(id, val) {
+  if (!val) return;
+  nodes[id].completion = val;
+  nodes[id].manualDate = true;
+  normalizeDates();
+  render();
+}
+
+// ============================== Node creation / deletion ==============================
+function bindNodeFields(n) {
+  var m = woMeta[n.woNo];
+  if (m) { n.partNo = m.partNo; n.partDesc = m.partDesc; n.program = m.program; n.serial = m.serial; }
+}
+function woInUse(wo) { return Object.keys(nodes).some(function(k){ return nodes[k].woNo === wo; }); }
+
+function newNode(wo, parentId, completion) {
+  var id = 'n' + (nextNodeId++);
+  var n = { id: id, woNo: wo, partNo: '', partDesc: '', program: '', serial: '', isPlaceholder: false,
+            parentId: parentId, completion: completion, manualDate: false,
+            collapsed: false, opsExpanded: false, expandedGates: {} };
+  bindNodeFields(n);
+  nodes[id] = n;
+  return n;
+}
+
+function newPlaceholderNode(partNo, partDesc, program, parentId, completion) {
+  var id = 'n' + (nextNodeId++);
+  var n = { id: id, woNo: '', partNo: partNo, partDesc: partDesc || '', program: program || '(Unassigned)', serial: '',
+            isPlaceholder: true, parentId: parentId, completion: completion, manualDate: false,
+            collapsed: false, opsExpanded: false, expandedGates: {} };
+  nodes[id] = n;
+  return n;
+}
+
+function addSelectionAsNodes() {
+  var sel = Object.keys(pendingSearch.selected).filter(function(w){ return pendingSearch.selected[w]; });
+  if (!sel.length) { alert('Select at least one work order.'); return false; }
+  var mode = pendingSearch.mode;
+  if (mode === 'root') {
+    sel.forEach(function(wo) {
+      var n = newNode(wo, null, addDays(scheduleStart, 60));
+      rootIds.push(n.id);
+    });
+  } else if (mode === 'child') {
+    var parent = nodes[pendingSearch.nodeId];
+    sel.forEach(function(wo) {
+      newNode(wo, parent.id, parent.completion || addDays(scheduleStart, 60));
+    });
+  } else if (mode === 'parent') {
+    if (sel.length !== 1) { alert('A parent is a single work order — select exactly one.'); return false; }
+    var oldRoot = nodes[pendingSearch.nodeId];
+    var np = newNode(sel[0], null, oldRoot.completion || addDays(scheduleStart, 60));
+    oldRoot.parentId = np.id;
+    rootIds = rootIds.filter(function(rid){ return rid !== oldRoot.id; });
+    rootIds.push(np.id);
+    if (familyComments[oldRoot.id]) { familyComments[np.id] = familyComments[oldRoot.id]; delete familyComments[oldRoot.id]; }
+  } else if (mode === 'link') {
+    if (sel.length !== 1) { alert('Link to a single work order — select exactly one.'); return false; }
+    var tgt = nodes[pendingSearch.nodeId];
+    tgt.woNo = sel[0]; tgt.isPlaceholder = false;
+    bindNodeFields(tgt);
+  }
+  normalizeDates();
+  return true;
+}
+
+function addPlaceholder(mode, nodeId, partNo, partDesc, program) {
+  if (!partNo) { alert('Enter a part number for the placeholder.'); return false; }
+  if (mode === 'root') {
+    var n = newPlaceholderNode(partNo, partDesc, program || '(Unassigned)', null, addDays(scheduleStart, 60));
+    rootIds.push(n.id);
+  } else if (mode === 'child') {
+    var parent = nodes[nodeId];
+    newPlaceholderNode(partNo, partDesc, parent.program, parent.id, parent.completion || addDays(scheduleStart, 60));
+  } else if (mode === 'parent') {
+    var oldRoot = nodes[nodeId];
+    var np = newPlaceholderNode(partNo, partDesc, oldRoot.program, null, oldRoot.completion || addDays(scheduleStart, 60));
+    oldRoot.parentId = np.id;
+    rootIds = rootIds.filter(function(rid){ return rid !== oldRoot.id; });
+    rootIds.push(np.id);
+    if (familyComments[oldRoot.id]) { familyComments[np.id] = familyComments[oldRoot.id]; delete familyComments[oldRoot.id]; }
+  } else { return false; }
+  normalizeDates();
+  return true;
+}
+
+function addPlaceholderFromForm() {
+  if (!pendingSearch) return;
+  var mode = pendingSearch.mode === 'link' ? 'child' : pendingSearch.mode; // link mode shouldn't reach here
+  var part = (document.getElementById('mm-part').value || '').trim();
+  var desc = (document.getElementById('mm-desc').value || '').trim();
+  var prog = (document.getElementById('mm-prog').value || '').trim();
+  if (addPlaceholder(mode, pendingSearch.nodeId, part, desc, prog)) { closeSearch(); render(); }
+}
+
+function deleteNode(id) {
+  var n = nodes[id];
+  var kids = getChildren(id).length;
+  var who = n.woNo || ('placeholder ' + n.partNo);
+  if (!confirm('Delete ' + who + (kids ? ' and its ' + kids + ' child branch(es)' : '') + '?')) return;
+  var ids = collectSubtree(id, []);
+  ids.forEach(function(x){ delete nodes[x]; delete familyComments[x]; });
+  rootIds = rootIds.filter(function(rid){ return rid !== id && nodes[rid]; });
+  render();
+}
+
+// ============================== Search modal ==============================
+function openSearch(mode, nodeId) {
+  pendingSearch = { mode: mode, nodeId: nodeId, selected: {} };
+  var title = mode === 'root' ? 'Add Top Assembly' : (mode === 'child' ? 'Add Child Work Order(s)' :
+              (mode === 'parent' ? 'Add Parent Work Order' : 'Link Placeholder to a Work Order'));
+  document.getElementById('search-title').textContent = title;
+  document.getElementById('search-input').value = '';
+  // Manual placeholder entry: available for root/child/parent, not when linking an existing placeholder.
+  var manual = document.getElementById('search-manual');
+  manual.style.display = (mode === 'link') ? 'none' : '';
+  document.getElementById('mm-prog').style.display = (mode === 'root') ? '' : 'none';
+  document.getElementById('mm-part').value = ''; document.getElementById('mm-desc').value = ''; document.getElementById('mm-prog').value = '';
+  document.getElementById('search-modal').classList.add('open');
+  renderSearchResults();
+  document.getElementById('search-input').focus();
+}
+function closeSearch() { document.getElementById('search-modal').classList.remove('open'); pendingSearch = null; }
+
+function searchProgram() {
+  if (!pendingSearch || pendingSearch.mode === 'root') return null;
+  var ctx = nodes[pendingSearch.nodeId];
+  return ctx ? ctx.program : null;
+}
+
+function renderSearchResults() {
+  var q = (document.getElementById('search-input').value || '').toLowerCase().trim();
+  var prog = searchProgram();
+  var html = '', shown = 0;
+  var parts = Object.keys(dailyIndex).sort();
+  for (var i = 0; i < parts.length; i++) {
+    var part = parts[i], info = dailyIndex[part];
+    if (q && part.toLowerCase().indexOf(q) < 0 && (info.partDesc || '').toLowerCase().indexOf(q) < 0) continue;
+    var wos = info.wos.filter(function(w){ return !prog || w.program === prog; });
+    if (!wos.length) continue;
+    shown++;
+    html += '<div class="part-block"><div class="part-head">' + esc(part) +
+      (info.partDesc ? ' — ' + esc(info.partDesc) : '') + ' <span class="pgm">' + esc(info.program) + '</span></div>';
+    for (var j = 0; j < wos.length; j++) {
+      var w = wos[j], used = woInUse(w.woNo), checked = pendingSearch.selected[w.woNo];
+      html += '<div class="wo-opt' + (used ? ' used' : '') + '">' +
+        '<input type="checkbox" id="wo_' + esc(w.woNo) + '"' + (used ? ' disabled' : '') + (checked ? ' checked' : '') +
+        ' onchange="toggleWoSel(\'' + esc(w.woNo) + '\', this.checked)">' +
+        '<label for="wo_' + esc(w.woNo) + '"><strong>' + esc(w.woNo) + '</strong>' +
+        (w.serial ? ' · S/N ' + esc(w.serial) : '') + (used ? ' <em>(in tree)</em>' : '') + '</label></div>';
+    }
+    html += '</div>';
+  }
+  if (!shown) html = '<p style="color:#94a3b8;font-size:0.85rem;padding:8px 0;">No matching work orders' + (prog ? ' in program ' + esc(prog) : '') + '.</p>';
+  document.getElementById('search-results').innerHTML = html;
+  var nSel = Object.keys(pendingSearch.selected).filter(function(w){ return pendingSearch.selected[w]; }).length;
+  document.getElementById('search-hint').textContent = nSel + ' selected' +
+    (pendingSearch.mode === 'parent' ? ' (choose exactly 1)' : '') +
+    (prog ? ' · filtered to ' + prog : '');
+}
+function toggleWoSel(wo, on) { if (on) pendingSearch.selected[wo] = true; else delete pendingSearch.selected[wo]; renderSearchResults(); }
+function confirmSearch() { if (addSelectionAsNodes()) { closeSearch(); render(); } }
+
+// ============================== View cycle ==============================
+function cycleView() {
+  globalView = globalView === 'bars' ? 'gateblocks' : (globalView === 'gateblocks' ? 'chips' : 'bars');
+  var label = globalView === 'bars' ? 'Bars' : (globalView === 'gateblocks' ? 'Gate blocks' : 'Chips');
+  document.getElementById('view-btn').textContent = 'View: ' + label;
+  render();
+}
+function toggleCollapse(id) { nodes[id].collapsed = !nodes[id].collapsed; render(); }
+function toggleOps(id) { nodes[id].opsExpanded = !nodes[id].opsExpanded; if (!nodes[id].opsExpanded) nodes[id].expandedGates = {}; render(); }
+function toggleGate(id, gnum) { var n = nodes[id]; if (n.expandedGates[gnum]) delete n.expandedGates[gnum]; else n.expandedGates[gnum] = true; render(); }
+
+// ============================== Node operation resolution ==============================
+function resolveOps(node) {
+  // returns { hasRing, gates: [ {num, name, ops:[op...], colorClass} ], flat: [op...] }
+  var ring = ringByPart[node.partNo];
+  var ops;
+  if (node.isPlaceholder) {
+    // Placeholder: no work order. Synthesize "planned" ops from the ring at 0% complete,
+    // so a planned part still forecasts full load (gate blocks render in the neutral c-plan shade).
+    ops = ring ? Object.keys(ring.operToGate).map(function(op) {
+      var planned = ring.laborByOper[op] || 0;
+      return { operNo: op, status: '', dept: '', title: '(planned)', hold: '', pct: 0, planned: planned, remaining: planned };
+    }) : [];
+  } else {
+    ops = (woOps[node.woNo] || []).map(function(o) {
+      var planned = (ring && ring.laborByOper[o.operNo] != null && ring.laborByOper[o.operNo] > 0) ? ring.laborByOper[o.operNo] : o.plannedHrs;
+      var remaining = planned * (1 - (o.pct || 0) / 100);
+      if (remaining < 0) remaining = 0;
+      return { operNo: o.operNo, status: o.status, dept: o.dept, title: o.title, hold: o.hold,
+               pct: o.pct, planned: planned, remaining: remaining };
+    });
+  }
+  var hasRing = !!ring && ring.gateOrder.length > 0;
+  var out = { hasRing: hasRing, gates: [], flat: ops };
+  if (hasRing) {
+    var byGate = {};
+    ring.gateOrder.forEach(function(g){ byGate[g] = []; });
+    var ungated = [];
+    ops.forEach(function(o) {
+      var g = ring.operToGate[o.operNo];
+      if (g != null && byGate[g]) byGate[g].push(o); else ungated.push(o);
+    });
+    ring.gateOrder.forEach(function(g) {
+      var gops = byGate[g];
+      var color = 'c-gray';
+      if (node.isPlaceholder) { color = 'c-plan'; }
+      else { var best = 3; gops.forEach(function(o){ var rk = statusRank(o.status); if (rk < best) { best = rk; color = operColorClass(o.status, o.dept); } }); }
+      out.gates.push({ num: g, name: ring.gateName[g] || ('Gate ' + g), ops: gops, colorClass: color });
+    });
+    if (ungated.length) out.gates.push({ num: '', name: 'Unmapped ops', ops: ungated, colorClass: node.isPlaceholder ? 'c-plan' : 'c-gray' });
+  }
+  return out;
+}
+
+function barStatusClass(node) {
+  if (node.isPlaceholder) return 'c-plan';
+  var ops = woOps[node.woNo] || [];
+  var best = 3, color = 'c-gray';
+  ops.forEach(function(o){ var rk = statusRank(o.status); if (rk < best) { best = rk; color = operColorClass(o.status, o.dept); } });
+  return color;
+}
+
+// Visible row identifier: S/N if present, else "x"+last 4 of the WO, else (placeholder) the part number.
+function nodeIdent(n) {
+  if (n.serial) return n.serial;
+  if (n.woNo) { var d = n.woNo.replace(/\D/g, ''); return 'x' + (d.slice(-4) || n.woNo.slice(-4)); }
+  return n.partNo || '(no part)';
+}
+
+function setProgramLabel(prog, val) { programLabels[prog] = (val || '').slice(0, 20); }
+function setFamilyComment(rootId, val) { familyComments[rootId] = val || ''; }
+
+function opTooltip(o) {
+  return o.title + ' — ' + (o.status || 'n/a') + (o.dept ? ' — ' + o.dept : '') +
+    ' — ' + (o.pct || 0) + '% — ' + o.remaining.toFixed(1) + 'h remaining' + (isHold(o.hold) ? ' — HOLD: ' + o.hold : '');
+}
+
+// ============================== Rendering ==============================
+function barWidthPct(node) {
+  if (!node.completion || !gMax || gMax === gStart) return 6;
+  var total = daysBetween(gStart, gMax); if (total <= 0) total = 1;
+  var d = daysBetween(gStart, node.completion);
+  var pct = (d / total) * 100;
+  if (pct < 2) pct = 2; if (pct > 100) pct = 100;
+  return pct;
+}
+
+function renderBar(node) {
+  var rd = resolveOps(node);
+  var widthPct = barWidthPct(node);
+  var inner = '';
+  if (globalView === 'bars' || !rd.hasRing) {
+    if (globalView === 'chips' && rd.flat.length) {
+      // chips with no ring -> still show solid bar per spec; reveal on click. (fallthrough to solid)
+    }
+    inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo) + '</span>';
+  } else if (globalView === 'gateblocks') {
+    rd.gates.forEach(function(g) {
+      var exp = node.expandedGates[g.num] ? ' expanded' : '';
+      var tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
+      inner += '<span class="gate-seg ' + g.colorClass + exp + '" title="' + esc(tip) +
+        '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' + esc(g.name) + '</span>';
+    });
+  } else { // chips, has ring
+    inner = '';
+    rd.gates.forEach(function(g) {
+      g.ops.forEach(function(o) {
+        inner += '<span class="oper-chip ' + operColorClass(o.status, o.dept) + (isHold(o.hold) ? ' held' : '') +
+          '" title="' + esc(opTooltip(o)) + '">' + esc(o.operNo) + '</span>';
+      });
+    });
+    if (!inner) inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo) + '</span>';
+  }
+  var barClass = 'bar' + (globalView === 'chips' && rd.hasRing ? ' chips' : '');
+  var past = (node.completion && scheduleStart && daysBetween(scheduleStart, node.completion) < 0) ? '<span class="slip-flag" title="Completion is before the schedule start">&#9888;</span>' : '';
+  return '<div class="bar-wrap"><div class="' + barClass + '" style="width:' + widthPct + '%" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + '</div>';
+}
+
+function renderRevealStrip(node) {
+  var rd = resolveOps(node);
+  var showAll = node.opsExpanded;
+  var html = '<div class="reveal-row"><div class="task-col" style="background:#fafcff;"></div><div class="reveal-body">';
+  if (rd.hasRing) {
+    var any = false;
+    rd.gates.forEach(function(g) {
+      if (!showAll && !node.expandedGates[g.num]) return;
+      any = true;
+      html += '<div class="reveal-gate"><div class="reveal-gate-name">Gate ' + esc(g.num) + ': ' + esc(g.name) + '</div>';
+      if (!g.ops.length) html += '<div class="reveal-op op-meta">— no operations for this WO in this gate —</div>';
+      g.ops.forEach(function(o){ html += revealOpLine(o); });
+      html += '</div>';
+    });
+    if (!any) html += '<div class="reveal-op op-meta">Click a gate block to reveal its operations.</div>';
+  } else {
+    if (!rd.flat.length) html += '<div class="reveal-op op-meta">No operation data for this work order.</div>';
+    rd.flat.forEach(function(o){ html += revealOpLine(o); });
+  }
+  html += '</div></div>';
+  return html;
+}
+function revealOpLine(o) {
+  return '<div class="reveal-op"><span class="oper-chip ' + operColorClass(o.status, o.dept) + (isHold(o.hold) ? ' held' : '') +
+    '" title="' + esc(opTooltip(o)) + '">' + esc(o.operNo) + '</span><span><strong>' + esc(o.title || '(no title)') + '</strong></span>' +
+    '<span class="op-meta">' + esc(o.status || 'n/a') + (o.dept ? ' · ' + esc(o.dept) : '') + ' · ' + (o.pct||0) + '% · ' +
+    o.remaining.toFixed(1) + 'h rem' + (isHold(o.hold) ? ' · HOLD ' + esc(o.hold) : '') + '</span></div>';
+}
+
+function axisTicksHTML() {
+  if (!gStart || !gMax || gStart === gMax) return '';
+  var total = daysBetween(gStart, gMax); if (total <= 0) total = 1;
+  var html = '', d = parseISO(gStart);
+  d.setDate(1); // first of start month
+  var guard = 0;
+  while (iso(d) <= gMax && guard++ < 240) {
+    var pos = daysBetween(gStart, iso(d)) / total * 100;
+    if (pos >= -1 && pos <= 101) {
+      var label = d.toLocaleString('en-US', { month: 'short' }) + " '" + pad(d.getFullYear() % 100);
+      html += '<div class="axis-tick" style="left:' + pos + '%"></div>';
+      html += '<div class="axis-label" style="left:' + pos + '%">' + label + '</div>';
+    }
+    d.setMonth(d.getMonth() + 1);
+  }
+  return html;
+}
+
+function buildRows(rootId, level, acc) {
+  var n = nodes[rootId];
+  acc.push({ node: n, level: level });
+  if (!n.collapsed) {
+    getChildren(rootId).sort(function(a,b){ return (+a.id.slice(1)) - (+b.id.slice(1)); }).forEach(function(c){ buildRows(c.id, level+1, acc); });
+  }
+  return acc;
+}
+
+function render() {
+  updateButtons();
+  var board = document.getElementById('board');
+  if (!rootIds.length) {
+    board.innerHTML = '<div class="empty-msg">' +
+      (Object.keys(woMeta).length ? 'Click <strong>+ Add Top Assembly</strong> to start building a tree.' :
+       'Upload a Daily Upload CSV to begin.') + '</div>';
+    renderLoadingTable();
+    return;
+  }
+  // compute axis domain
+  gStart = scheduleStart || todayISO();
+  gMax = gStart;
+  Object.keys(nodes).forEach(function(id){ var c = nodes[id].completion; if (c && c > gMax) gMax = c; });
+  if (gMax === gStart) gMax = addDays(gStart, 30);
+
+  // group roots by program
+  var progOrder = [], byProg = {};
+  rootIds.forEach(function(rid) {
+    var p = nodes[rid].program || '(no program)';
+    if (!byProg[p]) { byProg[p] = []; progOrder.push(p); }
+    byProg[p].push(rid);
+  });
+
+  var html = '';
+  progOrder.forEach(function(prog) {
+    html += '<div class="prog-section"><div class="prog-title">' + esc(prog) +
+      '<input class="prog-label-input" maxlength="20" data-prog="' + esc(prog) + '" value="' + esc(programLabels[prog] || '') +
+      '" placeholder="label…" onchange="setProgramLabel(this.dataset.prog, this.value)"></div><div class="gantt">';
+    // head with axis
+    html += '<div class="gantt-head"><div class="task-col head">Work Order / Part — target completion</div>' +
+      '<div class="time-col head">' + axisTicksHTML() + '</div></div>';
+    byProg[prog].forEach(function(rid) {
+      var rows = buildRows(rid, 0, []);
+      rows.forEach(function(rw) {
+        var n = rw.node, lvl = rw.level;
+        var kids = getChildren(n.id);
+        var atMaxChild = lvl >= 4;
+        var isRoot = !n.parentId;
+        var th = isRoot ? treeMaxLevel(n.id) : 0;
+        var canAddParent = isRoot && th < 4;
+        html += '<div class="gantt-row">';
+        // task col
+        html += '<div class="task-col" style="padding-left:' + (8 + lvl*16) + 'px">';
+        html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
+        var ident = nodeIdent(n);
+        var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
+        html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
+          '<span class="ident">' + esc(ident) + '</span>' +
+          (n.partDesc ? ' <span class="pd">' + esc(n.partDesc) + '</span>' : '') + '</span>';
+        html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
+          '" value="' + esc(n.completion || '') + '" title="Target completion date" onchange="setCompletion(\'' + n.id + '\', this.value)">';
+        html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
+        if (isRoot) html += '<button class="row-btn" title="Add a parent above this assembly"' + (canAddParent ? '' : ' disabled') + ' onclick="openSearch(\'parent\',\'' + n.id + '\')">&#8593;</button>';
+        if (n.isPlaceholder) html += '<button class="row-btn link" title="Link this placeholder to a work order" onclick="openSearch(\'link\',\'' + n.id + '\')">WO</button>';
+        html += '<button class="row-btn del" title="Delete this node and its branch" onclick="deleteNode(\'' + n.id + '\')">&times;</button>';
+        html += '</div>';
+        // time col
+        html += '<div class="time-col">' + renderBar(n) + '</div>';
+        html += '</div>';
+        // reveal strip
+        if (n.opsExpanded || Object.keys(n.expandedGates).length) html += renderRevealStrip(n);
+      });
+      html += '<div class="family-comment-row"><div class="fc-label">Takeaway</div><div class="family-comment-cell">' +
+        '<textarea class="family-comment" data-root="' + rid + '" oninput="setFamilyComment(this.dataset.root, this.value)" placeholder="Family takeaway…">' +
+        esc(familyComments[rid] || '') + '</textarea></div></div>';
+    });
+    html += '</div></div>';
+  });
+  board.innerHTML = html;
+  renderLoadingTable();
+}
+
+// ============================== Gate Loading by Month ==============================
+function monthList() {
+  if (!gStart || !gMax) return [];
+  var out = [], d = parseISO(gStart);
+  d.setDate(1);
+  var guard = 0;
+  while (iso(d) <= gMax && guard++ < 240) {
+    var nd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    out.push({ key: d.getFullYear() + '-' + pad(d.getMonth()+1),
+               label: d.toLocaleString('en-US', { month: 'short' }) + " '" + pad(d.getFullYear() % 100),
+               firstISO: iso(d), nextISO: iso(nd) });
+    d.setMonth(d.getMonth() + 1);
+  }
+  return out;
+}
+
+function computeGateLoading() {
+  var months = monthList();
+  var monthRange = {};
+  months.forEach(function(m){ monthRange[m.key] = [daysBetween(gStart, m.firstISO), daysBetween(gStart, m.nextISO)]; });
+  var programs = [], seenProg = {};
+  rootIds.forEach(function(rid){ var p = nodes[rid].program || '(no program)'; if (!seenProg[p]) { seenProg[p] = true; programs.push(p); } });
+  var data = {}, labTotals = {}, excluded = [];
+  function bucket(store, mk, gk, num, name, hrs) {
+    if (!store[mk]) store[mk] = {};
+    if (!store[mk][gk]) store[mk][gk] = { num: num, name: name, hours: 0 };
+    store[mk][gk].hours += hrs;
+  }
+  Object.keys(nodes).forEach(function(id) {
+    var n = nodes[id];
+    var rd = resolveOps(n);
+    if (!rd.hasRing) { excluded.push(n.woNo); return; }
+    var prog = n.program || '(no program)';
+    if (!data[prog]) data[prog] = {};
+    var S = gStart, C = n.completion || gStart;
+    var spanDays = daysBetween(S, C);
+    var N = rd.gates.length;
+    if (!N) return;
+    rd.gates.forEach(function(g, i) {
+      var H = 0; g.ops.forEach(function(o){ H += o.remaining; });
+      if (H <= 0) return;
+      var gk = (g.num === '' ? 'unmapped' : g.num + '|' + g.name);
+      var label = (g.num === '' ? 'Unmapped' : g.name);
+      var entryNum = (g.num === '' ? '' : g.num);
+      if (spanDays <= 0) {
+        var mk0 = months.length ? months[0].key : null;
+        if (mk0) { bucket(data[prog], mk0, gk, entryNum, label, H); bucket(labTotals, mk0, gk, entryNum, label, H); }
+        return;
+      }
+      var segStart = i * spanDays / N, segEnd = (i + 1) * spanDays / N, segLen = segEnd - segStart;
+      months.forEach(function(m) {
+        var mr = monthRange[m.key];
+        var ov = Math.min(segEnd, mr[1]) - Math.max(segStart, mr[0]);
+        if (ov <= 0) return;
+        var hrs = H * (segLen > 0 ? ov / segLen : 1);
+        bucket(data[prog], m.key, gk, entryNum, label, hrs);
+        bucket(labTotals, m.key, gk, entryNum, label, hrs);
+      });
+    });
+  });
+  return { months: months, programs: programs, data: data, labTotals: labTotals, excluded: excluded };
+}
+
+function renderLoadingTable() {
+  var el = document.getElementById('loading');
+  if (!el) return;
+  if (!rootIds.length) { el.innerHTML = ''; return; }
+  var gl = computeGateLoading();
+  if (!gl.months.length) { el.innerHTML = ''; return; }
+  function gateSort(gates) {
+    return Object.keys(gates).sort(function(a, b) {
+      var na = gates[a].num === '' ? 9999 : (parseInt(gates[a].num, 10) || 0);
+      var nb = gates[b].num === '' ? 9999 : (parseInt(gates[b].num, 10) || 0);
+      return na - nb;
+    });
+  }
+  function cellHTML(store, mk) {
+    var gates = store[mk];
+    if (!gates) return '<td class="lt-cell">—</td>';
+    var lines = '', total = 0, any = false;
+    gateSort(gates).forEach(function(k) {
+      var g = gates[k]; if (g.hours <= 0.05) return; any = true; total += g.hours;
+      lines += '<div class="lt-gline">' + (g.num !== '' ? 'G' + esc(g.num) + ' ' : '') + esc(g.name) + ' — ' + g.hours.toFixed(1) + 'h</div>';
+    });
+    if (!any) return '<td class="lt-cell">—</td>';
+    return '<td class="lt-cell">' + lines + '<div class="lt-total">Total ' + total.toFixed(1) + 'h</div></td>';
+  }
+  function rowTotal(store) {
+    var t = 0;
+    gl.months.forEach(function(m){ var gs = store[m.key]; if (gs) Object.keys(gs).forEach(function(k){ t += gs[k].hours; }); });
+    return t;
+  }
+  var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — remaining hours</div>';
+  html += '<div class="lt-scroll"><table class="loading-table"><thead><tr><th class="lt-rowhead">Program</th>';
+  gl.months.forEach(function(m){ html += '<th>' + esc(m.label) + '</th>'; });
+  html += '<th class="lt-rowtotal">Total</th></tr></thead><tbody>';
+  html += '<tr class="lt-lab"><th class="lt-rowhead">Entire Lab</th>';
+  gl.months.forEach(function(m){ html += cellHTML(gl.labTotals, m.key); });
+  html += '<td class="lt-rowtotal">' + rowTotal(gl.labTotals).toFixed(1) + 'h</td></tr>';
+  gl.programs.forEach(function(p) {
+    var store = gl.data[p] || {};
+    html += '<tr><th class="lt-rowhead">' + esc(p) + '</th>';
+    gl.months.forEach(function(m){ html += cellHTML(store, m.key); });
+    html += '<td class="lt-rowtotal">' + rowTotal(store).toFixed(1) + 'h</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  if (gl.excluded.length) {
+    var uniq = gl.excluded.filter(function(v, i, a){ return a.indexOf(v) === i; });
+    html += '<div class="lt-foot">' + uniq.length + ' work order(s) excluded (no decoder ring): ' + esc(uniq.join(', ')) + '</div>';
+  }
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function updateButtons() {
+  var has = rootIds.length > 0;
+  document.getElementById('export-csv-btn').disabled = !has;
+  document.getElementById('save-btn').disabled = !has;
+  document.getElementById('add-root-btn').disabled = Object.keys(woMeta).length === 0;
+}
+
+// ============================== Export: Hierarchy CSV ==============================
+function csvQuote(s) { s = String(s == null ? '' : s); return (s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0) ? '"' + s.replace(/"/g,'""') + '"' : s; }
+function sanitizeFilename(s) { return String(s).replace(/[^a-zA-Z0-9_\-]/g, '_'); }
+function dateStr() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+function downloadFile(content, filename, type) {
+  var blob = new Blob([content], { type: type }), url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+function exportHierarchyCSV() {
+  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Completion Date,Manual Date Flag,Family Comment'];
+  function walk(id) {
+    var n = nodes[id], lvl = nodeLevel(id);
+    var parent = n.parentId ? nodes[n.parentId] : null;
+    var fc = (!parent) ? (familyComments[id] || '') : '';
+    lines.push([csvQuote(n.id), csvQuote(parent ? parent.id : ''), lvl, csvQuote(n.program),
+      csvQuote(programLabels[n.program] || ''), csvQuote(n.woNo), csvQuote(n.partNo), csvQuote(n.partDesc),
+      csvQuote(n.serial), n.isPlaceholder ? 'Y' : 'N', csvQuote(parent ? parent.woNo : ''), csvQuote(parent ? parent.partNo : ''),
+      csvQuote(n.completion || ''), n.manualDate ? 'Y' : 'N', csvQuote(fc)].join(','));
+    getChildren(id).sort(function(a,b){ return (+a.id.slice(1)) - (+b.id.slice(1)); }).forEach(function(c){ walk(c.id); });
+  }
+  rootIds.forEach(walk);
+  downloadFile(lines.join('\n'), 'pdvf-hierarchy-' + dateStr() + '.csv', 'text/csv');
+}
+
+function importHierarchy(rows) {
+  var h = rows[0];
+  var iId = colIndex(h, 'Node ID');
+  var iPid = colIndex(h, 'Parent ID');
+  var iWO = colIndex(h, 'WO'); if (iWO < 0) iWO = colIndex(h, 'Order No');
+  var iPart = colIndex(h, 'Part Number');
+  var iDesc = colIndex(h, 'Part Description');
+  var iProg = colIndex(h, 'Program');
+  var iPLabel = colIndex(h, 'Program Label');
+  var iSerial = colIndex(h, 'Serial');
+  var iPlace = colIndex(h, 'Placeholder');
+  var iPWO = colIndex(h, 'Parent WO');
+  var iComp = colIndex(h, 'Completion Date');
+  var iMan = colIndex(h, 'Manual Date Flag');
+  var iFC = colIndex(h, 'Family Comment');
+  var byId = (iId >= 0 && iPid >= 0);
+  if (!byId && (iWO < 0 || iPWO < 0)) {
+    showStatus('hier-status', 'Error: hierarchy CSV needs Node ID/Parent ID (or WO/Parent WO) columns.', 'error'); return;
+  }
+
+  nodes = {}; rootIds = []; nextNodeId = 0; programLabels = {}; familyComments = {};
+  var byWO = {}, maxNum = -1, pending = [];
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var wo = iWO >= 0 ? (row[iWO] || '').trim() : '';
+    var isPlace = iPlace >= 0 ? /^y/i.test((row[iPlace] || '').trim()) : (!wo);
+    var id;
+    if (byId) {
+      id = (row[iId] || '').trim(); if (!id) continue;
+      var mm = /^n(\d+)$/.exec(id); if (mm) maxNum = Math.max(maxNum, +mm[1]);
+    } else {
+      if (!wo) continue;
+      id = 'n' + (nextNodeId++);
+    }
+    var prog = iProg >= 0 ? (row[iProg] || '').trim() : '';
+    var n = { id: id, woNo: wo,
+      partNo: iPart>=0 ? (row[iPart]||'').trim() : '',
+      partDesc: iDesc>=0 ? (row[iDesc]||'').trim() : '',
+      program: prog,
+      serial: iSerial>=0 ? (row[iSerial]||'').trim() : '',
+      isPlaceholder: isPlace,
+      parentId: null,
+      completion: iComp>=0 ? (row[iComp]||'').trim() : '',
+      manualDate: iMan>=0 ? /^y/i.test((row[iMan]||'').trim()) : false,
+      collapsed: false, opsExpanded: false, expandedGates: {} };
+    nodes[id] = n; if (wo) byWO[wo] = id;
+    pending.push({ id: id, parentRef: byId ? (row[iPid]||'').trim() : (iPWO>=0?(row[iPWO]||'').trim():''), fc: iFC>=0 ? (row[iFC]||'').trim() : '' });
+    if (prog && iPLabel >= 0) { var pl = (row[iPLabel] || '').trim(); if (pl) programLabels[prog] = pl; }
+  }
+  // link parents (second pass — row order independent)
+  pending.forEach(function(pr) {
+    var n = nodes[pr.id];
+    var parId = byId ? pr.parentRef : (pr.parentRef && byWO[pr.parentRef] ? byWO[pr.parentRef] : '');
+    if (parId && nodes[parId]) { n.parentId = parId; }
+    else { n.parentId = null; rootIds.push(pr.id); if (pr.fc) familyComments[pr.id] = pr.fc; }
+    if (n.woNo && woMeta[n.woNo]) bindNodeFields(n);
+  });
+  if (byId) nextNodeId = maxNum + 1;
+  if (!scheduleStart) scheduleStart = todayISO();
+  normalizeDates();
+  showStatus('hier-status', 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)). Re-upload a Daily Upload to refresh status.', 'loaded');
+  render();
+}
+
+// ============================== Save snapshot ==============================
+function saveSnapshot() {
+  var css = document.querySelector('style').textContent;
+  var now = new Date(), ts = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+  var state = { nodes: nodes, rootIds: rootIds, nextNodeId: nextNodeId, scheduleStart: scheduleStart,
+                globalView: globalView, dailyIndex: dailyIndex, woOps: woOps, woMeta: woMeta, ringByPart: ringByPart,
+                programLabels: programLabels, familyComments: familyComments };
+  var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
+
+  var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
+  html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n';
+  html += '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">\n';
+  html += '<title>PDVF Dependency Gantt - Snapshot</title>\n<style>\n' + css + '\n</style>\n</head>\n<body>\n';
+  html += '<div style="background:#fef3c7;border:2px solid #f59e0b;padding:8px 14px;text-align:center;font-weight:bold;font-size:0.9rem;color:#92400e;margin-bottom:1rem;border-radius:4px;">Proprietary &mdash; Internal Use Only</div>\n';
+  html += '<h1>PDVF — Dependency Gantt Builder <span>Snapshot</span></h1>\n';
+  html += '<p style="font-size:0.8rem;color:#888;margin-bottom:1rem;">Snapshot saved: ' + esc(ts) + '</p>\n';
+  html += '<div class="snapshot-notice" id="snapshot-notice" style="display:block;">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>\n';
+  html += '<div class="input-section"><div class="file-group"><label>Refresh Daily Upload</label><input type="file" id="daily-file" accept=".csv,.txt"><div class="status" id="daily-status"></div></div>';
+  html += '<div class="file-group"><label>Add Decoder Ring CSV(s)</label><input type="file" id="ring-file" accept=".csv,.txt" multiple><div class="status" id="ring-status"></div></div>';
+  html += '<div class="file-group"><label>Import Hierarchy CSV</label><input type="file" id="hier-file" accept=".csv,.txt"><div class="status" id="hier-status"></div></div></div>\n';
+  html += '<div class="action-bar"><button class="btn btn-primary" id="add-root-btn" onclick="openSearch(\'root\', null)">+ Add Top Assembly</button>';
+  html += '<button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>';
+  html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>';
+  html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button></div>\n';
+  html += '<div class="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
+  html += '<div id="board"></div>\n';
+  html += '<div id="loading"></div>\n';
+  html += document.getElementById('search-modal').outerHTML + '\n';
+
+  html += '<script>\n';
+  html += 'var isSnapshot = true;\n';
+  html += 'var snapshotState = ' + stateJson + ';\n';
+  html += 'var nodes = snapshotState.nodes, rootIds = snapshotState.rootIds, nextNodeId = snapshotState.nextNodeId;\n';
+  html += 'var scheduleStart = snapshotState.scheduleStart, globalView = snapshotState.globalView;\n';
+  html += 'var dailyIndex = snapshotState.dailyIndex, woOps = snapshotState.woOps, woMeta = snapshotState.woMeta, ringByPart = snapshotState.ringByPart;\n';
+  html += 'var programLabels = snapshotState.programLabels || {}, familyComments = snapshotState.familyComments || {};\n';
+  html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
+  var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
+    operColorClass, statusRank, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
+    getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, setCompletion,
+    bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
+    openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
+    nodeIdent, setProgramLabel, setFamilyComment,
+    cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
+    barWidthPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
+    monthList, computeGateLoading, renderLoadingTable,
+    csvQuote, sanitizeFilename, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
+  for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
+  html += 'wireInputs();\n';
+  html += 'document.getElementById("view-btn").textContent = "View: " + (globalView==="bars"?"Bars":(globalView==="gateblocks"?"Gate blocks":"Chips"));\n';
+  html += 'render();\n';
+  html += '<\/script>\n</body>\n</html>';
+
+  downloadFile(html, 'pdvf-dependency-gantt-' + dateStr() + '.html', 'text/html');
+}
+
+// ============================== Init ==============================
+wireInputs();
+if (typeof snapshotState === 'undefined') render();
+</script>
+</body>
+</html>

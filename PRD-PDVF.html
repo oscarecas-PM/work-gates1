@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD - Production Dependency &amp; Velocity Forecaster (PDVF)</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #222; line-height: 1.6; }
+h1 { color: #1e3a5f; border-bottom: 3px solid #1e3a5f; padding-bottom: 0.5rem; }
+h2 { color: #1e3a5f; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+h3 { color: #334155; margin-top: 1.5rem; }
+h4 { color: #475569; margin-top: 1.2rem; margin-bottom: 0.3rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+th { background: #334155; color: #fff; padding: 8px 12px; text-align: left; }
+td { padding: 6px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+tr:nth-child(even) { background: #f8fafc; }
+code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+.req { font-weight: bold; color: #2563eb; margin-right: 6px; }
+.version { color: #666; font-size: 0.9em; }
+ul { margin: 0.5rem 0; }
+li { margin: 0.3rem 0; }
+.note { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.95rem; }
+.problem { background: #fef2f2; border-left: 4px solid #dc2626; padding: 0.5rem 1rem; margin: 1rem 0; }
+.solution { background: #ecfdf5; border-left: 4px solid #059669; padding: 0.5rem 1rem; margin: 1rem 0; }
+.impact { background: #eff6ff; border-left: 4px solid #2563eb; padding: 0.5rem 1rem; margin: 1rem 0; }
+.callout-label { font-weight: bold; letter-spacing: 0.05em; display: block; margin-bottom: 0.2rem; font-size: 0.85rem; }
+.northstar { background: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #1e3a5f; padding: 1rem 1.25rem; margin: 1rem 0; font-style: italic; font-size: 1.05rem; }
+.confidential { color: #b91c1c; font-weight: bold; letter-spacing: 0.05em; font-size: 0.8rem; text-transform: uppercase; }
+.phase-tag { font-weight: bold; color: #1e3a5f; }
+</style>
+</head>
+<body>
+
+<p class="confidential">Product Requirements Document &mdash; Confidential, For Internal Use Only</p>
+
+<h1>Production Dependency &amp; Velocity Forecaster (PDVF)</h1>
+
+<table>
+  <tr><th>Document Field</th><th>Value</th></tr>
+  <tr><td>Product Name</td><td>Production Dependency &amp; Velocity Forecaster (PDVF)</td></tr>
+  <tr><td>Version</td><td>1.0 &mdash; Initial Release</td></tr>
+  <tr><td>Date</td><td>March 2026</td></tr>
+  <tr><td>Author</td><td>FabLab / Digital Transformation</td></tr>
+  <tr><td>Status</td><td>Draft &mdash; Pending Leadership Review</td></tr>
+  <tr><td>Classification</td><td>Confidential &mdash; Internal Use Only</td></tr>
+</table>
+
+<div class="note"><span class="callout-label">PHASE 1 v1 — BUILT 2026-05-28</span>A first working build shipped as <code>pdvf-dependency-gantt-1.html</code> (single-file, client-side, consistent with the existing repo tools — not the funded multi-user/DB build). It delivers the Dependency Map Editor (&sect;5.1) merged with the visual half of the Critical Path View (&sect;5.3): a <strong>program-grouped Gantt</strong> built from a Daily Upload, with WO-tied nodes (multi-select add), manual target <strong>completion dates</strong> (children capped at their parent), a global three-state view cycle (<strong>Bars / Gate blocks / Chips</strong>) with click-to-reveal operations, multi decoder-ring auto-matching with Gate-Tracker status coloring, and per-operation %&nbsp;complete + remaining hours. A <strong>Gate Loading by Month</strong> table (calendar form of &sect;5.4) sits at the bottom: months as columns matching the Gantt axis, a row per program plus an "Entire Lab" total on top, each gate's remaining hours spread proportionally across the months its bar-segment spans (no-ring WOs excluded with a footnote count). A later iteration added <strong>placeholder nodes</strong> (manually-added part numbers with no work order yet, as children or parents, convertible to a real WO via a &ldquo;Link to WO&rdquo; action; placeholders matching a decoder ring load that ring's planned hours at 0% complete), a revised <strong>row label</strong> (S/N &rarr; else &ldquo;x&rdquo;+last-4 of the WO &rarr; else part number, followed by the description; WO/part stay in the tooltip), editable <strong>per-program group labels</strong>, and per-tree <strong>family takeaway comments</strong>. The hierarchy CSV was extended with stable <strong>Node ID / Parent ID</strong> columns (so placeholders link without a WO) plus Placeholder, Program Label, and Family Comment columns; older WO-keyed CSVs still import via a Parent-WO fallback. <strong>Deferred to later builds:</strong> the velocity engine &amp; cascade (&sect;5.2), forecast/dashed bars, dependency connectors, slip markers, gate join points (&sect;5.1.3), purchased parts tracker (&sect;5.6), gate loading matrix (&sect;5.4), and resource demand forecast (&sect;5.5). Velocity, when built, will use a recent-lookback window rather than the lifetime average in &sect;5.2.2.</div>
+
+<h2>1. Executive Summary</h2>
+<p>Aerospace and defense manufacturing programs rely on complex, multi-level work order trees where parts, materials, calibrated equipment, and certified personnel must converge at precisely the right moment. Today, that convergence is managed through tribal knowledge, disconnected spreadsheets, and reactive expediting &mdash; a pattern that generates avoidable cost and delivery risk.</p>
+<p>The Production Dependency &amp; Velocity Forecaster (PDVF) is a shop floor intelligence tool that maps work order dependency trees up to five levels deep, projects forward completion dates using earned-hour velocity, and generates actionable demand signals for every resource category &mdash; materials, purchased parts, equipment, and personnel certifications &mdash; across 30, 90, and 180-day planning horizons.</p>
+<p>A proof-of-concept prototype has been developed in-house using the FabLab's digital tooling capability and is available for demonstration. This document defines the requirements for a production-grade web application to be funded, built, and integrated with the organization's Manufacturing Execution System (MES).</p>
+
+<div class="problem"><span class="callout-label">PROBLEM</span>We do not know when we will need what until it is too late. The result is expedite fees, overtime, and delivery risk that is entirely predictable &mdash; but currently invisible.</div>
+
+<div class="solution"><span class="callout-label">SOLUTION</span>PDVF makes the invisible visible: a real-time, velocity-driven forecast of every resource dependency across every active work order, surfaced at the right time for the right decision-maker.</div>
+
+<h2>2. Problem Statement</h2>
+
+<h3>2.1 The Dependency Blindspot</h3>
+<p>A complex aerospace assembly may require 100 or more work orders that tier into one another across five or more levels. Each work order contains a sequenced build flow &mdash; organized by production gates &mdash; and each gate may require specific materials, purchased components, calibrated equipment, and personnel holding current process certifications.</p>
+<p>The work order system (MES) captures this structure, but it has no mechanism to answer the following questions:</p>
+<ul>
+  <li>When will operation X on work order Y reach gate G?</li>
+  <li>What resources does gate G require, and when must they be ready?</li>
+  <li>If work order A slips, which downstream work orders are affected and by how much?</li>
+  <li>Which feeder work orders are on the critical path to the top-level delivery date?</li>
+</ul>
+
+<h3>2.2 The Velocity Problem</h3>
+<p>MES start and end dates are set at work order creation but are rarely updated when milestones are missed. Over time, planned dates become fiction. There is no current mechanism to derive a data-driven projected completion date from actual production activity &mdash; specifically, from the rate at which earned hours are being closed across work order operations.</p>
+
+<h3>2.3 The Resource Readiness Gap</h3>
+<p>Functional owners &mdash; materials planners, equipment coordinators, certification managers &mdash; have no forward-looking demand signal. They respond to requests when work is about to begin, not when lead times demand action. The result:</p>
+<ul>
+  <li>Materials are ordered too late, triggering expedite fees</li>
+  <li>Equipment certification lapses are discovered when the work order reaches that gate</li>
+  <li>Personnel certifications expire before they are needed, requiring unplanned training cycles</li>
+  <li>Purchased parts with long lead times are not on order until shortages are visible</li>
+</ul>
+
+<div class="impact"><span class="callout-label">IMPACT</span>The inability to forecast resource demand against a realistic production schedule generates reactive, high-cost responses to problems that were entirely predictable weeks or months in advance.</div>
+
+<h2>3. Product Vision</h2>
+<p>PDVF is a production intelligence layer that sits alongside the MES, reads its data, and surfaces what the MES cannot: a time-projected, dependency-aware, resource-enriched view of the entire production program.</p>
+<p>The tool does not replace the MES. It does not manage work orders, issue travelers, or record labor transactions. Its purpose is singular: to tell each stakeholder what they need to know, when they need to know it, so they can act before the problem arrives.</p>
+
+<h3>3.1 North Star Statement</h3>
+<div class="northstar">"Any resource owner &mdash; materials, equipment, certifications &mdash; can open PDVF on any Monday morning and know exactly what they need to have ready in the next 30 days, what they need to order or initiate in the next 90 days, and what long-lead items are at risk over the next six months &mdash; all derived from actual production velocity, not planned dates that no one maintains."</div>
+
+<h2>4. Users &amp; Roles</h2>
+<table>
+  <tr><th>Role</th><th>Primary Need</th><th>Key View(s)</th></tr>
+  <tr><td>Program Manager</td><td>Delivery risk visibility across all WOs feeding a top-level assembly</td><td>Critical Path Gantt, Portfolio Roll-up</td></tr>
+  <tr><td>Resource Planner / Scheduler</td><td>Know what to order or initiate, and when, across all programs</td><td>Resource Demand Forecast (30/90/180)</td></tr>
+  <tr><td>Shop Floor Supervisor</td><td>Gate loading forecast &mdash; staffing levels and cert coverage per gate</td><td>Gate Loading Matrix</td></tr>
+  <tr><td>Procurement / Materials</td><td>Purchased part ECD tracking, which WOs are blocked and why</td><td>Purchased Parts Tracker</td></tr>
+  <tr><td>Program Planner / Engineer</td><td>Build and maintain WO dependency maps; assign WOs to part templates</td><td>Dependency Map Editor</td></tr>
+  <tr><td>Executive Leadership</td><td>Portfolio-level health across all active programs</td><td>Portfolio Roll-up Dashboard</td></tr>
+</table>
+
+<h2>5. Functional Requirements</h2>
+
+<h3>5.1 Dependency Map Editor</h3>
+<p>The dependency map is the structural foundation of the system. It must support the following:</p>
+
+<h4>5.1.1 Part Structure Templates</h4>
+<ul>
+  <li>Define a reusable part structure template: which part number kits into which parent, at which gate, at which level of the hierarchy</li>
+  <li>Support up to five levels of nesting (Level 0 = top-level assembly; Level 4 = deepest feeder component)</li>
+  <li>Templates are stable across releases &mdash; the structure of how parts relate does not change when work order numbers change</li>
+  <li>Templates must be editable to accommodate Engineering Change Orders (ECOs)</li>
+</ul>
+
+<h4>5.1.2 Work Order Assignment</h4>
+<ul>
+  <li>Each release, a planner or program engineer assigns specific work order numbers to each node in the template</li>
+  <li>Assignment is a best-estimate &mdash; the tool must allow reassignment up to the moment of kitting</li>
+  <li>The system must log who made each assignment and when (audit trail)</li>
+  <li>Multiple work orders may feed into the same parent node; each carries its own gate join point</li>
+</ul>
+
+<h4>5.1.3 Gate Join Points</h4>
+<ul>
+  <li>Each feeder work order specifies which gate on the parent work order it must be ready for</li>
+  <li>A join at Gate 1 means the feeder must be complete before the parent can begin remaining work</li>
+  <li>A join at Gate N means the parent can continue earning hours on earlier gates while the feeder completes</li>
+  <li>If a parent work order has already earned hours, a Gate 1 join points to the start of remaining forecast work, not the historical start</li>
+</ul>
+
+<h3>5.2 Velocity Engine</h3>
+<p>The velocity engine is the forecasting core of the system. It derives projected completion dates from actual production activity rather than planned dates.</p>
+
+<h4>5.2.1 Data Ingestion</h4>
+<ul>
+  <li>Accept periodic CSV exports from the MES containing: work order ID, total earnable hours, hours earned to date, number of weeks active</li>
+  <li>In the funded build: replace CSV upload with a direct MES database query or API call</li>
+  <li>Each upload creates a timestamped velocity snapshot retained for trend analysis</li>
+</ul>
+
+<h4>5.2.2 Velocity Calculation</h4>
+<ul>
+  <li>Daily rate = earned hours / (weeks active &times; 5 working days)</li>
+  <li>Remaining work = total earnable hours &minus; earned hours to date</li>
+  <li>Days to completion = remaining work / daily rate</li>
+  <li>Projected completion date = today + days to completion</li>
+</ul>
+
+<h4>5.2.3 Cascade Logic</h4>
+<ul>
+  <li>When a feeder work order's projected completion date shifts, the system recalculates the gate entry date on the parent</li>
+  <li>If the feeder will finish after the parent's gate entry date, the parent's effective resume date is pushed to the feeder's projected completion</li>
+  <li>This cascade propagates automatically up all levels of the dependency tree</li>
+  <li>The system iterates until the tree reaches a stable state (convergence)</li>
+</ul>
+
+<h4>5.2.4 Purchased Part Blocking</h4>
+<ul>
+  <li>A purchased part marked as blocking START prevents the work order's remaining work from beginning until the ECD has passed</li>
+  <li>Work already earned is displayed as historical and is not recalculated</li>
+  <li>A purchased part blocking a specific gate delays that gate's commencement, not the entire work order</li>
+  <li>Part blocks cascade into the parent tree through the same mechanism as feeder WO delays</li>
+</ul>
+
+<h3>5.3 Critical Path View (Primary View)</h3>
+<p>A Gantt-style visualization where time runs left-to-right on a shared calendar axis and each work order occupies one row.</p>
+
+<h4>5.3.1 Bar Representation</h4>
+<p>Each work order is represented by two bars on the same row:</p>
+<ul>
+  <li><strong>Left bar (solid border):</strong> earned work to date. Spans from work order start to today. Width reflects hours closed; gate segments show completed gates.</li>
+  <li><strong>Right bar (dashed border):</strong> forecast remaining work. Starts at ECD of blocking part (or today if unblocked). Ends at velocity-projected completion date.</li>
+  <li><strong>Gap between bars:</strong> the blocked wait period. Labeled 'waiting' if space permits.</li>
+</ul>
+<ul>
+  <li>A purple diamond marker above the bar indicates the original planned end date</li>
+  <li>A red slip indicator below the bar shows the number of days of delay when projected &gt; planned</li>
+</ul>
+
+<h4>5.3.2 Gate Segments</h4>
+<ul>
+  <li>Each bar is subdivided into gate segments proportional to the total number of gates</li>
+  <li>Completed gates are displayed with higher visual weight on the left bar</li>
+  <li>Forecast gates are displayed at reduced opacity on the right bar</li>
+</ul>
+
+<h4>5.3.3 Dependency Connectors</h4>
+<ul>
+  <li>Dependency lines connect feeder work order projected completion to the gate entry point on the parent</li>
+  <li>Routing: straight vertical line from feeder bar end, underpass (horizontal run just below parent bar bottom), then rises into parent bar with upward arrowhead</li>
+  <li>Red solid line = critical path (float &le; 14 days)</li>
+  <li>Amber dashed line = at risk (float 15&ndash;30 days)</li>
+  <li>Dark dashed line = healthy (float &gt; 30 days)</li>
+  <li>Connectors never cross through bars; they route underneath using the underpass pattern</li>
+</ul>
+
+<h4>5.3.4 Purchased Parts (Inline)</h4>
+<ul>
+  <li>The longest-lead purchased part for each work order is displayed below its bar row by default</li>
+  <li>An expand control reveals the full purchased part list for that work order</li>
+  <li>Each part shows: description, ECD on the timeline, and blocking label (START or Gate N)</li>
+  <li>Overdue parts (ECD in the past) are highlighted in red</li>
+</ul>
+
+<h3>5.4 Gate Loading Matrix</h3>
+<p>A matrix view for staffing and gate assignment decisions, separate from the critical path view and intended for shop floor supervisors.</p>
+<ul>
+  <li>Gates as columns; time horizons (30-day, 90-day, 6-month) as rows</li>
+  <li>Each cell displays: work order count, total earnable hours, implied headcount (hours / 160 hrs per person per month)</li>
+  <li>Load bar per cell: color-coded green/amber/red based on hours as a percentage of gate capacity</li>
+  <li>Expanding a row reveals required certifications per gate and the number of work orders requiring each cert</li>
+  <li>A totals column shows program-level roll-up per horizon</li>
+</ul>
+
+<h3>5.5 Resource Demand Forecast</h3>
+<p>A role-filtered demand summary for materials and equipment planners, organized by 30/90/180-day horizons.</p>
+<ul>
+  <li>Materials section: resource name, quantity needed, number of driving work orders, unit of measure</li>
+  <li>Equipment section: equipment name, days of reservation needed, number of driving work orders</li>
+  <li>6-month horizon filtered to long-lead items only &mdash; non-long-lead items dimmed</li>
+  <li>Separate views filterable by resource type so each functional owner sees only their domain</li>
+</ul>
+
+<h3>5.6 Purchased Parts Tracker</h3>
+<p>A dedicated interface for procurement and materials personnel to maintain ECD data for purchased parts.</p>
+<ul>
+  <li>Add purchased parts to any work order node in the dependency tree</li>
+  <li>Set and update ECD per part</li>
+  <li>Mark each part as blocking START or blocking a specific gate number</li>
+  <li>View all parts across all work orders sorted by ECD urgency</li>
+  <li>Flag parts as ordered, received, or at-risk</li>
+  <li>Changes to ECDs automatically recalculate the velocity cascade and update all dependent projected dates</li>
+</ul>
+
+<h3>5.7 Portfolio Roll-up (Phase 2)</h3>
+<ul>
+  <li>Summary view across all active programs showing: on-time WO count, at-risk count, critical count</li>
+  <li>Click-through to program-level critical path view</li>
+  <li>Aggregate resource demand across programs for shared resource conflict detection</li>
+</ul>
+
+<h2>6. Non-Functional Requirements</h2>
+<table>
+  <tr><th>Category</th><th>Requirement</th></tr>
+  <tr><td>Scale</td><td>Support up to 400 active work orders across all active programs simultaneously</td></tr>
+  <tr><td>Hierarchy depth</td><td>Support dependency trees up to 5 levels deep</td></tr>
+  <tr><td>Data freshness</td><td>Velocity data refreshed at minimum weekly via MES export; real-time in funded build via API</td></tr>
+  <tr><td>Performance</td><td>Critical path view must render within 3 seconds for a 100-WO program</td></tr>
+  <tr><td>Access control</td><td>Role-based access: planners can edit maps; resource owners edit their domain only; leadership read-only</td></tr>
+  <tr><td>Audit trail</td><td>Log all changes to dependency maps, WO assignments, and ECD updates with user and timestamp</td></tr>
+  <tr><td>History</td><td>Retain weekly velocity snapshots to support trend analysis and forecast accuracy improvement</td></tr>
+  <tr><td>Deployment</td><td>Internal IT-hosted web application; no external cloud dependency for data at rest</td></tr>
+  <tr><td>MES integration</td><td>Proof of concept: CSV upload. Production: read-only MES database query or API; no write-back to MES</td></tr>
+  <tr><td>Browser support</td><td>Modern browsers (Chrome, Edge, Firefox); no IE requirement</td></tr>
+</table>
+
+<h2>7. Data Model</h2>
+
+<h3>7.1 Core Entities</h3>
+<table>
+  <tr><th>Entity</th><th>Key Attributes</th><th>Owned By</th></tr>
+  <tr><td>Part Template</td><td>Template ID, part number, parent part number, gate join point, level</td><td>Program Engineer</td></tr>
+  <tr><td>Work Order Instance</td><td>WO number, template node ID, total earnable hours, current gate, active weeks, start date</td><td>Program Planner</td></tr>
+  <tr><td>Velocity Snapshot</td><td>WO ID, snapshot date, earned hours to date, calculated daily rate</td><td>System (MES import)</td></tr>
+  <tr><td>Purchased Part</td><td>Part ID, description, WO ID, ECD, blocks start (bool), blocks gate (int), status</td><td>Procurement / Materials</td></tr>
+  <tr><td>Resource Demand</td><td>Resource type, name, quantity, unit, driving WO list, horizon</td><td>System (calculated)</td></tr>
+  <tr><td>Gate Definition</td><td>Gate ID, gate name, capacity hours per period, associated certifications</td><td>Shop Floor Supervisor</td></tr>
+</table>
+
+<h3>7.2 Relationship Rules</h3>
+<ul>
+  <li>One Part Template may have many Work Order Instances across releases</li>
+  <li>One Work Order Instance belongs to exactly one Part Template node</li>
+  <li>A Work Order Instance may have zero to many Purchased Parts</li>
+  <li>A Work Order Instance may have zero to many feeder Work Order Instances (up to 5 levels deep)</li>
+  <li>Velocity Snapshots are append-only; historical snapshots are never deleted</li>
+</ul>
+
+<h2>8. Implementation Phases</h2>
+<table>
+  <tr><th>Phase</th><th>Scope</th><th>Target Outcome</th></tr>
+  <tr><td><span class="phase-tag">Phase 0</span><br>Proof of Concept (Complete)</td><td>React application with local JSON storage. Manual velocity entry. Static dependency maps. Critical path Gantt visualization.</td><td>Demonstrate the concept to leadership. Validate the mental model with program planners and resource owners. Secure funding.</td></tr>
+  <tr><td><span class="phase-tag">Phase 1</span><br>Funded Build &mdash; Core</td><td>Internal web app with database. MES CSV import. Dependency map editor. Critical path view. Purchased parts tracker. Gate loading matrix.</td><td>Replace the PoC with a maintainable, multi-user application. Enable weekly planning cadence for all resource domains.</td></tr>
+  <tr><td><span class="phase-tag">Phase 2</span><br>MES Integration</td><td>Direct MES API or database connection. Automated velocity refresh. Real-time blocking status.</td><td>Eliminate manual export step. Velocity data always current. Reduce maintenance burden on planners.</td></tr>
+  <tr><td><span class="phase-tag">Phase 3</span><br>Portfolio &amp; Alerts</td><td>Portfolio roll-up across programs. Automated alert emails when float drops below threshold. Historical forecast accuracy tracking.</td><td>Executive visibility. Proactive notification without requiring users to check the tool.</td></tr>
+</table>
+
+<h2>9. Success Metrics</h2>
+
+<h3>9.1 Adoption Metrics</h3>
+<ul>
+  <li>All active program planners using the dependency map editor within 60 days of Phase 1 launch</li>
+  <li>All resource domain owners (materials, equipment, certs) reviewing their 30-day demand list weekly</li>
+  <li>MES velocity data uploaded no less than weekly</li>
+</ul>
+
+<h3>9.2 Outcome Metrics</h3>
+<ul>
+  <li>Reduction in reactive expedite events for materials and purchased parts</li>
+  <li>Reduction in certification lapses discovered at gate entry</li>
+  <li>Improvement in on-time delivery rate for top-level assemblies</li>
+  <li>Reduction in time spent by program managers manually tracking delivery risk</li>
+</ul>
+
+<div class="note"><span class="callout-label">NOTE</span>Baseline metrics should be captured before Phase 1 launch to enable before/after comparison. The FabLab team will work with program management to identify appropriate measurement proxies.</div>
+
+<h2>10. Assumptions &amp; Constraints</h2>
+
+<h3>10.1 Assumptions</h3>
+<ul>
+  <li>Each program has a dedicated planner or engineer who will own and maintain the dependency mapping for their program</li>
+  <li>The MES can produce an export of work order earned hours on a weekly basis</li>
+  <li>Gate definitions and associated certification requirements are known and can be entered into the system</li>
+  <li>Purchased part ECDs are available and will be maintained by procurement personnel within the tool</li>
+  <li>The organization's IT infrastructure can host an internal web application with a relational database</li>
+</ul>
+
+<h3>10.2 Constraints</h3>
+<ul>
+  <li>PDVF is a read layer &mdash; it does not write back to the MES or alter work order records</li>
+  <li>Expiration dates for certifications and equipment calibrations are maintained in separate systems; PDVF receives demand signals only &mdash; readiness status is outside its scope in Phase 1</li>
+  <li>The tool does not replace the MES scheduler &mdash; it augments it with a forward-looking, dependency-aware intelligence layer</li>
+  <li>Phase 0 (PoC) uses mock data; real program data is required beginning in Phase 1</li>
+</ul>
+
+<h2>11. Open Questions</h2>
+<table>
+  <tr><th>Question</th><th>Owner</th><th>Target Resolution</th></tr>
+  <tr><td>Which MES database schema or API endpoint provides earned hours by work order?</td><td>IT / MES Admin</td><td>Phase 1 planning</td></tr>
+  <tr><td>What is the quantitative baseline for expedite cost, overtime, and late deliveries to establish ROI?</td><td>Program Management / Finance</td><td>Before Phase 1 launch</td></tr>
+  <tr><td>How are gate capacity thresholds defined &mdash; fixed headcount or variable by program?</td><td>Shop Floor Leadership</td><td>Phase 1 requirements refinement</td></tr>
+  <tr><td>Should PDVF integrate with the PLM/EBOM system to pre-populate part templates automatically?</td><td>Engineering / IT</td><td>Phase 2 planning</td></tr>
+  <tr><td>What notification mechanism is preferred for at-risk alerts &mdash; email, Teams, or in-app?</td><td>Resource Owners</td><td>Phase 3 planning</td></tr>
+  <tr><td>Will purchased part ECD maintenance happen within PDVF or remain in a separate procurement system with a feed?</td><td>Procurement</td><td>Phase 1 requirements refinement</td></tr>
+</table>
+
+<h2>12. Glossary</h2>
+<table>
+  <tr><th>Term</th><th>Definition</th></tr>
+  <tr><td>Earned Hours</td><td>Labor hours recorded as completed against a work order operation in the MES</td></tr>
+  <tr><td>Velocity</td><td>The rate at which a work order is earning hours, expressed as hours per day or hours per week, derived from historical performance</td></tr>
+  <tr><td>Gate</td><td>A defined stage in the production build flow. Work orders progress sequentially through gates.</td></tr>
+  <tr><td>Gate Join Point</td><td>The gate on a parent work order at which a feeder work order's output must be present</td></tr>
+  <tr><td>Float</td><td>The number of days between a feeder work order's projected completion and the gate entry date on the parent. Negative float = late.</td></tr>
+  <tr><td>Critical Path</td><td>The chain of work orders with the least float to the top-level assembly completion date</td></tr>
+  <tr><td>ECD</td><td>Estimated Completion Date &mdash; the date by which a purchased part is expected to be received</td></tr>
+  <tr><td>Velocity Snapshot</td><td>A point-in-time record of a work order's earned hours used to calculate and track historical burn rates</td></tr>
+  <tr><td>Part Template</td><td>A reusable definition of how part numbers relate in the dependency tree, independent of specific work order numbers</td></tr>
+  <tr><td>Cascade</td><td>The automatic propagation of a date change through the dependency tree &mdash; a feeder slip pushes parent dates, which push grandparent dates, etc.</td></tr>
+  <tr><td>MES</td><td>Manufacturing Execution System &mdash; the shop floor software that manages work orders, operations, and labor transactions</td></tr>
+</table>
+
+<h2>Approval &amp; Sign-off</h2>
+<p>This document requires review and approval from the following stakeholders before Phase 1 development may begin:</p>
+<table>
+  <tr><th>Role</th><th>Name</th><th>Signature</th><th>Date</th></tr>
+  <tr><td>Author / Product Owner</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>Sponsoring Leader</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>IT / Development Lead</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>Program Management Rep.</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td>Shop Floor Leadership</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+</table>
+
+<p class="version">Production Dependency &amp; Velocity Forecaster | FabLab Digital Transformation</p>
+
+</body>
+</html>

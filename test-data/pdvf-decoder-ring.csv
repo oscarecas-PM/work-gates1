@@ -1,0 +1,11 @@
+Part No.,Part Name,Gate Number,Gate Name,Oper No.,Oper Title,Work Dept,Modifier,Labor Hours,Earnable Hours Flag
+AAA-1000,Turbine Blade,1,Receiving,0010,Inspect Incoming,SMART,,5,Y
+AAA-1000,Turbine Blade,1,Receiving,0020,Kit Parts,SMART,,4,Y
+AAA-1000,Turbine Blade,2,CNC Machining,0030,CNC Finish,SMART,,10,Y
+AAA-1000,Turbine Blade,2,CNC Machining,0040,QA Check,MFG_QA,,8,Y
+AAA-1000,Turbine Blade,3,Final Assembly,0050,Final Assemble,SMART,,12,Y
+BBB-2000,Compressor Disk,1,Receiving,0010,Inspect Incoming,SMART,,6,Y
+BBB-2000,Compressor Disk,2,Welding,0020,Weld Seam,SMART,,9,Y
+EEE-5000,Nozzle Ring,1,Receiving,0010,Inspect,SMART,,8,Y
+EEE-5000,Nozzle Ring,2,Machining,0020,Mill Profile,MFG_QA,,10,Y
+EEE-5000,Nozzle Ring,3,Coating,0030,Apply Coating,SMART,,6,Y
