@@ -25,6 +25,26 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .btn-green { background: #16a34a; color: #fff; } .btn-green:hover:not(:disabled) { background: #15803d; }
 .btn-slate { background: #334155; color: #fff; } .btn-slate:hover:not(:disabled) { background: #1e293b; }
 .btn-view { background: #7c3aed; color: #fff; min-width: 150px; } .btn-view:hover { background: #6d28d9; }
+.btn-mode { background: #b45309; color: #fff; min-width: 110px; } .btn-mode:hover { background: #92400e; }
+.zoom-ctrl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; font-size: 0.78rem; color: #475569; }
+.zoom-ctrl .zoom-cap { font-weight: bold; }
+.zoom-ctrl input[type="range"] { width: 140px; }
+.zoom-ctrl .zoom-label { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Gantt scroll wrapper for zoom */
+.gantt-wrap { overflow-x: auto; overflow-y: hidden; }
+.gantt-wrap > .gantt { min-width: 100%; }
+
+/* WO progress chips in the task list */
+.wo-pct, .wo-rem { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; white-space: nowrap; margin-left: 4px; vertical-align: middle; }
+.wo-pct { background: #1e3a5f; color: #fff; }
+.wo-rem { background: #e0e7ff; color: #1e3a5f; }
+.wo-pct.pct-done { background: #16a34a; }
+.wo-pct.pct-plan { background: #cbd5e1; color: #475569; }
+
+/* Compact / Review mode: hide editing controls, reveal part number inline */
+.compact .node-date, .compact .row-btn { display: none !important; }
+.node-label .pn-inline { color: #475569; margin-left: 4px; }
 
 .snapshot-notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; color: #1e40af; margin-bottom: 1rem; display: none; }
 
@@ -177,6 +197,10 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 <div class="action-bar" id="action-bar">
   <button class="btn btn-primary" id="add-root-btn" disabled onclick="openSearch('root', null)">+ Add Top Assembly</button>
   <button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>
+  <button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>
+  <span class="zoom-ctrl"><span class="zoom-cap">Zoom</span>
+    <input type="range" id="zoom-slider" min="0.25" max="5" step="0.05" value="1" oninput="setZoom(this.value)">
+    <span id="zoom-label" class="zoom-label">1.00×</span></span>
   <button class="btn btn-green" id="export-csv-btn" disabled onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>
   <button class="btn btn-slate" id="save-btn" disabled onclick="saveSnapshot()">Save for Editing</button>
 </div>
@@ -226,6 +250,8 @@ var woMeta = {};         // woNo -> { partNo, partDesc, program, serial }
 var ringByPart = {};     // partNo -> { gateOrder: [gateNum...], gateName: {num:name}, operToGate: {operNo:num}, laborByOper: {operNo:hrs} }
 var programLabels = {};  // program -> short label (<=20 chars)
 var familyComments = {}; // root node id -> takeaway comment
+var zoomFactor = 1.0;    // 0.25 .. 5 — stretches timeline width in #4
+var compactMode = false; // hides date + row buttons, reveals part number inline
 var pendingSearch = null;// { mode:'root'|'child'|'parent'|'link', nodeId, selected:{woNo:true} }
 var isSnapshot = false;
 
@@ -661,8 +687,10 @@ function resolveOps(node) {
   } else {
     ops = (woOps[node.woNo] || []).map(function(o) {
       var planned = (ring && ring.laborByOper[o.operNo] != null && ring.laborByOper[o.operNo] > 0) ? ring.laborByOper[o.operNo] : o.plannedHrs;
-      var remaining = planned * (1 - (o.pct || 0) / 100);
-      if (remaining < 0) remaining = 0;
+      // Status-aware remaining: full planned for open ops, zero for COMPLETE/closed.
+      // We deliberately ignore the Oper Percent Complete column (typically 0 in real data).
+      var st = (o.status || '').toUpperCase().trim();
+      var remaining = (st === '' || st === 'COMPLETE') ? 0 : planned;
       return { operNo: o.operNo, status: o.status, dept: o.dept, title: o.title, hold: o.hold,
                pct: o.pct, planned: planned, remaining: remaining };
     });
@@ -707,6 +735,66 @@ function nodeIdent(n) {
 function setProgramLabel(prog, val) { programLabels[prog] = (val || '').slice(0, 20); }
 function setFamilyComment(rootId, val) { familyComments[rootId] = val || ''; }
 
+function setZoom(v) {
+  var z = parseFloat(v); if (!(z > 0)) z = 1;
+  if (z < 0.25) z = 0.25; if (z > 5) z = 5;
+  zoomFactor = z; var sl = document.getElementById('zoom-slider'); if (sl) sl.value = z;
+  var lbl = document.getElementById('zoom-label'); if (lbl) lbl.textContent = z.toFixed(2) + '×';
+  render();
+}
+// Mouse-wheel on the Gantt: per Oscar's spec, scroll up = zoom out, scroll down = zoom in.
+function onGanttWheel(e) {
+  if (!e || typeof e.deltaY !== 'number') return;
+  e.preventDefault();
+  var step = 0.15;
+  var z = zoomFactor + (e.deltaY < 0 ? -step : step);
+  setZoom(z);
+}
+function setCompactMode(on) {
+  compactMode = !!on;
+  var b = document.getElementById('compact-btn'); if (b) b.textContent = 'Mode: ' + (compactMode ? 'Review' : 'Edit');
+  render();
+}
+
+// Hours-based progress for a WO node: planned hours from its decoder ring,
+// remaining = sum of ring planned for ops still in the daily upload (status != COMPLETE).
+// Returns null when no ring matches (no canonical total available).
+function computeWOProgress(node) {
+  var ring = ringByPart[node.partNo];
+  if (!ring) return null;
+  var allOps = Object.keys(ring.operToGate);
+  if (!allOps.length) return null;
+  var totalHrs = 0; allOps.forEach(function(op){ totalHrs += ring.laborByOper[op] || 0; });
+  if (totalHrs <= 0) return null;
+
+  var remainSet = {};
+  if (node.isPlaceholder) {
+    // Placeholder: no WO, treat every ring op as still planned.
+    allOps.forEach(function(op){ remainSet[op] = true; });
+  } else {
+    (woOps[node.woNo] || []).forEach(function(o) {
+      var st = (o.status || '').toUpperCase().trim();
+      if (st !== 'COMPLETE') remainSet[o.operNo] = true;
+    });
+  }
+  var remainHrs = 0;
+  Object.keys(remainSet).forEach(function(op){ remainHrs += ring.laborByOper[op] || 0; });
+
+  var perGate = {};
+  ring.gateOrder.forEach(function(g){ perGate[g] = { totalHrs: 0, remainHrs: 0 }; });
+  allOps.forEach(function(op) {
+    var g = ring.operToGate[op], lh = ring.laborByOper[op] || 0;
+    if (!perGate[g]) perGate[g] = { totalHrs: 0, remainHrs: 0 };
+    perGate[g].totalHrs += lh;
+    if (remainSet[op]) perGate[g].remainHrs += lh;
+  });
+  Object.keys(perGate).forEach(function(g) {
+    var pg = perGate[g];
+    pg.pct = pg.totalHrs > 0 ? (1 - pg.remainHrs / pg.totalHrs) * 100 : 0;
+  });
+  return { totalHrs: totalHrs, remainHrs: remainHrs, woPct: (1 - remainHrs / totalHrs) * 100, perGate: perGate };
+}
+
 function opTooltip(o) {
   return o.title + ' — ' + (o.status || 'n/a') + (o.dept ? ' — ' + o.dept : '') +
     ' — ' + (o.pct || 0) + '% — ' + o.remaining.toFixed(1) + 'h remaining' + (isHold(o.hold) ? ' — HOLD: ' + o.hold : '');
@@ -730,13 +818,27 @@ function renderBar(node) {
     if (globalView === 'chips' && rd.flat.length) {
       // chips with no ring -> still show solid bar per spec; reveal on click. (fallthrough to solid)
     }
-    inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo) + '</span>';
+    inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo || node.partNo) + '</span>';
   } else if (globalView === 'gateblocks') {
+    var prog = computeWOProgress(node);
+    // Per-segment width (px) drives the "hide gate name if it can't fit ~5 chars" rule.
+    var baselinePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - 360;
+    if (baselinePx < 200) baselinePx = 200;
+    var timelinePx = baselinePx * zoomFactor;
+    var segPx = (timelinePx * widthPct / 100) / Math.max(rd.gates.length, 1);
+    var showName = segPx >= 36;
     rd.gates.forEach(function(g) {
       var exp = node.expandedGates[g.num] ? ' expanded' : '';
-      var tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
+      var tip;
+      if (prog && prog.perGate[g.num]) {
+        var pg = prog.perGate[g.num];
+        tip = 'Gate ' + g.num + ': ' + g.name + ' — ' + pg.remainHrs.toFixed(1) + 'h remaining / ' + pg.totalHrs.toFixed(1) + 'h planned (' + pg.pct.toFixed(0) + '% complete)';
+      } else {
+        tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
+      }
       inner += '<span class="gate-seg ' + g.colorClass + exp + '" title="' + esc(tip) +
-        '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' + esc(g.name) + '</span>';
+        '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
+        (showName ? esc(g.name) : '') + '</span>';
     });
   } else { // chips, has ring
     inner = '';
@@ -812,6 +914,7 @@ function buildRows(rootId, level, acc) {
 function render() {
   updateButtons();
   var board = document.getElementById('board');
+  board.className = compactMode ? 'compact' : '';
   if (!rootIds.length) {
     board.innerHTML = '<div class="empty-msg">' +
       (Object.keys(woMeta).length ? 'Click <strong>+ Add Top Assembly</strong> to start building a tree.' :
@@ -837,7 +940,8 @@ function render() {
   progOrder.forEach(function(prog) {
     html += '<div class="prog-section"><div class="prog-title">' + esc(prog) +
       '<input class="prog-label-input" maxlength="20" data-prog="' + esc(prog) + '" value="' + esc(programLabels[prog] || '') +
-      '" placeholder="label…" onchange="setProgramLabel(this.dataset.prog, this.value)"></div><div class="gantt">';
+      '" placeholder="label…" onchange="setProgramLabel(this.dataset.prog, this.value)"></div>' +
+      '<div class="gantt-wrap" onwheel="onGanttWheel(event)"><div class="gantt" style="min-width:' + (100*zoomFactor).toFixed(1) + '%">';
     // head with axis
     html += '<div class="gantt-head"><div class="task-col head">Work Order / Part — target completion</div>' +
       '<div class="time-col head">' + axisTicksHTML() + '</div></div>';
@@ -856,9 +960,16 @@ function render() {
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
         var ident = nodeIdent(n);
         var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
+        var partInline = (compactMode && n.partNo && ident !== n.partNo) ? ' <span class="pn-inline">· ' + esc(n.partNo) + '</span>' : '';
         html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
-          '<span class="ident">' + esc(ident) + '</span>' +
+          '<span class="ident">' + esc(ident) + '</span>' + partInline +
           (n.partDesc ? ' <span class="pd">' + esc(n.partDesc) + '</span>' : '') + '</span>';
+        var woProg = computeWOProgress(n);
+        if (woProg) {
+          var pcls = n.isPlaceholder ? 'pct-plan' : (woProg.woPct >= 99.5 ? 'pct-done' : '');
+          html += '<span class="wo-pct ' + pcls + '" title="Hours-based: (planned − remaining) / planned">' + woProg.woPct.toFixed(0) + '%</span>' +
+                  '<span class="wo-rem" title="Sum of planned hours for ops currently open in the daily upload">' + woProg.remainHrs.toFixed(1) + 'h rem</span>';
+        }
         html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
           '" value="' + esc(n.completion || '') + '" title="Target completion date" onchange="setCompletion(\'' + n.id + '\', this.value)">';
         html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
@@ -876,7 +987,7 @@ function render() {
         '<textarea class="family-comment" data-root="' + rid + '" oninput="setFamilyComment(this.dataset.root, this.value)" placeholder="Family takeaway…">' +
         esc(familyComments[rid] || '') + '</textarea></div></div>';
     });
-    html += '</div></div>';
+    html += '</div></div></div>'; // gantt, gantt-wrap, prog-section
   });
   board.innerHTML = html;
   renderLoadingTable();
@@ -1099,7 +1210,8 @@ function saveSnapshot() {
   var now = new Date(), ts = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
   var state = { nodes: nodes, rootIds: rootIds, nextNodeId: nextNodeId, scheduleStart: scheduleStart,
                 globalView: globalView, dailyIndex: dailyIndex, woOps: woOps, woMeta: woMeta, ringByPart: ringByPart,
-                programLabels: programLabels, familyComments: familyComments };
+                programLabels: programLabels, familyComments: familyComments,
+                zoomFactor: zoomFactor, compactMode: compactMode };
   var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
 
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
@@ -1115,6 +1227,8 @@ function saveSnapshot() {
   html += '<div class="file-group"><label>Import Hierarchy CSV</label><input type="file" id="hier-file" accept=".csv,.txt"><div class="status" id="hier-status"></div></div></div>\n';
   html += '<div class="action-bar"><button class="btn btn-primary" id="add-root-btn" onclick="openSearch(\'root\', null)">+ Add Top Assembly</button>';
   html += '<button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>';
+  html += '<button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>';
+  html += '<span class="zoom-ctrl"><span class="zoom-cap">Zoom</span><input type="range" id="zoom-slider" min="0.25" max="5" step="0.05" value="1" oninput="setZoom(this.value)"><span id="zoom-label" class="zoom-label">1.00×</span></span>';
   html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>';
   html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button></div>\n';
   html += '<div class="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
@@ -1129,13 +1243,14 @@ function saveSnapshot() {
   html += 'var scheduleStart = snapshotState.scheduleStart, globalView = snapshotState.globalView;\n';
   html += 'var dailyIndex = snapshotState.dailyIndex, woOps = snapshotState.woOps, woMeta = snapshotState.woMeta, ringByPart = snapshotState.ringByPart;\n';
   html += 'var programLabels = snapshotState.programLabels || {}, familyComments = snapshotState.familyComments || {};\n';
+  html += 'var zoomFactor = snapshotState.zoomFactor || 1, compactMode = !!snapshotState.compactMode;\n';
   html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
     operColorClass, statusRank, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
     getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, setCompletion,
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
-    nodeIdent, setProgramLabel, setFamilyComment,
+    nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
     barWidthPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, computeGateLoading, renderLoadingTable,
@@ -1143,6 +1258,9 @@ function saveSnapshot() {
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
   html += 'wireInputs();\n';
   html += 'document.getElementById("view-btn").textContent = "View: " + (globalView==="bars"?"Bars":(globalView==="gateblocks"?"Gate blocks":"Chips"));\n';
+  html += 'document.getElementById("zoom-slider").value = zoomFactor;\n';
+  html += 'document.getElementById("zoom-label").textContent = (+zoomFactor).toFixed(2) + "\\u00d7";\n';
+  html += 'document.getElementById("compact-btn").textContent = "Mode: " + (compactMode ? "Review" : "Edit");\n';
   html += 'render();\n';
   html += '<\/script>\n</body>\n</html>';
 
