@@ -83,7 +83,15 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .gate-seg { flex: 1 1 0; display: flex; align-items: center; justify-content: flex-start; font-size: 0.66rem; color: #fff; font-weight: bold; border-right: 1px solid rgba(255,255,255,0.5); overflow: hidden; white-space: nowrap; padding: 0 3px; }
 .gate-seg:last-child { border-right: none; }
 .gate-seg.expanded { outline: 2px solid #111; outline-offset: -2px; }
-.bar.chips { background: #f8fafc; gap: 2px; padding: 2px; align-items: center; }
+.bar.chips { background: transparent; padding: 0; box-shadow: none; }
+/* Chips view: row grows naturally to fit chip stacks (up to 5 rows per gate). */
+.bar-wrap.chips { position: relative; left: auto; right: auto; top: auto; bottom: auto; padding: 4px 6px; }
+.bar.chips { position: relative; left: auto; top: auto; bottom: auto; display: flex; min-height: 30px; }
+.bar.chips .gate-seg.chips-seg { flex: 1 1 0; flex-direction: column; align-items: stretch; padding: 0; min-height: 30px; justify-content: flex-start; overflow: hidden; }
+.bar.chips .gate-name { font-size: 0.66rem; padding: 1px 4px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: clip; text-align: left; }
+.bar.chips .chip-stack { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px 3px 3px; background: rgba(255,255,255,0.88); align-content: flex-start; min-height: 14px; }
+.bar.chips .chip-stack .oper-chip { padding: 1px 4px; font-size: 0.64rem; line-height: 1.2; }
+.bar.chips .more-ellipsis { padding: 1px 4px; font-size: 0.7rem; font-weight: bold; color: #475569; align-self: center; }
 .slip-flag { position: absolute; right: -4px; top: -2px; font-size: 0.7rem; color: #dc2626; }
 
 /* status colors (from Gate Tracker) */
@@ -449,6 +457,7 @@ function parseDecoderRing(rows) {
   var iGName = colIndex(h, 'Gate Name');
   var iOper = colIndex(h, 'Oper No.'); if (iOper < 0) iOper = colIndex(h, 'Oper No');
   var iLabor = colIndex(h, 'Labor Hours'); if (iLabor < 0) iLabor = colIndex(h, 'Labor Hours Per Unit');
+  var iOperT = colIndex(h, 'Oper Title'); if (iOperT < 0) iOperT = colIndex(h, 'Oper Title.');
   if (iPart < 0 || iGNum < 0 || iOper < 0) {
     showStatus('ring-status', 'Error: ring CSV needs Part No., Gate Number, Oper No. columns.', 'error'); return;
   }
@@ -459,12 +468,15 @@ function parseDecoderRing(rows) {
     var gname = iGName >= 0 ? (row[iGName] || '').trim() : '';
     var op = normOper(row[iOper] || ''); if (op === '0') continue;
     var labor = iLabor >= 0 ? (parseFloat(row[iLabor]) || 0) : 0;
-    if (!ringByPart[part]) ringByPart[part] = { gateOrder: [], gateName: {}, operToGate: {}, laborByOper: {} };
+    var otitle = iOperT >= 0 ? (row[iOperT] || '').trim() : '';
+    if (!ringByPart[part]) ringByPart[part] = { gateOrder: [], gateName: {}, operToGate: {}, laborByOper: {}, operTitle: {} };
     var ring = ringByPart[part];
+    if (!ring.operTitle) ring.operTitle = {};
     if (ring.gateOrder.indexOf(gnum) < 0) ring.gateOrder.push(gnum);
     ring.gateName[gnum] = gname;
     ring.operToGate[op] = gnum;
     ring.laborByOper[op] = labor;
+    if (otitle) ring.operTitle[op] = otitle;
   }
 }
 
@@ -694,6 +706,18 @@ function resolveOps(node) {
       return { operNo: o.operNo, status: o.status, dept: o.dept, title: o.title, hold: o.hold,
                pct: o.pct, planned: planned, remaining: remaining };
     });
+    // Synthesize CLOSED entries for ring ops absent from the daily upload
+    // (in production exports completed ops drop off the open list).
+    if (ring) {
+      var seen = {}; ops.forEach(function(o){ seen[o.operNo] = true; });
+      Object.keys(ring.operToGate).forEach(function(op) {
+        if (seen[op]) return;
+        var title = (ring.operTitle && ring.operTitle[op]) || '';
+        var planned = ring.laborByOper[op] || 0;
+        ops.push({ operNo: op, status: 'COMPLETE', dept: '', title: title, hold: '',
+                   pct: 100, planned: planned, remaining: 0 });
+      });
+    }
   }
   var hasRing = !!ring && ring.gateOrder.length > 0;
   var out = { hasRing: hasRing, gates: [], flat: ops };
@@ -704,6 +728,10 @@ function resolveOps(node) {
     ops.forEach(function(o) {
       var g = ring.operToGate[o.operNo];
       if (g != null && byGate[g]) byGate[g].push(o); else ungated.push(o);
+    });
+    // Sort each gate's ops numerically by Oper No so open + closed interleave correctly.
+    Object.keys(byGate).forEach(function(g) {
+      byGate[g].sort(function(a, b) { return (parseInt(a.operNo, 10) || 0) - (parseInt(b.operNo, 10) || 0); });
     });
     ring.gateOrder.forEach(function(g) {
       var gops = byGate[g];
@@ -726,8 +754,12 @@ function barStatusClass(node) {
 }
 
 // Visible row identifier: S/N if present, else "x"+last 4 of the WO, else (placeholder) the part number.
+// S/N is rendered as "S/N <value>" with a space; idempotent if the data already starts with SN/S/N.
 function nodeIdent(n) {
-  if (n.serial) return n.serial;
+  if (n.serial) {
+    var s = String(n.serial).trim();
+    return /^S\/?N[\s-]?/i.test(s) ? s : 'S/N ' + s;
+  }
   if (n.woNo) { var d = n.woNo.replace(/\D/g, ''); return 'x' + (d.slice(-4) || n.woNo.slice(-4)); }
   return n.partNo || '(no part)';
 }
@@ -843,19 +875,44 @@ function renderBar(node) {
         '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
         (showName ? esc(g.name) : '') + '</span>';
     });
-  } else { // chips, has ring
+  } else { // chips, has ring — gate-segmented layout with chips packed inside each segment
+    var prog2 = computeWOProgress(node);
+    var baselinePx2 = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - 360;
+    if (baselinePx2 < 200) baselinePx2 = 200;
+    var timelinePx2 = baselinePx2 * zoomFactor;
+    var segPx2 = (timelinePx2 * widthPct / 100) / Math.max(rd.gates.length, 1);
+    var showName2 = segPx2 >= 36;
+    var chipsPerRow = Math.max(1, Math.floor((segPx2 - 6) / 28));   // chip ≈ 26–28 px wide incl. gap
+    var maxVisible = chipsPerRow * 5;
     inner = '';
     rd.gates.forEach(function(g) {
-      g.ops.forEach(function(o) {
-        inner += '<span class="oper-chip ' + operColorClass(o.status, o.dept) + (isHold(o.hold) ? ' held' : '') +
+      var tip;
+      if (prog2 && prog2.perGate[g.num]) {
+        var pg2 = prog2.perGate[g.num];
+        tip = 'Gate ' + g.num + ': ' + g.name + ' — ' + pg2.remainHrs.toFixed(1) + 'h remaining / ' + pg2.totalHrs.toFixed(1) + 'h planned (' + pg2.pct.toFixed(0) + '% complete)';
+      } else {
+        tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
+      }
+      var opsToShow = g.ops, overflow = false;
+      if (g.ops.length > maxVisible) { opsToShow = g.ops.slice(0, Math.max(maxVisible - 1, 1)); overflow = true; }
+      var chips = '';
+      opsToShow.forEach(function(o) {
+        chips += '<span class="oper-chip ' + operColorClass(o.status, o.dept) + (isHold(o.hold) ? ' held' : '') +
           '" title="' + esc(opTooltip(o)) + '">' + esc(o.operNo) + '</span>';
       });
+      if (overflow) chips += '<span class="more-ellipsis" title="Click to reveal all ' + g.ops.length + ' operations">…</span>';
+      inner += '<div class="gate-seg chips-seg ' + g.colorClass + '" title="' + esc(tip) +
+        '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
+        '<div class="gate-name">' + (showName2 ? esc(g.name) : '') + '</div>' +
+        '<div class="chip-stack">' + chips + '</div></div>';
     });
     if (!inner) inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo) + '</span>';
   }
-  var barClass = 'bar' + (globalView === 'chips' && rd.hasRing ? ' chips' : '');
+  var isChipsView = globalView === 'chips' && rd.hasRing;
+  var wrapClass = 'bar-wrap' + (isChipsView ? ' chips' : '');
+  var barClass = 'bar' + (isChipsView ? ' chips' : '');
   var past = (node.completion && scheduleStart && daysBetween(scheduleStart, node.completion) < 0) ? '<span class="slip-flag" title="Completion is before the schedule start">&#9888;</span>' : '';
-  return '<div class="bar-wrap"><div class="' + barClass + '" style="width:' + widthPct + '%" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + '</div>';
+  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="width:' + widthPct + '%" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + '</div>';
 }
 
 function renderRevealStrip(node) {
