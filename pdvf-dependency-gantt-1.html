@@ -64,6 +64,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .gantt-row, .gantt-head { display: flex; align-items: stretch; border-bottom: 1px solid #eef2f7; }
 .gantt-head { background: #f8fafc; border-bottom: 2px solid #cbd5e1; }
 .task-col { width: 360px; flex-shrink: 0; padding: 4px 8px; border-right: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; }
+/* Edit mode rows carry the date input + four row buttons in addition to the full label — give the task column more horizontal room so nothing truncates. Review mode keeps the narrower column so the bars are at the original x position. */
+#board:not(.compact) .task-col { width: 440px; }
 .task-col.head { font-weight: bold; color: #475569; font-size: 0.78rem; }
 .time-col { flex: 1 1 auto; position: relative; min-height: 38px; }
 .time-col.head { min-height: 26px; }
@@ -111,7 +113,7 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .slack-green { background: #16a34a; }
 .slack-yellow { background: #ca8a04; }
 .slack-red { background: #dc2626; }
-.slack-label { position: absolute; top: -1px; font-size: 0.62rem; color: #1e293b; white-space: nowrap; padding: 0 3px; pointer-events: auto; }
+.slack-label { position: absolute; top: -2px; font-size: 0.68rem; font-weight: bold; color: #1e293b; background: rgba(255,255,255,0.95); padding: 0 5px; border-radius: 3px; line-height: 1.4; box-shadow: 0 0 0 1px rgba(15,23,42,0.18); white-space: nowrap; pointer-events: auto; z-index: 2; }
 
 /* status colors (from Gate Tracker) */
 .c-green { background: #16a34a; color: #fff; }
@@ -189,6 +191,7 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .prog-label-input::placeholder { color: #94a3b8; }
 .family-comment-row { display: flex; border-bottom: 1px solid #eef2f7; background: #fbfbf5; }
 .family-comment-row .fc-label { width: 360px; flex-shrink: 0; padding: 5px 8px; border-right: 1px solid #e2e8f0; font-size: 0.72rem; font-weight: bold; color: #92722a; }
+#board:not(.compact) .family-comment-row .fc-label { width: 440px; }
 .family-comment-cell { flex: 1 1 auto; padding: 5px 8px; }
 .family-comment { width: 100%; min-height: 30px; resize: vertical; border: 1px solid #e5d8b0; border-radius: 4px; padding: 4px 7px; font-size: 0.78rem; font-family: inherit; background: #fffdf5; }
 </style>
@@ -1162,6 +1165,9 @@ function shouldWarnHold(node) {
 }
 
 // ============================== Rendering ==============================
+// Width of the left task column at current mode. Used for px-per-day calculations.
+function taskColPx() { return compactMode ? 360 : 440; }
+
 // Position on the timeline as a percent of [gStart, gMax]. Returns -1 if the date can't be placed.
 function pctOfDate(d) {
   if (!d || !gMax || gMax === gStart) return -1;
@@ -1195,7 +1201,7 @@ function renderBar(node) {
   } else if (globalView === 'gateblocks') {
     var prog = computeWOProgress(node);
     // Per-segment width (px) drives the "hide gate name if it can't fit ~5 chars" rule.
-    var baselinePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - 360;
+    var baselinePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - taskColPx();
     if (baselinePx < 200) baselinePx = 200;
     var timelinePx = baselinePx * zoomFactor;
     var segPx = (timelinePx * widthPct / 100) / Math.max(rd.gates.length, 1);
@@ -1215,7 +1221,7 @@ function renderBar(node) {
     });
   } else { // chips, has ring — gate-segmented layout with chips packed inside each segment
     var prog2 = computeWOProgress(node);
-    var baselinePx2 = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - 360;
+    var baselinePx2 = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - taskColPx();
     if (baselinePx2 < 200) baselinePx2 = 200;
     var timelinePx2 = baselinePx2 * zoomFactor;
     var segPx2 = (timelinePx2 * widthPct / 100) / Math.max(rd.gates.length, 1);
@@ -1322,7 +1328,7 @@ function revealOpLine(o) {
 function axisTicksHTML() {
   if (!gStart || !gMax || gStart === gMax) return '';
   var total = daysBetween(gStart, gMax); if (total <= 0) total = 1;
-  var baselinePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - 360;
+  var baselinePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - taskColPx();
   if (baselinePx < 200) baselinePx = 200;
   var pxPerDay = (baselinePx * zoomFactor) / total;
 
@@ -1435,7 +1441,8 @@ function render() {
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
         var ident = nodeIdent(n);
         var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
-        var partInline = (compactMode && n.partNo && ident !== n.partNo) ? ' <span class="pn-inline">· ' + esc(n.partNo) + '</span>' : '';
+        // Show part # inline in BOTH edit and review modes so the row identifier is always self-explanatory.
+        var partInline = (n.partNo && ident !== n.partNo) ? ' <span class="pn-inline">· ' + esc(n.partNo) + '</span>' : '';
         html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
           '<span class="ident">' + esc(ident) + '</span>' + partInline +
           (n.partDesc ? ' <span class="pd">' + esc(n.partDesc) + '</span>' : '') + '</span>';
@@ -1767,7 +1774,7 @@ function saveSnapshot() {
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold,
-    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone,
+    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
     barWidthPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, computeGateLoading, renderLoadingTable,
