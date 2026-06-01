@@ -568,11 +568,19 @@ function parseEHA(rows) {
     var hrs = parseFloat(row[iHrs]); if (!(hrs > 0)) { skipped++; continue; }
     var dateISO = '';
     if (iDate >= 0) {
+      // Strip any time suffix (e.g. "5/15/2024 12:00") — Excel often appends HH:MM to date columns.
       var raw = (row[iDate] || '').trim();
-      // Accept yyyy-mm-dd or m/d/yyyy
-      if (/^\d{4}-\d{2}-\d{2}/.test(raw)) dateISO = raw.substring(0, 10);
-      else if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(raw)) {
-        var p = raw.split('/'); dateISO = p[2] + '-' + pad(+p[0]) + '-' + pad(+p[1]);
+      var datePart = raw.split(/[\sT]/)[0];
+      // Accept yyyy-mm-dd
+      if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(datePart)) {
+        var pi = datePart.split('-');
+        dateISO = pi[0] + '-' + pad(+pi[1]) + '-' + pad(+pi[2]);
+      }
+      // Accept m/d/yyyy (with optional 2-digit year)
+      else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(datePart)) {
+        var pu = datePart.split('/');
+        var yy = +pu[2]; if (yy < 100) yy += (yy >= 70 ? 1900 : 2000);
+        dateISO = yy + '-' + pad(+pu[0]) + '-' + pad(+pu[1]);
       }
     }
     if (!dateISO && iYear >= 0 && iMonth >= 0) {
