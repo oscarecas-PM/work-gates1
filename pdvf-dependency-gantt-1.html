@@ -59,6 +59,14 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .vel-reset { display: inline-block; padding: 0 4px; font-size: 0.85rem; font-weight: bold; color: #7c3aed; cursor: pointer; vertical-align: middle; user-select: none; }
 .vel-reset:hover { color: #5b21b6; }
 .hold-warn { display: inline-block; padding: 0 4px; font-size: 0.85rem; color: #b45309; cursor: help; vertical-align: middle; }
+/* Clear HOLD label on the far left of any row with an op on hold — must be impossible to miss. */
+.hold-label { display: inline-block; padding: 1px 7px; margin-right: 4px; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.05em; color: #fff; background: #dc2626; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: help; flex-shrink: 0; }
+.gantt-row.on-hold .task-col { background: linear-gradient(to right, rgba(220,38,38,0.10), transparent 200px); }
+
+/* Edit mode: row height grows so the identifier + part # + description and the chips + date input + buttons can wrap to multiple lines instead of cramming onto one. */
+#board:not(.compact) .task-col { flex-wrap: wrap; align-content: center; min-height: 56px; padding-top: 8px; padding-bottom: 8px; }
+#board:not(.compact) .node-label { flex: 0 1 auto; max-width: 100%; }
+#board:not(.compact) .node-date { margin-left: auto; }
 
 /* Compact / Review mode: hide editing controls, reveal part number inline */
 .compact .node-date, .compact .row-btn { display: none !important; }
@@ -122,6 +130,10 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .slack-green { background: #16a34a; }
 .slack-yellow { background: #ca8a04; }
 .slack-red { background: #dc2626; }
+/* Diamond colored gray when there's no velocity-derived forecast (zero velocity).
+   We deliberately don't paint it green so it doesn't read as "on track." */
+.slack-unknown { background: #94a3b8; }
+.no-prog-warn { position: absolute; top: -1px; font-size: 0.78rem; font-weight: 900; color: #fff; background: #b45309; padding: 0 4px; border-radius: 50%; line-height: 11px; cursor: help; box-shadow: 0 0 0 1px rgba(15,23,42,0.25); pointer-events: auto; z-index: 3; }
 .slack-label { position: absolute; top: -2px; font-size: 0.68rem; font-weight: bold; color: #1e293b; background: rgba(255,255,255,0.95); padding: 0 5px; border-radius: 3px; line-height: 1.4; box-shadow: 0 0 0 1px rgba(15,23,42,0.18); white-space: nowrap; pointer-events: auto; z-index: 2; }
 
 /* status colors (from Gate Tracker) */
@@ -1177,6 +1189,44 @@ function shouldWarnHold(node) {
   return true;
 }
 
+// True when at least one op in the WO is currently on hold (per the daily-upload Hold Status).
+function isOnHold(node) {
+  if (node.isPlaceholder || !node.woNo) return false;
+  var ops = woOps[node.woNo] || [];
+  for (var i = 0; i < ops.length; i++) if (isHold(ops[i].hold)) return true;
+  return false;
+}
+
+// Collect the first reason text from any held op (so the HOLD label can show *why* on hover).
+function holdReason(node) {
+  if (node.isPlaceholder || !node.woNo) return '';
+  var ops = woOps[node.woNo] || [];
+  var reasons = {};
+  for (var i = 0; i < ops.length; i++) {
+    var h = (ops[i].hold || '').trim();
+    if (h && h.toUpperCase() !== 'NONE' && h.toUpperCase() !== 'N') reasons[h] = true;
+  }
+  return Object.keys(reasons).join(', ');
+}
+
+// noProgressInfo: returns { required, daysToMilestone, milestonePassed } when the WO has zero
+// effective velocity AND still has remaining work. Null otherwise. Used to surface the
+// "no confidence in milestone" indicator near the milestone diamond.
+function noProgressInfo(node) {
+  if (node.isPlaceholder || !node.woNo) return null;
+  var eff = fleetCache && fleetCache.fleet ? fleetCache.fleet.eff[node.id] : null;
+  if (eff == null || eff > 0.001) return null;
+  var prog = computeWOProgress(node);
+  if (!prog || prog.remainHrs <= 0.01) return null;
+  var daysToMilestone = node.completion ? daysBetween(todayISO(), node.completion) : null;
+  var required = null, milestonePassed = false;
+  if (daysToMilestone != null) {
+    if (daysToMilestone <= 0) { milestonePassed = true; required = null; }
+    else { required = prog.remainHrs / (daysToMilestone / DAYS_PER_MONTH); }
+  }
+  return { required: required, daysToMilestone: daysToMilestone, milestonePassed: milestonePassed, remainHrs: prog.remainHrs };
+}
+
 // ============================== Rendering ==============================
 // Width of the left task column at current mode. Used for px-per-day calculations.
 function taskColPx() { return compactMode ? 360 : 440; }
@@ -1296,7 +1346,11 @@ function renderMilestone(node) {
   if (milestoneX < -1 || milestoneX > 101) return '';
   var forecastEnd = fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[node.id] : null;
   var slackDays = forecastEnd ? daysBetween(forecastEnd, node.completion) : null;
-  var tier = (slackDays == null) ? 'green' : (slackDays > 7 ? 'green' : (slackDays >= 0 ? 'yellow' : 'red'));
+  // Diamond color tier. "unknown" (gray) when there's no forecast — i.e., velocity is zero so
+  // we have no real projection. Don't lie green/on-track in that case.
+  var tier;
+  if (forecastEnd) tier = (slackDays > 7 ? 'green' : (slackDays >= 0 ? 'yellow' : 'red'));
+  else tier = 'unknown';
   var isChipsView = (globalView === 'chips' && resolveOps(node).hasRing);
   var trackClass = 'milestone-track' + (isChipsView ? ' chips-track' : '');
   var html = '<div class="' + trackClass + '">';
@@ -1313,9 +1367,23 @@ function renderMilestone(node) {
     // Inline label when there's enough width (>~4% feels readable)
     if (label && w >= 6) html += '<div class="slack-label" style="left:' + (lo + w/2) + '%;transform:translateX(-50%)">' + esc(label) + '</div>';
   }
-  // Diamond on top of the milestone date — same color tier
+  // No-progress indicator near the diamond — shows when velocity = 0 and there's still work to do.
+  // It surfaces "we have no confidence in meeting this milestone" without hiding the bar.
+  var npi = noProgressInfo(node);
+  if (npi) {
+    var heldNow = isOnHold(node);
+    var npTip = 'This work order has not made progress recently';
+    if (heldNow) npTip += ' and is on hold';
+    npTip += '.';
+    if (npi.milestonePassed) npTip += ' Milestone has already passed (' + (-npi.daysToMilestone) + ' days).';
+    else if (npi.required != null) npTip += ' Would need ' + npi.required.toFixed(1) + ' h/mo earned to meet the milestone (' + npi.daysToMilestone + ' days away, ' + npi.remainHrs.toFixed(1) + ' h remaining).';
+    // Position the indicator just to the right of the diamond
+    var npX = Math.min(milestoneX + 1.2, 99.5);
+    html += '<div class="no-prog-warn" style="left:' + npX + '%" title="' + esc(npTip) + '">!</div>';
+  }
+  // Diamond on top of the milestone date — same color tier (gray "unknown" when no forecast).
   var tipParts = [node.completion ? ('Milestone: ' + node.completion) : null,
-                  forecastEnd ? ('Forecast: ' + forecastEnd) : null,
+                  forecastEnd ? ('Forecast: ' + forecastEnd) : (npi ? 'Forecast: none — zero velocity' : null),
                   slackDays != null ? ((slackDays >= 0 ? '+' : '') + slackDays + ' days slack') : null];
   var tip = tipParts.filter(Boolean).join(' · ');
   html += '<div class="milestone-diamond slack-' + tier + '" style="left:' + milestoneX + '%" title="' + esc(tip) + '"></div>';
@@ -1460,13 +1528,18 @@ function render() {
       rows.forEach(function(rw) {
         var n = rw.node, lvl = rw.level;
         var kids = getChildren(n.id);
-        var atMaxChild = lvl >= 4;
+        var atMaxChild = lvl >= 9;          // depth cap raised 5 -> 10 levels
         var isRoot = !n.parentId;
         var th = isRoot ? treeMaxLevel(n.id) : 0;
-        var canAddParent = isRoot && th < 4;
-        html += '<div class="gantt-row">';
+        var canAddParent = isRoot && th < 9;
+        html += '<div class="gantt-row' + (isOnHold(n) ? ' on-hold' : '') + '">';
         // task col
-        html += '<div class="task-col" style="padding-left:' + (8 + lvl*16) + 'px">';
+        html += '<div class="task-col" style="padding-left:' + (8 + lvl*14) + 'px">';
+        // HOLD label on the far left when any op is on hold — makes the state unmissable.
+        if (isOnHold(n)) {
+          var hr = holdReason(n);
+          html += '<span class="hold-label" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">HOLD</span>';
+        }
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
         var ident = nodeIdent(n);
         var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
@@ -1490,10 +1563,8 @@ function render() {
             '" onclick="event.stopPropagation();promptVelocity(\'' + n.id + '\')">' + v.toFixed(1) + ' h/mo</span>';
           if (isOver) html += '<span class="vel-reset" title="Reset to calculated velocity" onclick="event.stopPropagation();resetVelocity(\'' + n.id + '\')">&#8634;</span>';
         }
-        // Hold-status warning: no EHA hours in last N weeks AND no op currently on hold.
-        if (shouldWarnHold(n)) {
-          html += '<span class="hold-warn" title="No earned hours in the last ' + lookbackWeeks + ' weeks and no op currently on hold. Should this WO be on hold?">&#9888;</span>';
-        }
+        // (Hold warning moved: HOLD label on far left of the row when on hold, and a no-progress
+        //  exclamation near the milestone diamond when velocity is zero — see renderMilestone.)
         html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
           '" value="' + esc(n.completion || '') + '" title="Milestone date (your target)" onchange="setCompletion(\'' + n.id + '\', this.value)">';
         html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
@@ -1831,7 +1902,7 @@ function saveSnapshot() {
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
-    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold,
+    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, noProgressInfo,
     setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
     barWidthPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
