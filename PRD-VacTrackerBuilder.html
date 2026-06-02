@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD - True-VAC Tracker Builder</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; color: #222; line-height: 1.6; }
+h1 { color: #1e3a5f; border-bottom: 3px solid #1e3a5f; padding-bottom: 0.5rem; }
+h2 { color: #1e3a5f; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.3rem; }
+h3 { color: #334155; margin-top: 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
+th { background: #334155; color: #fff; padding: 8px 12px; text-align: left; }
+td { padding: 6px 12px; border-bottom: 1px solid #e5e7eb; }
+tr:nth-child(even) { background: #f8fafc; }
+code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+.req { font-weight: bold; color: #2563eb; margin-right: 6px; }
+.version { color: #666; font-size: 0.9em; }
+ul { margin: 0.5rem 0; }
+li { margin: 0.3rem 0; }
+.note { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
+.formula { background: #f1f5f9; border-left: 4px solid #334155; padding: 0.5rem 1rem; margin: 1rem 0; font-family: Consolas, monospace; font-size: 0.88rem; }
+</style>
+</head>
+<body>
+
+<h1>Product Requirements Document (PRD)</h1>
+<p><strong>Product Name:</strong> True-VAC Tracker Builder</p>
+<p><strong>File:</strong> <code>vac-tracker-builder-1.html</code></p>
+<p class="version">Version 1.0 | June 2, 2026 | Author: Oscar Castillo</p>
+
+<h2>1. Overview</h2>
+<p>A client-side, one-shot tool that rebuilds the VAC Tracker Log from a <strong>batch of historical P-Files</strong>, so the user does not have to load P-Files into the Gate Tracker one week at a time. For each P-File (dated from cell <code>C3</code>) the tool pairs the same-dated Daily Upload and a single Decoder Ring, computes Earned-Value metrics per work order using the <em>exact</em> Gate Tracker EVM formula, and emits a CSV in the exact format Gate Tracker's <code>exportVacLog()</code> produces (<code>Date, WO, Part #, VAC, CPI</code>). The output is intended to be byte-identical, for any matching <code>(Date, WO)</code>, to what the Gate Tracker EVM report would compute for that date.</p>
+<p>This tool exists because of a root-cause finding (2026-06-02): the VAC stored in the tracker is <strong>not</strong> a pure-P-File quantity. It carries an <code>ETC</code> term whose operation statuses come from the live Daily Upload, so a month-old P-File replayed against a <em>different</em> day's Daily Upload yields a different VAC. The stored "historical" VAC was therefore always a hybrid of a dated P-File and whatever Daily Upload happened to be loaded that day &mdash; not reproducible. This tool restores reproducibility by pairing each P-File with the Daily Upload of its own date.</p>
+
+<h2>2. Objectives</h2>
+<ul>
+  <li>Rebuild the VAC tracker for many historical dates in a single pass, eliminating the one-week-at-a-time manual loop through the Gate Tracker.</li>
+  <li>Produce VAC and CPI values that are <strong>identical</strong> to the Gate Tracker EVM report for the same inputs &mdash; achieved by porting the Gate Tracker's parsers and EVM math verbatim (not re-deriving them).</li>
+  <li>Match the exact output schema of <code>exportVacLog()</code> (<code>Date, WO, Part #, VAC, CPI</code>) so merging is a plain text operation with no schema changes anywhere else.</li>
+  <li>Pair each P-File to its contemporaneous Daily Upload so the ETC term reflects the operation statuses as of the P-File's date, not "today".</li>
+  <li>Surface a complete picture of what was and was not built &mdash; date pairing, omitted work orders, Decoder Ring coverage, and data-quality anomalies &mdash; before the user merges anything.</li>
+</ul>
+
+<h2>3. Architecture Constraints</h2>
+<ul>
+  <li>Entirely client-side; all parsing, computation, and CSV generation happens in the browser.</li>
+  <li>Single self-contained HTML file with embedded libraries (no CDN).</li>
+  <li>No persistent storage (no cookies, localStorage, IndexedDB).</li>
+  <li>Must work in modern browsers (Chrome, Edge).</li>
+  <li>Same security envelope as the rest of the suite: <code>esc()</code> XSS prevention on dynamic HTML, CSP meta tag, CSV field quoting + length cap.</li>
+</ul>
+
+<h2>4. Embedded Libraries</h2>
+<table>
+  <tr><th>Library</th><th>Version</th><th>Purpose</th><th>License</th></tr>
+  <tr><td>SheetJS Community Edition</td><td>v0.18.5</td><td><code>.xlsx</code> (P-File) parsing</td><td>Apache-2.0</td></tr>
+</table>
+<p>Only SheetJS is embedded. CSV parsing intentionally does <strong>not</strong> use PapaParse: the tool ports Gate Tracker's hand-rolled <code>parseCSV()</code> / <code>csvField()</code> (tab/comma auto-detect, 500-char field cap) so that Daily Upload and Decoder Ring parsing is byte-for-byte identical to the authoritative tool. The SheetJS block is copied byte-for-byte from <code>employee-score-card-1.html</code>; when re-splicing, use raw <code>bytes</code> operations (see PRD-VacBackfillTool &sect;11.1 for the U+0085 NEL hazard).</p>
+
+<h2>5. Data Inputs</h2>
+
+<h3>5.1 P-Files (.xlsx, required, multiple)</h3>
+<p>Peabody cost-system exports &mdash; one per program per date. Identical parse path to Gate Tracker (<code>PRD-GateTracker.html</code> &sect;3.6). The "as of" date is read from cell <code>C3</code> (format <code>As of M/D/YYYY</code>). The header row is auto-detected by scanning the first 10 rows for a cell whose trimmed value equals <code>WO</code> (case-insensitive). Each file keeps its own <code>C3</code> date (the tool does NOT take the minimum across files, unlike Gate Tracker which merges programs at a single date).</p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Use</th></tr>
+  <tr><td>WO</td><td>String</td><td>Work order identifier; primary key. Rows with blank WO or <code>Total</code> / <code>Totals</code> / <code>Grand Total</code> are skipped; parsing stops at two consecutive blank rows.</td></tr>
+  <tr><td>Baseline</td><td>Numeric</td><td>Program EAC (originally budgeted hours).</td></tr>
+  <tr><td>Total Actual Hours</td><td>Numeric</td><td>Cumulative hours charged to the WO to date.</td></tr>
+  <tr><td>Percent Complete</td><td>Numeric</td><td>WO completion. Decimal <code>0&ndash;1</code> is normalized to <code>0&ndash;100</code> exactly as Gate Tracker does (<code>n &le; 1 &amp;&amp; n &gt; 0 ? n&times;100 : n</code>). Do not "fix" this &mdash; it must stay identical so VAC/CPI match.</td></tr>
+  <tr><td>Part Number</td><td>String (optional)</td><td>Read by header name when present and emitted as <code>Part #</code>. When absent (e.g. the dummy fixtures), the tool falls back to the Daily Upload part. See F-06.</td></tr>
+</table>
+<p>Multi-file ingest is per-file <code>try/catch</code> via <code>FileReader</code> &mdash; one bad file does not abort the batch; failures are recorded per-file in the status line. Missing required columns produce a per-file warning, not a hard error.</p>
+
+<h3>5.2 Daily Uploads (.csv, required, multiple)</h3>
+<p>MES snapshots (tab-delimited despite the <code>.csv</code> extension; the ported <code>parseCSV()</code> auto-detects the delimiter). Identical column semantics to <code>PRD-GateTracker.html</code> &sect;3.2. The Daily Upload has <strong>no internal date column</strong> &mdash; the snapshot date is parsed from the <strong>filename</strong> (see F-03).</p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Use</th></tr>
+  <tr><td>Order No</td><td>String</td><td>WO identifier; joins to the P-File WO.</td></tr>
+  <tr><td>Operation No</td><td>String</td><td>4-digit with leading zeros (e.g. <code>0030</code>); normalized via <code>normOper()</code> to match the Decoder Ring's bare numbers.</td></tr>
+  <tr><td>Operation Status</td><td>String</td><td><code>ACTIVE</code> / <code>IN QUEUE</code> / <code>PENDING</code> drive the ETC sum.</td></tr>
+  <tr><td>Part Number</td><td>String</td><td>Used as the Decoder-Ring lookup key namespace (and as the Part # fallback).</td></tr>
+</table>
+<p>Only these four columns are required. Other Daily Upload columns are ignored. Rows are grouped into a per-WO lookup (<code>byOrder</code>).</p>
+
+<h3>5.3 Decoder Ring (.csv, required, exactly one)</h3>
+<p>One current Decoder Ring supplying per-operation labor hours for the ETC term, reused across all P-File dates. Same EVM columns as <code>PRD-GateTracker.html</code> &sect;3.9 / <code>PRD-DecoderRingBuilder.html</code>.</p>
+<table>
+  <tr><th>Column</th><th>Type</th><th>Use</th></tr>
+  <tr><td>Part No.</td><td>String</td><td>Lookup key (with Oper No.).</td></tr>
+  <tr><td>Oper No.</td><td>String</td><td>Bare op number; normalized via <code>normOper()</code>.</td></tr>
+  <tr><td>Labor Hours</td><td>Numeric</td><td>Planned hours per operation. Only values <code>&gt; 0</code> are stored.</td></tr>
+  <tr><td>Earnable Hours Flag</td><td>String (optional)</td><td>Operations with flag <code>N</code> are excluded from ETC. When the column is absent, the flag defaults to <code>Y</code> and the tool warns that all positive Labor Hours are treated as earnable.</td></tr>
+</table>
+<p>The lookup is keyed <code>partNo + '|||' + normOper(operNo)</code>, identical to Gate Tracker's <code>laborHoursLookup</code>.</p>
+
+<h2>6. Functional Requirements</h2>
+
+<h3>6.1 Computation</h3>
+<p><span class="req">F-01</span> For each P-File record, find the Daily Upload whose filename-parsed date equals the P-File's <code>C3</code> date. If none exists, the entire P-File's work orders are omitted (see F-07) and the date is reported in the completeness panel.</p>
+<p><span class="req">F-02</span> For each WO present in both the P-File and that date's Daily Upload, compute the EVM metrics using the formula ported verbatim from <code>gate-tracker-34.html:2505&ndash;2524</code>:</p>
+<div class="formula">
+programEAC&nbsp;&nbsp;&nbsp;&nbsp;= Baseline (P-File)<br>
+ETC&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= &Sigma; Decoder Labor Hours for ops in {ACTIVE, IN QUEUE, PENDING}, Earnable Flag &ne; N<br>
+productionEAC = Total Actual Hours + ETC<br>
+VAC&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= programEAC &minus; productionEAC<br>
+EV&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= (Percent Complete / 100) &times; programEAC<br>
+CPI&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= Total Actual Hours &gt; 0 ? EV / Total Actual Hours : (blank)
+</div>
+<p><span class="req">F-03</span> <strong>Daily Upload date from filename.</strong> <code>parseDateFromFilename()</code> tries, in order: <code>YYYY-M-D</code> (any of <code>- _ . space</code> separators), <code>M-D-YYYY</code> (US default), <code>YYYYMMDD</code> (plausible 20xx year), <code>MMDDYYYY</code>. Out-of-range month/day yields no date. When a separated/8-digit form is genuinely ambiguous (both leading numbers &le; 12 and unequal), the file is flagged <code>ambiguous</code> in the status line so the user can verify. Files with no parseable date are omitted and reported.</p>
+<p><span class="req">F-04</span> <strong>Operation-number normalization.</strong> <code>normOper()</code> (ported, strips leading zeros) is applied on BOTH sides of the Decoder-Ring lookup key, so Daily Upload <code>0030</code> matches Decoder Ring <code>30</code>. The ETC lookup uses the <strong>Daily Upload</strong> part number (the namespace the Decoder Ring shares), matching Gate Tracker line 2503/2511.</p>
+<p><span class="req">F-05</span> <strong>Dedup, sort, format.</strong> Output is keyed <code>(Date, WO)</code>; on a same-key collision the last record wins and the collision is counted. Rows are sorted Date ascending, then WO ascending, using the exact comparator from <code>gate-tracker-34.html:5173&ndash;5180</code>. Each row is emitted as <code>Date, WO, Part #, VAC.toFixed(2), CPI.toFixed(3)</code> (CPI blank when null), matching <code>exportVacLog()</code> lines 5182&ndash;5192. The Part # field is passed through <code>csvCell()</code> (comma/quote-safe); all other fields are inherently delimiter-free.</p>
+<p><span class="req">F-06</span> <strong>Part # source.</strong> The output Part # is the P-File "Part Number" value when that column is present and non-empty; otherwise it falls back to the Daily Upload part for that WO. When the two are both present and differ, the row uses the P-File value for Part # and the Daily Upload value for the ETC lookup, and the mismatch is reported in the panel.</p>
+<p><span class="req">F-07</span> <strong>Omission policy (user decision).</strong> A <code>(Date, WO)</code> row is omitted entirely &mdash; no VAC, no CPI &mdash; when (a) the P-File's date has no matching Daily Upload, or (b) the WO is absent from that date's Daily Upload. Rationale: true VAC cannot be computed without ETC, and a CPI-only row would be dropped by Gate Tracker on import anyway (a blank/non-numeric VAC row is skipped at <code>gate-tracker-34.html:2429</code>). Every omission is counted and listed.</p>
+
+<h3>6.2 Output</h3>
+<p><span class="req">F-20</span> A preview table renders the first 50 emitted rows (<code>Date, WO, Part #, VAC, CPI</code>), with VAC and CPI right-aligned. Blank CPI is shown as a muted em-dash.</p>
+<p><span class="req">F-21</span> "Download VAC Tracker CSV" writes the <code>exportVacLog</code>-format CSV. Filename: <code>vac-tracker-log-YYYY-MM-DD.csv</code> (matching Gate Tracker's own download name). The download button is hidden until a build produces at least one row.</p>
+<p><span class="req">F-22</span> The "Build VAC Log" button is enabled only when at least one P-File parsed with &ge; 1 WO, at least one Daily Upload has a parsed date, and a Decoder Ring with &ge; 1 earnable operation is loaded.</p>
+
+<h3>6.3 Completeness Panel</h3>
+<p><span class="req">F-30</span> After each build, a completeness panel reports every count below. This is a hard requirement &mdash; per the suite-wide rule that any aggregation over potentially-sparse data must show coverage/omission explicitly (see <code>memory/feedback_surface_data_completeness.md</code>):</p>
+<ul>
+  <li><strong>Inputs:</strong> P-Files parsed (files + distinct dates), Daily Uploads with a parsed date, Decoder Ring earnable op count.</li>
+  <li><strong>Date pairing:</strong> P-File dates matched to a Daily Upload vs. total; each unmatched date listed with its omitted-WO count.</li>
+  <li><strong>Omissions:</strong> WOs omitted for being absent from that date's Daily Upload, each listed.</li>
+  <li><strong>ETC / Decoder coverage:</strong> Active/In-Queue/Pending ops matched to a Labor Hours entry vs. total, as a percentage; amber below 80%, with the top unmatched <code>part|||op</code> keys listed (ETC is understated for these).</li>
+  <li><strong>Data quality:</strong> Part # missing on emitted rows; P-File vs Daily-Upload part mismatches; duplicate <code>(Date, WO)</code> collisions resolved last-wins; rows with blank CPI (Total Actual Hours = 0).</li>
+  <li><strong>Output:</strong> total rows emitted; distinct dates in output.</li>
+</ul>
+
+<h2>7. Visual &amp; UI Requirements</h2>
+<p><span class="req">V-01</span> Navy/slate palette consistent with the suite: <code>#1e3a5f</code> headings, <code>#334155</code> table headers, <code>#2563eb</code> primary button ("Build VAC Log"), <code>#16a34a</code> green for the download CTA.</p>
+<p><span class="req">V-02</span> File-inputs row uses three flex cards (P-Files, Daily Uploads, Decoder Ring). Each card has a heading, a short schema reminder, the <code>&lt;input type="file"&gt;</code> control, and a multi-line status line below that lists each file and its resolved date.</p>
+<p><span class="req">V-03</span> Daily Upload status lists every file mapped to its filename-parsed date so the user can verify pairing; unparsed or ambiguous dates are surfaced in warning style.</p>
+<p><span class="req">V-04</span> The completeness panel uses green/amber/red flag classes per metric, and capped, scrollable detail lists ("… and N more") so large omission sets do not blow out the page.</p>
+
+<h2>8. Security Controls</h2>
+<p><span class="req">S-01</span> <code>esc()</code> on every dynamic string interpolated into HTML (status lines, panel, preview).</p>
+<p><span class="req">S-02</span> CSP meta tag: <code>default-src 'self' 'unsafe-inline'; img-src 'self' data:;</code>.</p>
+<p><span class="req">S-03</span> CSV cell escape with a 32K-byte length cap on the Part # field (matches Score Card S-06); the ported <code>parseCSV()</code> caps input fields at 500 characters.</p>
+
+<h2>9. Test Fixtures &amp; Verification</h2>
+<p>Fixtures live in <code>dummy-files/</code>: <code>peabody-phoenix.xlsx</code> and <code>peabody-neptune.xlsx</code> (both <code>C3 = 3/13/2026</code>), <code>daily-upload.csv</code> (tab-delimited, 4-digit op numbers, ACTIVE/IN&nbsp;QUEUE/PENDING statuses), and <code>decoder-ring-evm.csv</code> (bare op numbers, one <code>Earnable Hours Flag = N</code> row on op 130). The dummy P-Files have no Part Number column, so they exercise the Daily-Upload part fallback (F-06).</p>
+<p>To verify a date pairs, rename a Daily Upload copy so its filename carries the P-File's date (e.g. <code>daily-upload-3-13-2026.csv</code>).</p>
+<p><strong>Ground-truth result</strong> (the canonical regression for v1.0; all values verified 2026-06-02 against both a Node harness running the tool's own functions and a full browser end-to-end run through the real XLSX parser):</p>
+<table>
+  <tr><th>Date</th><th>WO</th><th>Part #</th><th>VAC</th><th>CPI</th><th>Derivation (Baseline / Actual / %C / ETC)</th></tr>
+  <tr><td>3/13/2026</td><td>WO-5001</td><td>AAA-1000</td><td>26.00</td><td>0.978</td><td>80 / 27 / 33 / 27</td></tr>
+  <tr><td>3/13/2026</td><td>WO-5002</td><td>AAA-1000</td><td>13.00</td><td>0.978</td><td>80 / 45 / 55 / 22</td></tr>
+  <tr><td>3/13/2026</td><td>WO-5003</td><td>AAA-1000</td><td>10.00</td><td>1.000</td><td>80 / 52 / 65 / 18</td></tr>
+  <tr><td>3/13/2026</td><td>WO-5004</td><td>AAA-1000</td><td>31.00</td><td>0.889</td><td>80 / 18 / 20 / 31</td></tr>
+  <tr><td>3/13/2026</td><td>WO-5005</td><td>BBB-2000</td><td>8.00</td><td>1.071</td><td>62 / 22 / 38 / 32</td></tr>
+  <tr><td>3/13/2026</td><td>WO-5008</td><td>CCC-3000</td><td>4.00</td><td>0.833</td><td>50 / 15 / 25 / 31 (Part # from Daily Upload)</td></tr>
+</table>
+<p>Decoder coverage on this set is 19/19 ops (100%), zero omissions. The strongest verification is a byte-for-byte diff against the Gate Tracker's own <code>exportVacLog()</code> output for the same P-File + Daily Upload + Decoder Ring &mdash; any difference for a matching <code>(Date, WO)</code> indicates a porting regression.</p>
+
+<h2>10. Known Issues</h2>
+<p style="font-size:0.9rem;color:#666;">No open bugs at this time.</p>
+
+<h2>11. Design Decisions &amp; Notes</h2>
+
+<h3>11.1 Why this tool exists &mdash; VAC is not a pure-P-File quantity</h3>
+<p>Investigation on 2026-06-02 (see <code>memory/investigation_vac_delta_root_cause.md</code>) traced an across-the-board positive &Delta;VAC in the Manager EVM report to the structure of the VAC formula. CPI is fully P-File-derived (<code>%Complete &times; Baseline / Actual</code>), but VAC includes an ETC term whose operation statuses come from the <em>live</em> Daily Upload. As ops close week-to-week, ETC falls and <code>VAC = Baseline &minus; (Actual + ETC)</code> rises &mdash; even when Baseline and Actual are unchanged. The user confirmed by re-opening a month-old P-File: identical Baseline/Actual, different VAC. The stored historical VAC was always a hybrid of a dated P-File and whatever Daily Upload was loaded, so it was never reproducible. This tool fixes that by pairing each P-File with the Daily Upload of its own date.</p>
+
+<h3>11.2 Verbatim port over re-implementation (decision, v1.0)</h3>
+<p>The P-File parser, <code>parseCSV</code>, <code>colIndex</code>, <code>normOper</code>, the Decoder-Ring labor-hours lookup, the <code>byOrder</code> build, the EVM math, and the output formatter/sort are all ported verbatim from <code>gate-tracker-34.html</code> rather than re-derived. This is deliberate: the entire value of the tool is that its numbers match the Gate Tracker exactly, so any independent re-implementation would be a liability. PapaParse was rejected for the same reason &mdash; Gate Tracker uses its own <code>parseCSV</code>, so the tool does too.</p>
+
+<h3>11.3 Date from filename (decision, v1.0)</h3>
+<p>The Daily Upload has no internal date (PRD-GateTracker &sect;3.2 &mdash; it is a daily snapshot paired by processing date). To rebuild historical VAC, each P-File must be paired with the Daily Upload from its own date, so the tool reads the date from the filename. US <code>M/D</code> ordering is the default for ambiguous separated forms; ambiguous files are flagged for the user to confirm. This depends on the user having archived Daily Uploads with dated filenames &mdash; see &sect;11.5.</p>
+
+<h3>11.4 Omit, don't proxy (user decision, v1.0)</h3>
+<p>When ETC cannot be computed (no matching Daily Upload, or WO absent from it), the row is omitted entirely rather than emitted with a proxy or blank VAC. The user chose this explicitly. It is also the only honest option for Gate Tracker import: a blank/non-numeric VAC row is silently skipped on import (<code>gate-tracker-34.html:2429</code>), so a CPI-only row would not populate the tracker anyway. Contrast with <code>vac-backfill-tool-1.html</code>, which deliberately writes blank VAC because it is a different (earned-vs-actual CPI proxy) pipeline; see <code>PRD-VacBackfillTool.html</code> &sect;11.4.</p>
+
+<h3>11.5 Reproducibility limit &mdash; requires same-dated Daily Uploads</h3>
+<div class="note">Because VAC depends on the Daily Upload's operation statuses, faithful historical VAC requires the Daily Upload <em>from each historical date</em>. If the user has not archived old Daily Uploads, CPI will still be exact (it is pure-P-File), but historical VAC cannot be perfectly reconstructed. This is a property of the Gate Tracker's VAC definition, not a defect of this tool.</div>
+
+<h3>11.6 Relationship to the VAC Tracker Backfill Tool</h3>
+<p>This tool and <code>vac-backfill-tool-1.html</code> both emit the <code>exportVacLog</code> schema but are distinct. The Backfill Tool computes a CPI <em>proxy</em> (<code>cumulative earned &divide; cumulative actual</code>) from tech-charge <code>.xlsx</code> + Hours Earned, for periods with no P-File coverage, and writes blank VAC. This Builder uses real P-Files + the Daily Upload + the Decoder Ring to compute the <em>true</em> ETC-based VAC and the true Gate-Tracker CPI. Use the Builder when P-Files exist for the period; use the Backfill Tool only when they do not.</p>
+
+<h2>12. Out of Scope</h2>
+<ul>
+  <li><strong>Merging the output into the live VAC tracker.</strong> The user concatenates externally.</li>
+  <li><strong>Changing the Gate Tracker's VAC definition.</strong> Whether the Gate Tracker itself should pair a dated P-File with a same-dated Daily Upload (rather than the live one) is a separate methodology decision logged against <code>gate-tracker-34.html</code>; this tool does not modify the Gate Tracker.</li>
+  <li><strong>Operation-level VAC/CPI.</strong> WO-level only, matching Gate Tracker.</li>
+  <li><strong>Trend visuals / comparison panel.</strong> This tool emits CSV + a completeness panel only; trend visualization happens downstream (Gate Tracker, EHA) after merge.</li>
+</ul>
+
+</body>
+</html>
