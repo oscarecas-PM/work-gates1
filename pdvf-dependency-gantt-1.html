@@ -171,10 +171,20 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .lt-rowhead { background: #f1f5f9; font-weight: bold; color: #1e293b; white-space: nowrap; position: sticky; left: 0; z-index: 1; }
 .lt-lab { background: #eff6ff; }
 .lt-lab .lt-rowhead { background: #dbeafe; }
-.lt-cell { min-width: 92px; }
+.lt-cell { min-width: 130px; padding: 2px 4px !important; }
 .lt-gline { color: #334155; white-space: nowrap; }
 .lt-total { font-weight: bold; color: #1e3a5f; margin-top: 2px; border-top: 1px solid #e2e8f0; }
 .lt-rowtotal { font-weight: bold; background: #f8fafc; white-space: nowrap; }
+.lt-rowtotal-emp { font-weight: normal; color: #475569; font-size: 0.7rem; }
+/* 3-col mini-table inside each Gate Loading cell */
+.lt-mini { width: 100%; border-collapse: collapse; font-size: 0.68rem; }
+.lt-mini th, .lt-mini td { padding: 1px 4px; border-bottom: 1px solid #eef2f7; text-align: right; white-space: nowrap; }
+.lt-mini th { font-weight: bold; color: #475569; background: transparent; }
+.lt-mini td:first-child, .lt-mini th:first-child { text-align: left; }
+.lt-mini-total td { font-weight: bold; color: #1e3a5f; border-top: 1px solid #cbd5e1; border-bottom: none; }
+/* h/mo per employee input in the title bar */
+.lt-hpe-ctrl { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; font-weight: normal; font-size: 0.78rem; }
+.lt-hpe-ctrl input { width: 70px; padding: 2px 5px; border: 1px solid #cbd5e1; border-radius: 3px; font-size: 0.78rem; color: #1e293b; background: #fff; }
 .lt-foot { font-size: 0.72rem; color: #b45309; padding: 6px 14px 0; }
 @media print { .lt-scroll { overflow: visible; } }
 
@@ -322,6 +332,7 @@ var compactMode = false; // hides date + row buttons, reveals part number inline
 var weeklyEarned = {};   // woNo -> { isoWeek: hrs }  — built from EHA upload
 var lookbackWeeks = 4;   // trailing weeks averaged to derive per-WO velocity
 var overrideLabTotal = null; // null = use computed sum of calc velocities; else hrs/mo
+var hrsPerEmployee = null;   // typical earned hrs/mo per employee; drives Gate Loading headcount column
 var fleetCache = null;   // memoized fleet velocity for this render pass
 var pendingSearch = null;// { mode:'root'|'child'|'parent'|'link', nodeId, selected:{woNo:true} }
 var isSnapshot = false;
@@ -964,6 +975,14 @@ function setLabCapacity(v) {
 }
 function resetLabCapacity() { setLabCapacity(''); }
 
+// Headcount input for Gate Loading: drives the "Emp" column = hours / hrsPerEmployee.
+function setHrsPerEmployee(v) {
+  if (v === '' || v == null) { hrsPerEmployee = null; }
+  else { var n = parseFloat(v); hrsPerEmployee = (n > 0) ? n : null; }
+  var el = document.getElementById('hrs-per-emp'); if (el) el.value = (hrsPerEmployee == null ? '' : hrsPerEmployee);
+  renderLoadingTable();
+}
+
 function promptVelocity(id) {
   var n = nodes[id]; if (!n) return;
   var cur = (fleetCache && fleetCache.fleet.eff[id] != null) ? fleetCache.fleet.eff[id] : 0;
@@ -1189,24 +1208,22 @@ function shouldWarnHold(node) {
   return true;
 }
 
-// True when at least one op in the WO is currently on hold (per the daily-upload Hold Status).
+// True when the WO is on hold at the WORK-ORDER level (Hold Status == 'ORDER_HOLD').
+// Op-level holds (other codes such as QA_HOLD, STOPPED, etc.) are surfaced separately by the
+// red outline on individual chips and do NOT trigger the row HOLD label.
 function isOnHold(node) {
   if (node.isPlaceholder || !node.woNo) return false;
   var ops = woOps[node.woNo] || [];
-  for (var i = 0; i < ops.length; i++) if (isHold(ops[i].hold)) return true;
+  for (var i = 0; i < ops.length; i++) {
+    if ((ops[i].hold || '').trim().toUpperCase() === 'ORDER_HOLD') return true;
+  }
   return false;
 }
 
-// Collect the first reason text from any held op (so the HOLD label can show *why* on hover).
+// holdReason for a WO-level hold (the value is fixed to 'ORDER_HOLD' but kept as a helper so we
+// can extend later — e.g., to distinguish multiple hold codes if MES adds them).
 function holdReason(node) {
-  if (node.isPlaceholder || !node.woNo) return '';
-  var ops = woOps[node.woNo] || [];
-  var reasons = {};
-  for (var i = 0; i < ops.length; i++) {
-    var h = (ops[i].hold || '').trim();
-    if (h && h.toUpperCase() !== 'NONE' && h.toUpperCase() !== 'N') reasons[h] = true;
-  }
-  return Object.keys(reasons).join(', ');
+  return isOnHold(node) ? 'ORDER_HOLD' : '';
 }
 
 // noProgressInfo: returns { required, daysToMilestone, milestonePassed } when the WO has zero
@@ -1692,34 +1709,43 @@ function renderLoadingTable() {
       return na - nb;
     });
   }
+  function empFor(h) { return (hrsPerEmployee && hrsPerEmployee > 0) ? (h / hrsPerEmployee).toFixed(1) : '—'; }
   function cellHTML(store, mk) {
     var gates = store[mk];
     if (!gates) return '<td class="lt-cell">—</td>';
-    var lines = '', total = 0, any = false;
+    var rows = '', total = 0, any = false;
     gateSort(gates).forEach(function(k) {
       var g = gates[k]; if (g.hours <= 0.05) return; any = true; total += g.hours;
-      lines += '<div class="lt-gline">' + (g.num !== '' ? 'G' + esc(g.num) + ' ' : '') + esc(g.name) + ' — ' + g.hours.toFixed(1) + 'h</div>';
+      rows += '<tr><td>' + (g.num !== '' ? 'G' + esc(g.num) + ' ' : '') + esc(g.name) +
+        '</td><td>' + g.hours.toFixed(1) + 'h</td><td>' + empFor(g.hours) + '</td></tr>';
     });
     if (!any) return '<td class="lt-cell">—</td>';
-    return '<td class="lt-cell">' + lines + '<div class="lt-total">Total ' + total.toFixed(1) + 'h</div></td>';
+    return '<td class="lt-cell"><table class="lt-mini"><thead><tr><th>Gate</th><th>Hrs</th><th>Emp</th></tr></thead><tbody>' +
+      rows + '<tr class="lt-mini-total"><td>Total</td><td>' + total.toFixed(1) + 'h</td><td>' + empFor(total) + '</td></tr></tbody></table></td>';
   }
   function rowTotal(store) {
     var t = 0;
     gl.months.forEach(function(m){ var gs = store[m.key]; if (gs) Object.keys(gs).forEach(function(k){ t += gs[k].hours; }); });
     return t;
   }
-  var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — remaining hours</div>';
+  function rowTotalHTML(store) {
+    var t = rowTotal(store);
+    return '<td class="lt-rowtotal"><div>' + t.toFixed(1) + 'h</div><div class="lt-rowtotal-emp">' + empFor(t) + ' emp</div></td>';
+  }
+  var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — remaining hours' +
+    '<span class="lt-hpe-ctrl">h/mo per employee: <input type="number" id="hrs-per-emp" min="0" step="1" placeholder="—" value="' +
+    (hrsPerEmployee == null ? '' : hrsPerEmployee) + '" onchange="setHrsPerEmployee(this.value)"></span></div>';
   html += '<div class="lt-scroll"><table class="loading-table"><thead><tr><th class="lt-rowhead">Program</th>';
   gl.months.forEach(function(m){ html += '<th>' + esc(m.label) + '</th>'; });
   html += '<th class="lt-rowtotal">Total</th></tr></thead><tbody>';
   html += '<tr class="lt-lab"><th class="lt-rowhead">Entire Lab</th>';
   gl.months.forEach(function(m){ html += cellHTML(gl.labTotals, m.key); });
-  html += '<td class="lt-rowtotal">' + rowTotal(gl.labTotals).toFixed(1) + 'h</td></tr>';
+  html += rowTotalHTML(gl.labTotals) + '</tr>';
   gl.programs.forEach(function(p) {
     var store = gl.data[p] || {};
     html += '<tr><th class="lt-rowhead">' + esc(p) + '</th>';
     gl.months.forEach(function(m){ html += cellHTML(store, m.key); });
-    html += '<td class="lt-rowtotal">' + rowTotal(store).toFixed(1) + 'h</td></tr>';
+    html += rowTotalHTML(store) + '</tr>';
   });
   html += '</tbody></table></div>';
   if (gl.excluded.length) {
@@ -1856,7 +1882,8 @@ function saveSnapshot() {
                 globalView: globalView, dailyIndex: dailyIndex, woOps: woOps, woMeta: woMeta, ringByPart: ringByPart,
                 programLabels: programLabels, familyComments: familyComments,
                 zoomFactor: zoomFactor, compactMode: compactMode,
-                weeklyEarned: weeklyEarned, lookbackWeeks: lookbackWeeks, overrideLabTotal: overrideLabTotal };
+                weeklyEarned: weeklyEarned, lookbackWeeks: lookbackWeeks, overrideLabTotal: overrideLabTotal,
+                hrsPerEmployee: hrsPerEmployee };
   var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
 
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
@@ -1894,6 +1921,7 @@ function saveSnapshot() {
   html += 'var programLabels = snapshotState.programLabels || {}, familyComments = snapshotState.familyComments || {};\n';
   html += 'var zoomFactor = snapshotState.zoomFactor || 1, compactMode = !!snapshotState.compactMode;\n';
   html += 'var weeklyEarned = snapshotState.weeklyEarned || {}, lookbackWeeks = snapshotState.lookbackWeeks || 4, overrideLabTotal = (snapshotState.overrideLabTotal == null ? null : snapshotState.overrideLabTotal);\n';
+  html += 'var hrsPerEmployee = (snapshotState.hrsPerEmployee == null ? null : snapshotState.hrsPerEmployee);\n';
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
@@ -1903,7 +1931,7 @@ function saveSnapshot() {
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, noProgressInfo,
-    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis,
+    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, setHrsPerEmployee,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
     barWidthPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, computeGateLoading, renderLoadingTable,
