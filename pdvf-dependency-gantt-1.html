@@ -66,10 +66,13 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 /* Edit mode: row height grows so the identifier + part # + description and the chips + date input + buttons can wrap to multiple lines instead of cramming onto one. */
 #board:not(.compact) .task-col { flex-wrap: wrap; align-content: center; min-height: 56px; padding-top: 8px; padding-bottom: 8px; }
 #board:not(.compact) .node-label { flex: 0 1 auto; max-width: 100%; }
-#board:not(.compact) .node-date { margin-left: auto; }
+#board:not(.compact) .date-cluster { margin-left: auto; }
+.date-cluster { display: inline-flex; align-items: center; gap: 4px; }
+.date-cap { font-size: 0.6rem; font-weight: bold; letter-spacing: 0.03em; color: #64748b; text-transform: uppercase; }
+.node-date.start { border-color: #94a3b8; background: #f8fafc; }
 
 /* Compact / Review mode: hide editing controls, reveal part number inline */
-.compact .node-date, .compact .row-btn { display: none !important; }
+.compact .date-cluster, .compact .row-btn { display: none !important; }
 .node-label .pn-inline { color: #475569; margin-left: 4px; }
 
 .snapshot-notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; color: #1e40af; margin-bottom: 1rem; display: none; }
@@ -88,6 +91,12 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .time-col.head { min-height: 26px; }
 
 .caret { width: 14px; text-align: center; cursor: pointer; color: #64748b; user-select: none; flex-shrink: 0; }
+.drag-handle { cursor: grab; color: #cbd5e1; font-size: 0.8rem; line-height: 1; padding: 0 2px; user-select: none; flex-shrink: 0; }
+.drag-handle:hover { color: #64748b; }
+.drag-handle:active { cursor: grabbing; }
+.compact .drag-handle { display: none; }
+.gantt-row.drop-above { box-shadow: inset 0 3px 0 #2563eb; }
+.gantt-row.drop-below { box-shadow: inset 0 -3px 0 #2563eb; }
 .caret.empty { visibility: hidden; }
 .node-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-label .wo { font-weight: bold; color: #1e293b; }
@@ -133,6 +142,9 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 /* Diamond colored gray when there's no velocity-derived forecast (zero velocity).
    We deliberately don't paint it green so it doesn't read as "on track." */
 .slack-unknown { background: #94a3b8; }
+/* Planned-start diamond — hollow/outlined neutral marker, deliberately distinct from the filled
+   colored completion diamond so the two ends of a bar are never confused. */
+.milestone-diamond.start { background: #fff; box-shadow: inset 0 0 0 1.6px #475569, 0 0 0 1px rgba(255,255,255,0.8); }
 .no-prog-warn { position: absolute; top: -1px; font-size: 0.78rem; font-weight: 900; color: #fff; background: #b45309; padding: 0 4px; border-radius: 50%; line-height: 11px; cursor: help; box-shadow: 0 0 0 1px rgba(15,23,42,0.25); pointer-events: auto; z-index: 3; }
 .slack-label { position: absolute; top: -2px; font-size: 0.68rem; font-weight: bold; color: #1e293b; background: rgba(255,255,255,0.95); padding: 0 5px; border-radius: 3px; line-height: 1.4; box-shadow: 0 0 0 1px rgba(15,23,42,0.18); white-space: nowrap; pointer-events: auto; z-index: 2; }
 
@@ -338,6 +350,9 @@ var pendingSearch = null;// { mode:'root'|'child'|'parent'|'link', nodeId, selec
 var isSnapshot = false;
 
 var gStart = '', gMax = '';  // computed axis domain per render
+
+var _dateRenderTimer = null; // debounce handle for date-input edits (see scheduleDateRender)
+var dragSrcId = null;        // node id currently being dragged (family/child reorder)
 
 // ============================== Utilities (from gate-tracker / decoder-ring) ==============================
 var CSV_MAX_FIELD_LEN = 500;
@@ -672,12 +687,88 @@ function normalizeDates() {
   rootIds.forEach(walk);
 }
 
+// Debounced re-render for date inputs. The native <input type="date"> fires a `change`
+// event after each completed field (and on partial-but-valid values), so a synchronous
+// render() would tear down the focused input mid-keystroke — dropping the second digit of
+// a day/month and capping the year at 2 digits. We write the model immediately (no data
+// loss) and defer the expensive normalize+render until the user pauses (~400ms).
+function scheduleDateRender() {
+  if (_dateRenderTimer) clearTimeout(_dateRenderTimer);
+  _dateRenderTimer = setTimeout(function(){ _dateRenderTimer = null; normalizeDates(); render(); }, 400);
+}
+
 function setCompletion(id, val) {
   if (!val) return;
   nodes[id].completion = val;
   nodes[id].manualDate = true;
-  normalizeDates();
-  render();
+  scheduleDateRender();
+}
+
+// Planned start date for non-WO (placeholder) rows. Moves the bar's left edge and draws a
+// hollow start diamond. Debounced for the same reason as setCompletion.
+function setStartDate(id, val) {
+  nodes[id].startDate = val || '';
+  scheduleDateRender();
+}
+
+// ============================== Drag reorder (families + children) ==============================
+// Reorder a node among its siblings (roots count as siblings of one another). Both nodes must
+// share the same parent; roots may only reorder within the same program (the view groups by
+// program). `before` decides whether src lands above or below the target.
+function reorderSibling(srcId, tgtId, before) {
+  if (srcId === tgtId) return false;
+  var src = nodes[srcId], tgt = nodes[tgtId];
+  if (!src || !tgt) return false;
+  if (src.parentId !== tgt.parentId) return false;            // siblings only
+  var isRoot = !src.parentId;
+  if (isRoot && (src.program || '') !== (tgt.program || '')) return false;  // same program for roots
+  // Current sibling order.
+  var sibs = isRoot ? rootIds.slice()
+                    : getChildren(src.parentId).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).map(function(c){ return c.id; });
+  sibs = sibs.filter(function(x){ return x !== srcId; });
+  var ti = sibs.indexOf(tgtId);
+  if (ti < 0) return false;
+  sibs.splice(before ? ti : ti + 1, 0, srcId);
+  // Renumber this sibling group; for roots also rewrite the rootIds array order.
+  sibs.forEach(function(id, i){ nodes[id].order = i; });
+  if (isRoot) rootIds = sibs;
+  return true;
+}
+
+function onRowDragStart(ev, id) {
+  dragSrcId = id;
+  if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', id); } catch (e) {} }
+}
+function onRowDragOver(ev, id) {
+  if (!dragSrcId || dragSrcId === id) return;
+  var src = nodes[dragSrcId], tgt = nodes[id];
+  if (!src || !tgt || src.parentId !== tgt.parentId) return;          // only valid sibling targets
+  if (!src.parentId && (src.program || '') !== (tgt.program || '')) return;
+  ev.preventDefault();
+  if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+  var row = ev.currentTarget;
+  var r = row.getBoundingClientRect();
+  var before = (ev.clientY - r.top) < r.height / 2;
+  row.classList.remove('drop-above', 'drop-below');
+  row.classList.add(before ? 'drop-above' : 'drop-below');
+}
+function onRowDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-above', 'drop-below');
+}
+function onRowDragEnd(ev) {
+  dragSrcId = null;
+  // Clear any lingering drop indicators if the drag was cancelled outside a valid target.
+  var rows = document.querySelectorAll('.gantt-row.drop-above, .gantt-row.drop-below');
+  for (var i = 0; i < rows.length; i++) rows[i].classList.remove('drop-above', 'drop-below');
+}
+function onRowDrop(ev, id) {
+  ev.preventDefault();
+  var row = ev.currentTarget;
+  var r = row.getBoundingClientRect();
+  var before = (ev.clientY - r.top) < r.height / 2;
+  row.classList.remove('drop-above', 'drop-below');
+  if (dragSrcId && reorderSibling(dragSrcId, id, before)) { dragSrcId = null; render(); }
+  else dragSrcId = null;
 }
 
 // ============================== Node creation / deletion ==============================
@@ -688,9 +779,10 @@ function bindNodeFields(n) {
 function woInUse(wo) { return Object.keys(nodes).some(function(k){ return nodes[k].woNo === wo; }); }
 
 function newNode(wo, parentId, completion) {
-  var id = 'n' + (nextNodeId++);
+  var num = nextNodeId++;
+  var id = 'n' + num;
   var n = { id: id, woNo: wo, partNo: '', partDesc: '', program: '', serial: '', isPlaceholder: false,
-            parentId: parentId, completion: completion, manualDate: false,
+            parentId: parentId, completion: completion, manualDate: false, startDate: '', order: num,
             overrideVelocity: null, joinGate: null,
             collapsed: false, opsExpanded: false, expandedGates: {} };
   bindNodeFields(n);
@@ -699,9 +791,10 @@ function newNode(wo, parentId, completion) {
 }
 
 function newPlaceholderNode(partNo, partDesc, program, parentId, completion) {
-  var id = 'n' + (nextNodeId++);
+  var num = nextNodeId++;
+  var id = 'n' + num;
   var n = { id: id, woNo: '', partNo: partNo, partDesc: partDesc || '', program: program || '(Unassigned)', serial: '',
-            isPlaceholder: true, parentId: parentId, completion: completion, manualDate: false,
+            isPlaceholder: true, parentId: parentId, completion: completion, manualDate: false, startDate: '', order: num,
             overrideVelocity: null, joinGate: null,
             collapsed: false, opsExpanded: false, expandedGates: {} };
   nodes[id] = n;
@@ -1271,9 +1364,19 @@ function barWidthPct(node) {
   return p;
 }
 
+// Left edge of the bar as a percent of [gStart, gMax]. 0 (gStart) unless the row has a
+// user-set planned start date (non-WO placeholder rows). Clamped to the timeline.
+function barStartPct(node) {
+  if (!node.startDate) return 0;
+  var p = pctOfDate(node.startDate);
+  if (p < 0) p = 0; if (p > 100) p = 100;
+  return p;
+}
+
 function renderBar(node) {
   var rd = resolveOps(node);
-  var widthPct = barWidthPct(node);
+  var startPct = barStartPct(node);
+  var widthPct = Math.max(barWidthPct(node) - startPct, 0);  // span from start to end; feeds segment px math below
   var inner = '';
   var chipsLayout = false;   // true only when chips actually render (not when degraded to solid)
   if (globalView === 'bars' || !rd.hasRing) {
@@ -1352,58 +1455,67 @@ function renderBar(node) {
   var wrapClass = 'bar-wrap' + (isChipsView ? ' chips' : '');
   var barClass = 'bar' + (isChipsView ? ' chips' : '');
   var past = (node.completion && scheduleStart && daysBetween(scheduleStart, node.completion) < 0) ? '<span class="slip-flag" title="Completion is before the schedule start">&#9888;</span>' : '';
-  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="width:' + widthPct + '%" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + '</div>';
+  var posStyle = isChipsView ? 'width:' + widthPct + '%' : 'left:' + startPct + '%;width:' + widthPct + '%';
+  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="' + posStyle + '" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + '</div>';
 }
 
 // Milestone diamond + slack bar above the main bar. Always renders the diamond when a Milestone is set;
 // adds a colored slack bar between forecast and milestone when both differ.
 function renderMilestone(node) {
-  if (!node.completion) return '';
-  var milestoneX = pctOfDate(node.completion);
-  if (milestoneX < -1 || milestoneX > 101) return '';
-  var forecastEnd = fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[node.id] : null;
-  var slackDays = forecastEnd ? daysBetween(forecastEnd, node.completion) : null;
-  // Diamond color tier. "unknown" (gray) when there's no forecast — i.e., velocity is zero so
-  // we have no real projection. Don't lie green/on-track in that case.
-  var tier;
-  if (forecastEnd) tier = (slackDays > 7 ? 'green' : (slackDays >= 0 ? 'yellow' : 'red'));
-  else tier = 'unknown';
+  if (!node.completion && !node.startDate) return '';
   var isChipsView = (globalView === 'chips' && resolveOps(node).hasRing);
   var trackClass = 'milestone-track' + (isChipsView ? ' chips-track' : '');
   var html = '<div class="' + trackClass + '">';
-  // Slack bar — between forecast and milestone (clamped to [0,100]).
-  if (forecastEnd && slackDays !== 0) {
-    var forecastX = pctOfDate(forecastEnd);
-    var lo = Math.max(0, Math.min(forecastX, milestoneX));
-    var hi = Math.min(100, Math.max(forecastX, milestoneX));
-    var w = Math.max(hi - lo, 0.2);
-    var label = '';
-    if (slackDays > 0) label = '+' + slackDays + 'd slack';
-    else if (slackDays < 0) label = (-slackDays) + 'd late';
-    html += '<div class="slack-bar slack-' + tier + '" style="left:' + lo + '%;width:' + w + '%" title="' + esc(label) + '"></div>';
-    // Inline label when there's enough width (>~4% feels readable)
-    if (label && w >= 6) html += '<div class="slack-label" style="left:' + (lo + w/2) + '%;transform:translateX(-50%)">' + esc(label) + '</div>';
+  // ----- Completion (milestone) diamond + slack bar -----
+  var milestoneX = node.completion ? pctOfDate(node.completion) : -999;
+  if (node.completion && milestoneX >= -1 && milestoneX <= 101) {
+    var forecastEnd = fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[node.id] : null;
+    var slackDays = forecastEnd ? daysBetween(forecastEnd, node.completion) : null;
+    // Diamond color tier. "unknown" (gray) when there's no forecast — i.e., velocity is zero so
+    // we have no real projection. Don't lie green/on-track in that case.
+    var tier;
+    if (forecastEnd) tier = (slackDays > 7 ? 'green' : (slackDays >= 0 ? 'yellow' : 'red'));
+    else tier = 'unknown';
+    // Slack bar — between forecast and milestone (clamped to [0,100]).
+    if (forecastEnd && slackDays !== 0) {
+      var forecastX = pctOfDate(forecastEnd);
+      var lo = Math.max(0, Math.min(forecastX, milestoneX));
+      var hi = Math.min(100, Math.max(forecastX, milestoneX));
+      var w = Math.max(hi - lo, 0.2);
+      var label = '';
+      if (slackDays > 0) label = '+' + slackDays + 'd slack';
+      else if (slackDays < 0) label = (-slackDays) + 'd late';
+      html += '<div class="slack-bar slack-' + tier + '" style="left:' + lo + '%;width:' + w + '%" title="' + esc(label) + '"></div>';
+      // Inline label when there's enough width (>~4% feels readable)
+      if (label && w >= 6) html += '<div class="slack-label" style="left:' + (lo + w/2) + '%;transform:translateX(-50%)">' + esc(label) + '</div>';
+    }
+    // No-progress indicator near the diamond — shows when velocity = 0 and there's still work to do.
+    // It surfaces "we have no confidence in meeting this milestone" without hiding the bar.
+    var npi = noProgressInfo(node);
+    if (npi) {
+      var heldNow = isOnHold(node);
+      var npTip = 'This work order has not made progress recently';
+      if (heldNow) npTip += ' and is on hold';
+      npTip += '.';
+      if (npi.milestonePassed) npTip += ' Milestone has already passed (' + (-npi.daysToMilestone) + ' days).';
+      else if (npi.required != null) npTip += ' Would need ' + npi.required.toFixed(1) + ' h/mo earned to meet the milestone (' + npi.daysToMilestone + ' days away, ' + npi.remainHrs.toFixed(1) + ' h remaining).';
+      // Position the indicator just to the right of the diamond
+      var npX = Math.min(milestoneX + 1.2, 99.5);
+      html += '<div class="no-prog-warn" style="left:' + npX + '%" title="' + esc(npTip) + '">!</div>';
+    }
+    // Diamond on top of the milestone date — same color tier (gray "unknown" when no forecast).
+    var tipParts = ['Milestone: ' + node.completion,
+                    forecastEnd ? ('Forecast: ' + forecastEnd) : (npi ? 'Forecast: none — zero velocity' : null),
+                    slackDays != null ? ((slackDays >= 0 ? '+' : '') + slackDays + ' days slack') : null];
+    var tip = tipParts.filter(Boolean).join(' · ');
+    html += '<div class="milestone-diamond slack-' + tier + '" style="left:' + milestoneX + '%" title="' + esc(tip) + '"></div>';
   }
-  // No-progress indicator near the diamond — shows when velocity = 0 and there's still work to do.
-  // It surfaces "we have no confidence in meeting this milestone" without hiding the bar.
-  var npi = noProgressInfo(node);
-  if (npi) {
-    var heldNow = isOnHold(node);
-    var npTip = 'This work order has not made progress recently';
-    if (heldNow) npTip += ' and is on hold';
-    npTip += '.';
-    if (npi.milestonePassed) npTip += ' Milestone has already passed (' + (-npi.daysToMilestone) + ' days).';
-    else if (npi.required != null) npTip += ' Would need ' + npi.required.toFixed(1) + ' h/mo earned to meet the milestone (' + npi.daysToMilestone + ' days away, ' + npi.remainHrs.toFixed(1) + ' h remaining).';
-    // Position the indicator just to the right of the diamond
-    var npX = Math.min(milestoneX + 1.2, 99.5);
-    html += '<div class="no-prog-warn" style="left:' + npX + '%" title="' + esc(npTip) + '">!</div>';
+  // ----- Planned-start diamond (hollow) for non-WO rows -----
+  if (node.startDate) {
+    var sx = pctOfDate(node.startDate);
+    if (sx >= -1 && sx <= 101)
+      html += '<div class="milestone-diamond start" style="left:' + sx + '%" title="Planned start: ' + esc(node.startDate) + '"></div>';
   }
-  // Diamond on top of the milestone date — same color tier (gray "unknown" when no forecast).
-  var tipParts = [node.completion ? ('Milestone: ' + node.completion) : null,
-                  forecastEnd ? ('Forecast: ' + forecastEnd) : (npi ? 'Forecast: none — zero velocity' : null),
-                  slackDays != null ? ((slackDays >= 0 ? '+' : '') + slackDays + ' days slack') : null];
-  var tip = tipParts.filter(Boolean).join(' · ');
-  html += '<div class="milestone-diamond slack-' + tier + '" style="left:' + milestoneX + '%" title="' + esc(tip) + '"></div>';
   html += '</div>';
   return html;
 }
@@ -1494,7 +1606,7 @@ function buildRows(rootId, level, acc) {
   var n = nodes[rootId];
   acc.push({ node: n, level: level });
   if (!n.collapsed) {
-    getChildren(rootId).sort(function(a,b){ return (+a.id.slice(1)) - (+b.id.slice(1)); }).forEach(function(c){ buildRows(c.id, level+1, acc); });
+    getChildren(rootId).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ buildRows(c.id, level+1, acc); });
   }
   return acc;
 }
@@ -1549,9 +1661,14 @@ function render() {
         var isRoot = !n.parentId;
         var th = isRoot ? treeMaxLevel(n.id) : 0;
         var canAddParent = isRoot && th < 9;
-        html += '<div class="gantt-row' + (isOnHold(n) ? ' on-hold' : '') + '">';
+        html += '<div class="gantt-row' + (isOnHold(n) ? ' on-hold' : '') + '"' +
+          ' ondragover="onRowDragOver(event,\'' + n.id + '\')" ondragleave="onRowDragLeave(event)" ondrop="onRowDrop(event,\'' + n.id + '\')">';
         // task col
         html += '<div class="task-col" style="padding-left:' + (8 + lvl*14) + 'px">';
+        // Drag grip — reorder this family (root) or sibling (child). Only the handle is draggable so
+        // row inputs/buttons stay usable.
+        html += '<span class="drag-handle" draggable="true" title="Drag to reorder"' +
+          ' ondragstart="onRowDragStart(event,\'' + n.id + '\')" ondragend="onRowDragEnd(event)">&#9776;</span>';
         // HOLD label on the far left when any op is on hold — makes the state unmissable.
         if (isOnHold(n)) {
           var hr = holdReason(n);
@@ -1582,8 +1699,19 @@ function render() {
         }
         // (Hold warning moved: HOLD label on far left of the row when on hold, and a no-progress
         //  exclamation near the milestone diamond when velocity is zero — see renderMilestone.)
+        // Date controls clustered so the right-alignment (margin-left:auto) applies to the group,
+        // not to each input individually (which would split two adjacent date inputs apart).
+        html += '<span class="date-cluster">';
+        // Planned start date — only for non-WO placeholder rows. Moves the bar's left edge and draws
+        // a hollow start diamond.
+        if (n.isPlaceholder) {
+          html += '<span class="date-cap" title="Planned start date">start</span>' +
+            '<input type="date" class="node-date start" value="' + esc(n.startDate || '') +
+            '" title="Planned start date (bar begins here)" onchange="setStartDate(\'' + n.id + '\', this.value)">';
+        }
         html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
           '" value="' + esc(n.completion || '') + '" title="Milestone date (your target)" onchange="setCompletion(\'' + n.id + '\', this.value)">';
+        html += '</span>';
         html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
         if (isRoot) html += '<button class="row-btn" title="Add a parent above this assembly"' + (canAddParent ? '' : ' disabled') + ' onclick="openSearch(\'parent\',\'' + n.id + '\')">&#8593;</button>';
         if (n.isPlaceholder) html += '<button class="row-btn link" title="Link this placeholder to a work order" onclick="openSearch(\'link\',\'' + n.id + '\')">WO</button>';
@@ -1774,8 +1902,11 @@ function downloadFile(content, filename, type) {
 }
 
 function exportHierarchyCSV() {
-  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks'];
+  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order'];
   var labCapStr = (overrideLabTotal == null ? '' : String(overrideLabTotal));
+  // Sync each root's order field to its rootIds position so the exported Order column reflects the
+  // current (possibly drag-reordered) family sequence and round-trips on import.
+  rootIds.forEach(function(rid, i){ if (nodes[rid]) nodes[rid].order = i; });
   function walk(id) {
     var n = nodes[id], lvl = nodeLevel(id);
     var parent = n.parentId ? nodes[n.parentId] : null;
@@ -1786,8 +1917,9 @@ function exportHierarchyCSV() {
       csvQuote(programLabels[n.program] || ''), csvQuote(n.woNo), csvQuote(n.partNo), csvQuote(n.partDesc),
       csvQuote(n.serial), n.isPlaceholder ? 'Y' : 'N', csvQuote(parent ? parent.woNo : ''), csvQuote(parent ? parent.partNo : ''),
       csvQuote(n.completion || ''), n.manualDate ? 'Y' : 'N', csvQuote(fc),
-      csvQuote(jg), csvQuote(ovStr), csvQuote(labCapStr), String(lookbackWeeks)].join(','));
-    getChildren(id).sort(function(a,b){ return (+a.id.slice(1)) - (+b.id.slice(1)); }).forEach(function(c){ walk(c.id); });
+      csvQuote(jg), csvQuote(ovStr), csvQuote(labCapStr), String(lookbackWeeks),
+      csvQuote(n.startDate || ''), String(n.order == null ? '' : n.order)].join(','));
+    getChildren(id).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ walk(c.id); });
   }
   rootIds.forEach(walk);
   downloadFile(lines.join('\n'), 'pdvf-hierarchy-' + dateStr() + '.csv', 'text/csv');
@@ -1812,6 +1944,8 @@ function importHierarchy(rows) {
   var iOV = colIndex(h, 'Override Velocity');
   var iOLT = colIndex(h, 'Override Lab Total');
   var iLBW = colIndex(h, 'Lookback Weeks');
+  var iStart = colIndex(h, 'Start Date');
+  var iOrder = colIndex(h, 'Order');
   var byId = (iId >= 0 && iPid >= 0);
   if (!byId && (iWO < 0 || iPWO < 0)) {
     showStatus('hier-status', 'Error: hierarchy CSV needs Node ID/Parent ID (or WO/Parent WO) columns.', 'error'); return;
@@ -1835,6 +1969,8 @@ function importHierarchy(rows) {
     var prog = iProg >= 0 ? (row[iProg] || '').trim() : '';
     var jgRaw = iJG >= 0 ? (row[iJG] || '').trim() : '';
     var ovRaw = iOV >= 0 ? (row[iOV] || '').trim() : '';
+    var ordRaw = iOrder >= 0 ? (row[iOrder] || '').trim() : '';
+    var idNum = (function(){ var mmn = /^n(\d+)$/.exec(id); return mmn ? +mmn[1] : 0; })();
     var n = { id: id, woNo: wo,
       partNo: iPart>=0 ? (row[iPart]||'').trim() : '',
       partDesc: iDesc>=0 ? (row[iDesc]||'').trim() : '',
@@ -1844,6 +1980,8 @@ function importHierarchy(rows) {
       parentId: null,
       completion: iComp>=0 ? (row[iComp]||'').trim() : '',
       manualDate: iMan>=0 ? /^y/i.test((row[iMan]||'').trim()) : false,
+      startDate: iStart>=0 ? (row[iStart]||'').trim() : '',
+      order: (ordRaw !== '' && !isNaN(parseInt(ordRaw, 10))) ? parseInt(ordRaw, 10) : idNum,
       overrideVelocity: ovRaw === '' ? null : (parseFloat(ovRaw) >= 0 ? parseFloat(ovRaw) : null),
       joinGate: jgRaw === '' ? null : (parseInt(jgRaw, 10) || null),
       collapsed: false, opsExpanded: false, expandedGates: {} };
@@ -1867,6 +2005,8 @@ function importHierarchy(rows) {
     else { n.parentId = null; rootIds.push(pr.id); if (pr.fc) familyComments[pr.id] = pr.fc; }
     if (n.woNo && woMeta[n.woNo]) bindNodeFields(n);
   });
+  // Restore drag-reordered family order deterministically when the Order column is present.
+  if (iOrder >= 0) rootIds.sort(function(a,b){ return (nodes[a].order - nodes[b].order) || ((+a.slice(1)) - (+b.slice(1))); });
   if (byId) nextNodeId = maxNum + 1;
   if (!scheduleStart) scheduleStart = todayISO();
   normalizeDates();
@@ -1924,16 +2064,18 @@ function saveSnapshot() {
   html += 'var hrsPerEmployee = (snapshotState.hrsPerEmployee == null ? null : snapshotState.hrsPerEmployee);\n';
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
+  html += 'var _dateRenderTimer = null; var dragSrcId = null;\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
     operColorClass, statusRank, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
-    getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, setCompletion,
+    getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
+    reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, noProgressInfo,
     setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, setHrsPerEmployee,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
-    barWidthPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
+    barWidthPct, barStartPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, computeGateLoading, renderLoadingTable,
     csvQuote, sanitizeFilename, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
