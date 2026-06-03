@@ -40,6 +40,7 @@
   .filter-bar { margin-bottom: 0.75rem; padding: 10px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; display: none; }
   .filter-bar .filter-title { font-weight: bold; font-size: 0.85rem; margin-bottom: 6px; color: #555; position: relative; }
   .filter-bar .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .pn-chip-group-label { flex-basis: 100%; width: 100%; font-size: 0.76rem; font-weight: bold; color: #475569; margin: 6px 0 0; text-transform: uppercase; letter-spacing: 0.3px; }
   .filter-chip { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 4px; font-size: 0.82rem; cursor: pointer; border: 1px solid #cbd5e1; background: #fff; color: #334155; user-select: none; transition: all 0.15s; }
   .filter-chip.selected { background: #2563eb; color: #fff; border-color: #2563eb; }
   .filter-chip:hover { border-color: #2563eb; }
@@ -2220,27 +2221,51 @@ function process() {
     // F-186: one chip per sibling group. Multi-member groups show "<rootPN>-x — <name>" with
     // data-pn set to the gid (the group identity). Singletons (the common case) render exactly
     // as before — text is "<partNo> — <name>" and data-pn is the partNo.
+    // Grouped by program (subheadings in allPrograms order); each gid carries its program.
     var _chipKeys = Object.keys(siblingGroups).sort(function(a, b) {
       var ga = siblingGroups[a], gb = siblingGroups[b];
       var ra = ga.rootPN || a, rb = gb.rootPN || b;
       return ra < rb ? -1 : ra > rb ? 1 : (a < b ? -1 : a > b ? 1 : 0);
     });
-    for (var _ck = 0; _ck < _chipKeys.length; _ck++) {
-      var _gid = _chipKeys[_ck];
-      var _g = siblingGroups[_gid];
-      var _isMulti = _g.members.length >= 2;
-      var _chipPn = _isMulti ? _gid : _g.members[0];
-      var _chipLabel = _isMulti
-        ? (_g.rootPN + '-x' + (_g.name ? ' — ' + _g.name : ''))
-        : (_chipPn + (partNames[_chipPn] ? ' — ' + partNames[_chipPn] : ''));
-      var chip = document.createElement('span');
-      chip.className = 'filter-chip pn-chip';
-      chip.textContent = _chipLabel;
-      chip.dataset.pn = _chipPn;
-      (function(_keyCapture) {
-        chip.addEventListener('click', function() { selectPartNo(_keyCapture); });
-      })(_chipPn);
-      pnFilterChips.appendChild(chip);
+    // Bucket gids by program (rootPN order preserved within each program).
+    var _chipsByProg = {};
+    for (var _ckb = 0; _ckb < _chipKeys.length; _ckb++) {
+      var _gidB = _chipKeys[_ckb];
+      var _pgB = siblingGroups[_gidB].program || '(No Program)';
+      if (!_chipsByProg[_pgB]) _chipsByProg[_pgB] = [];
+      _chipsByProg[_pgB].push(_gidB);
+    }
+    // Program order = allPrograms, then any leftover program buckets.
+    var _pgOrder = allPrograms.slice();
+    for (var _lpk in _chipsByProg) { if (_pgOrder.indexOf(_lpk) < 0) _pgOrder.push(_lpk); }
+    var _showProgLabels = allPrograms.length > 1; // single-program data needs no subheading
+    for (var _poi = 0; _poi < _pgOrder.length; _poi++) {
+      var _pgName = _pgOrder[_poi];
+      var _pgGids = _chipsByProg[_pgName];
+      if (!_pgGids || _pgGids.length === 0) continue;
+      if (_showProgLabels) {
+        var _pgLabelEl = document.createElement('div');
+        _pgLabelEl.className = 'pn-chip-group-label';
+        _pgLabelEl.textContent = _pgName;
+        pnFilterChips.appendChild(_pgLabelEl);
+      }
+      for (var _ck = 0; _ck < _pgGids.length; _ck++) {
+        var _gid = _pgGids[_ck];
+        var _g = siblingGroups[_gid];
+        var _isMulti = _g.members.length >= 2;
+        var _chipPn = _isMulti ? _gid : _g.members[0];
+        var _chipLabel = _isMulti
+          ? (_g.rootPN + '-x' + (_g.name ? ' — ' + _g.name : ''))
+          : (_chipPn + (partNames[_chipPn] ? ' — ' + partNames[_chipPn] : ''));
+        var chip = document.createElement('span');
+        chip.className = 'filter-chip pn-chip';
+        chip.textContent = _chipLabel;
+        chip.dataset.pn = _chipPn;
+        (function(_keyCapture) {
+          chip.addEventListener('click', function() { selectPartNo(_keyCapture); });
+        })(_chipPn);
+        pnFilterChips.appendChild(chip);
+      }
     }
   }
 
@@ -5745,7 +5770,8 @@ function saveEvmReport(programFilter) {
         var _vpgName = partNamesGlobal[_vpev.partNo] || '';
         _vpgLabel = _vpev.partNo + (_vpgName ? ' — ' + _vpgName : '');
       }
-      _vpgBucket[_vpgKey] = { label: _vpgLabel, sumVac: 0, woCount: 0, cpiSum: 0, cpiCount: 0 };
+      _vpgBucket[_vpgKey] = { label: _vpgLabel, sumVac: 0, woCount: 0, cpiSum: 0, cpiCount: 0,
+        isMultiSibling: !!(_vpgGrp && _vpgGrp.members.length >= 2) };
     }
     var _vpRow = _vpgBucket[_vpgKey];
     if (typeof _vpev.vac === 'number' && isFinite(_vpev.vac)) {
@@ -5764,6 +5790,8 @@ function saveEvmReport(programFilter) {
     for (var _vpgK in varPerfByProg[_vppgName]) {
       var _r = varPerfByProg[_vppgName][_vpgK];
       if (_r.woCount === 0) continue;
+      // Show only part groups with >=2 WOs; exception: multi-dash sibling groups are always shown.
+      if (!(_r.woCount >= 2 || _r.isMultiSibling)) continue;
       _vpRows.push({
         label: _r.label,
         sumVac: _r.sumVac,
@@ -5779,7 +5807,8 @@ function saveEvmReport(programFilter) {
   if (varPerfProgs.length > 0) {
     html += '<div id="var-perf-section" style="border:2px solid #334155;border-radius:6px;padding:16px;margin:1.5rem 0;">\n';
     html += '<h2 style="margin:0 0 4px 0;font-size:1.2rem;color:#1e293b;">Variance &amp; Performance by Part</h2>\n';
-    html += '<p style="margin:0 0 10px 0;font-size:0.82rem;color:#64748b;">Current P File only. Bars show <strong>&Sigma; VAC</strong> across each part&apos;s active WOs (red &lt; 0, green &ge; 0). Line shows simple-average CPI across the same WOs. Sorted worst-VAC-first.</p>\n';
+    html += '<p style="margin:0 0 10px 0;font-size:0.82rem;color:#64748b;">Current P File only. Bars show <strong>&Sigma; VAC</strong> across each part&apos;s active WOs (red &lt; 0, green &ge; 0). Line shows simple-average CPI across the same WOs. Sorted worst-VAC-first. Only parts with multiple work orders are shown (sibling dash-number groups always shown). Hover a bar for its exact &Sigma; VAC, or a CPI point for its value.</p>\n';
+    html += '<div id="var-perf-tooltip" style="position:fixed;pointer-events:none;background:#0f172a;color:#fff;font-size:0.78rem;padding:4px 8px;border-radius:4px;white-space:nowrap;z-index:9999;display:none;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>\n';
     html += '<label style="display:inline-block;font-size:0.85rem;color:#334155;margin-bottom:10px;cursor:pointer;user-select:none;"><input type="checkbox" id="var-perf-toggle-labels" checked style="margin-right:6px;vertical-align:middle;">Show average-VAC labels on bars</label>\n';
     for (var _vpi = 0; _vpi < varPerfProgs.length; _vpi++) {
       var _vpProg = varPerfProgs[_vpi];
@@ -5939,6 +5968,7 @@ function saveEvmReport(programFilter) {
   html += 'var __varPerfShowLabels = true;\n\n';
   html += 'function renderVarPerfChart(canvas, items, showLabels) {\n';
   html += '  var ctx = canvas.getContext("2d");\n';
+  html += '  canvas._vpHit = { bars: [], cpi: [] };\n';
   html += '  var W = canvas.width, H = canvas.height;\n';
   html += '  var PAD_L = 70, PAD_R = 70, PAD_T = 50, PAD_B = 110;\n';
   html += '  var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;\n';
@@ -6020,8 +6050,9 @@ function saveEvmReport(programFilter) {
   html += '    ctx.fillRect(bx, topY, barW, barH);\n';
   html += '    ctx.strokeStyle = it.sumVac >= 0 ? "#15803d" : "#b91c1c"; ctx.lineWidth = 1;\n';
   html += '    ctx.strokeRect(bx + 0.5, topY + 0.5, barW - 1, barH - 1);\n';
+  html += '    canvas._vpHit.bars.push({ x: bx, y: topY, w: barW, h: barH, label: it.label, sumVac: it.sumVac });\n';
   html += '    if (showLabels) {\n';
-  html += '      var labelText = "avg VAC: " + (it.avgVac >= 0 ? "+" : "") + Math.round(it.avgVac) + "h";\n';
+  html += '      var labelText = "avg VAC: " + (it.avgVac >= 0 ? "+" : "") + Math.round(it.avgVac) + "h (" + it.woCount + " WO" + (it.woCount === 1 ? "" : "s") + ")";\n';
   html += '      ctx.fillStyle = "#0f172a"; ctx.font = "bold 10px Arial"; ctx.textAlign = "center";\n';
   html += '      var labelY = topY - 6;\n';
   html += '      if (labelY < PAD_T + 12) labelY = topY + barH + 14;\n';
@@ -6048,6 +6079,7 @@ function saveEvmReport(programFilter) {
   html += '      ctx.fillStyle = "#2563eb"; ctx.beginPath();\n';
   html += '      ctx.arc(mxc, myc, 4, 0, 2 * Math.PI); ctx.fill();\n';
   html += '      ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();\n';
+  html += '      canvas._vpHit.cpi.push({ px: mxc, py: myc, cpi: items[ci3].avgCpi });\n';
   html += '    }\n';
   html += '  }\n';
   html += '  ctx.strokeStyle = "#94a3b8"; ctx.lineWidth = 1;\n';
@@ -6067,6 +6099,29 @@ function saveEvmReport(programFilter) {
   html += '  var tgl = document.getElementById("var-perf-toggle-labels");\n';
   html += '  if (tgl) tgl.addEventListener("change", function() { __varPerfShowLabels = tgl.checked; __renderAllVarPerf(); });\n';
   html += '})();\n';
+  // Hover tooltips: CPI markers (value only) and VAC bars (exact ΣVAC). Reads canvas._vpHit live so
+  // it stays correct after label-toggle re-renders. CPI markers take priority over bars on overlap.
+  html += 'function __wireVarPerfHover() {\n';
+  html += '  var tip = document.getElementById("var-perf-tooltip");\n';
+  html += '  var cs = document.querySelectorAll("canvas.var-perf-canvas");\n';
+  html += '  for (var i = 0; i < cs.length; i++) {\n';
+  html += '    (function(canvas) {\n';
+  html += '      canvas.addEventListener("mousemove", function(e) {\n';
+  html += '        var hit = canvas._vpHit; if (!hit || !tip) return;\n';
+  html += '        var rect = canvas.getBoundingClientRect();\n';
+  html += '        var sx = canvas.width / rect.width, sy = canvas.height / rect.height;\n';
+  html += '        var x = (e.clientX - rect.left) * sx, y = (e.clientY - rect.top) * sy;\n';
+  html += '        var txt = null;\n';
+  html += '        for (var k = 0; k < hit.cpi.length; k++) { var m = hit.cpi[k]; var dx = m.px - x, dy = m.py - y; if (dx*dx + dy*dy <= 81) { txt = "CPI " + m.cpi.toFixed(2); break; } }\n';
+  html += '        if (!txt) { for (var b = 0; b < hit.bars.length; b++) { var br = hit.bars[b]; if (x >= br.x && x <= br.x + br.w && y >= br.y && y <= br.y + br.h) { txt = br.label + " — Σ VAC " + (br.sumVac >= 0 ? "+" : "") + (Math.round(br.sumVac * 100) / 100) + "h"; break; } } }\n';
+  html += '        if (txt) { tip.textContent = txt; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px"; tip.style.display = "block"; canvas.style.cursor = "pointer"; }\n';
+  html += '        else { tip.style.display = "none"; canvas.style.cursor = "default"; }\n';
+  html += '      });\n';
+  html += '      canvas.addEventListener("mouseleave", function() { if (tip) tip.style.display = "none"; canvas.style.cursor = "default"; });\n';
+  html += '    })(cs[i]);\n';
+  html += '  }\n';
+  html += '}\n';
+  html += '__wireVarPerfHover();\n';
 
   html += '<\/script>\n';
   html += '</body>\n</html>';
