@@ -28,6 +28,12 @@ h1 span { font-size: 0.5em; color: #999; font-weight: normal; }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
 .btn-green { background: #16a34a; }
 .btn-green:hover:not(:disabled) { background: #15803d; }
+.btn-slate { background: #334155; }
+.btn-slate:hover:not(:disabled) { background: #1e293b; }
+.settings-bar { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0; max-width: 720px; font-size: 0.85rem; color: #334155; }
+.settings-bar label { display: block; }
+.settings-bar input[type=number] { padding: 3px 6px; border: 1px solid #94a3b8; border-radius: 3px; }
+.settings-bar textarea { width: 100%; margin-top: 4px; padding: 4px 6px; border: 1px solid #94a3b8; border-radius: 3px; font-family: Consolas, monospace; font-size: 0.82rem; resize: vertical; }
 .panel { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 1rem 1.2rem; margin-top: 1rem; max-width: 1100px; }
 .panel h2 { font-size: 1.1rem; color: #1e3a5f; margin-bottom: 0.6rem; }
 .panel h3 { font-size: 0.95rem; color: #334155; margin: 0.8rem 0 0.3rem; }
@@ -75,11 +81,28 @@ table.preview td.num { text-align: right; font-variant-numeric: tabular-nums; }
     <input type="file" id="decoder-input" accept=".csv">
     <div id="decoder-status" class="status"></div>
   </div>
+  <div class="file-group">
+    <h3>4. Existing VAC Tracker / GT Snapshots <span style="font-weight:normal;color:#888;">(.csv, multiple, optional — audit)</span></h3>
+    <p>Your current VAC tracker and/or old Gate Tracker snapshots (<code>Date, WO, Part #, VAC, CPI</code>). When present, the tool flags already-polluted rows and diffs them against the clean rebuild.</p>
+    <input type="file" id="oldtracker-input" accept=".csv" multiple>
+    <div id="oldtracker-status" class="status"></div>
+  </div>
+</div>
+
+<div class="settings-bar">
+  <label>Truncation sensitivity — flag a Daily Upload whose row count is below this fraction of the batch median:
+    <input type="number" id="global-factor" value="0.6" min="0.1" max="0.99" step="0.05">
+  </label>
+  <label style="margin-top:8px;">Known-bad dates (optional) — one <code>M/D/YYYY</code> per line; these dates are force-quarantined and cross-checked against auto-detection:
+    <textarea id="known-bad-dates" rows="2" placeholder="3/13/2026&#10;3/20/2026"></textarea>
+  </label>
 </div>
 
 <div class="action-bar">
   <button id="run-btn" class="btn btn-primary" disabled>Build VAC Log</button>
   <button id="download-btn" class="btn btn-green" style="display:none">&#128190; Download VAC Tracker CSV</button>
+  <button id="download-suspect-btn" class="btn btn-slate" style="display:none">Download Suspect Daily Uploads</button>
+  <button id="download-audit-btn" class="btn btn-slate" style="display:none">Download Audit Report</button>
 </div>
 
 <div id="validation-panel"></div>
@@ -119,6 +142,18 @@ var duFilesParsed = [];  // [{fileName, dateStr|null, ambiguous, orderCount, err
 var decoderLookup = {};  // "PART|||OP" -> labor hours
 var decoderMeta = null;  // {partCount, opCount, earnableFlagPresent}
 var lastRows = null;     // emitted rows for download
+var oldTrackerRows = []; // [{dateStr, wo, partNo, vac, cpi, dateMs}] parsed from existing VAC tracker / GT snapshots
+var oldTrackerMeta = null; // {files, rows, skipped}
+var lastIntegrity = null; // result of computeDuIntegrity()
+var lastAudit = null;     // result of auditExistingTracker()
+var lastResult = null;    // last buildVacRows() result (for download wiring)
+
+// Truncation-detection tuning. A mid-refresh Daily Upload is a partial file (fewer ops -> ETC
+// undercounted -> VAC inflated). Same flat-CPI/VAC-jump signature used by the Gate Tracker guard.
+var TRUNC_CPI_EPS = 0.02;   // |ΔCPI| ≤ this counts as "CPI unchanged" (audit scan)
+var TRUNC_VAC_JUMP = 5;     // hours; VAC must have risen by at least this much (audit scan)
+var DIP_MIN_WOS = 2;        // min WOs with a monotonicity violation before a date is dip-quarantined
+var AUDIT_VAC_DIFF = 0.5;   // hours; |Δvac| ≥ this counts as "corrected" in the rebuild-vs-old diff
 
 // ---- Ported helpers ----
 function esc(s) {
@@ -327,8 +362,9 @@ function parseDailyFile(file) {
           if (!byOrder[on]) byOrder[on] = [];
           byOrder[on].push({ partNo: (r[iPart] || '').trim(), operNo: (r[iOper] || '').trim(), operStatus: (r[iStatus] || '').trim() });
         }
+        var rowCount = 0; for (var bk in byOrder) rowCount += byOrder[bk].length; // total operation rows (the truncation size signal)
         var pdf = parseDateFromFilename(file.name);
-        resolve({ fileName: file.name, date: pdf.date, dateStr: pdf.date ? fmtDate(pdf.date) : null, ambiguous: pdf.ambiguous, byOrder: byOrder, orderCount: Object.keys(byOrder).length });
+        resolve({ fileName: file.name, date: pdf.date, dateStr: pdf.date ? fmtDate(pdf.date) : null, ambiguous: pdf.ambiguous, byOrder: byOrder, orderCount: Object.keys(byOrder).length, rowCount: rowCount });
       } catch (err) { reject(err); }
     };
     reader.readAsText(file);
@@ -393,9 +429,10 @@ document.getElementById('daily-input').addEventListener('change', function(e) {
   files.forEach(function(file) {
     parseDailyFile(file).then(function(res) {
       var entry = { fileName: file.name, dateStr: res.dateStr, ambiguous: res.ambiguous, orderCount: res.orderCount, error: null, conflict: false };
+      entry.rowCount = res.rowCount;
       if (res.dateStr) {
         if (dailyByDate[res.dateStr]) entry.conflict = true;  // last-wins
-        dailyByDate[res.dateStr] = { fileName: file.name, byOrder: res.byOrder };
+        dailyByDate[res.dateStr] = { fileName: file.name, byOrder: res.byOrder, rowCount: res.rowCount, woCount: res.orderCount };
       }
       duFilesParsed.push(entry);
     }).catch(function(err) {
@@ -417,6 +454,64 @@ document.getElementById('decoder-input').addEventListener('change', function(e) 
     decoderLookup = {}; decoderMeta = null;
     setStatus('decoder-status', 'Error: ' + err.message, 'error');
     checkReady();
+  });
+});
+
+// ---- Existing VAC tracker / GT snapshots (optional, for audit) ----
+function parseOldTrackerFile(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onerror = function() { reject(new Error('Read failed: ' + file.name)); };
+    reader.onload = function(ev) {
+      try {
+        var rows = parseCSV(ev.target.result);
+        if (!rows || rows.length < 2) throw new Error('No data rows in ' + file.name);
+        var H = rows[0];
+        var iDate = colIndex(H, 'Date');
+        var iWO = colIndex(H, 'WO');
+        var iVac = colIndex(H, 'VAC');
+        var iCpi = colIndex(H, 'CPI');
+        var iPart = colIndex(H, 'Part #'); if (iPart < 0) iPart = colIndex(H, 'Part No'); if (iPart < 0) iPart = colIndex(H, 'Part Number');
+        if (iDate < 0 || iWO < 0 || iVac < 0) throw new Error(file.name + ' missing Date / WO / VAC');
+        var out = [], skipped = 0;
+        for (var i = 1; i < rows.length; i++) {
+          var r = rows[i];
+          var wo = (r[iWO] || '').trim();
+          var ds = (r[iDate] || '').trim();
+          var m = ds.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+          var vac = parseFloat(r[iVac]);
+          if (!wo || !m || isNaN(vac)) { skipped++; continue; }
+          var dms = new Date(+m[3], +m[1] - 1, +m[2]).getTime();
+          var cpi = null;
+          if (iCpi >= 0) { var cr = (r[iCpi] || '').trim(); if (cr !== '') { var cn = parseFloat(cr); if (isFinite(cn)) cpi = cn; } }
+          out.push({ dateStr: m[1] + '/' + m[2] + '/' + m[3], wo: wo, partNo: iPart >= 0 ? (r[iPart] || '').trim() : '', vac: vac, cpi: cpi, dateMs: dms });
+        }
+        resolve({ rows: out, skipped: skipped });
+      } catch (err) { reject(err); }
+    };
+    reader.readAsText(file);
+  });
+}
+
+document.getElementById('oldtracker-input').addEventListener('change', function(e) {
+  var files = Array.from(e.target.files || []);
+  if (!files.length) { oldTrackerRows = []; oldTrackerMeta = null; setStatus('oldtracker-status', ''); return; }
+  oldTrackerRows = []; oldTrackerMeta = null;
+  var done = 0, total = files.length, ok = 0, fail = [], skipped = 0;
+  files.forEach(function(file) {
+    parseOldTrackerFile(file).then(function(res) {
+      oldTrackerRows = oldTrackerRows.concat(res.rows); ok++; skipped += res.skipped;
+    }).catch(function(err) { fail.push(file.name + ': ' + err.message); })
+      .then(function() {
+        done++;
+        if (done === total) {
+          oldTrackerMeta = { files: ok, rows: oldTrackerRows.length, skipped: skipped };
+          var msg = 'Loaded ' + oldTrackerRows.length + ' row(s) from ' + ok + ' of ' + total + ' file(s)';
+          if (skipped) msg += '; ' + skipped + ' skipped (blank/non-numeric VAC or bad date)';
+          fail.forEach(function(f) { msg += '\n✖ ' + f; });
+          setStatus('oldtracker-status', msg, fail.length ? 'warning' : 'loaded');
+        }
+      });
   });
 });
 
@@ -462,15 +557,120 @@ function checkReady() {
   document.getElementById('run-btn').disabled = !(pOk && dOk && decOk);
 }
 
+// ---- Daily Upload integrity (truncation detection) ----
+function parseKnownBadDates() {
+  var raw = (document.getElementById('known-bad-dates').value || '');
+  var set = {};
+  raw.split(/[\n,;]+/).forEach(function(tok) {
+    var m = tok.trim().match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) set[m[1] + '/' + m[2] + '/' + m[3]] = true;
+  });
+  return set;
+}
+
+// Detect truncated (mid-refresh, partial) Daily Uploads across the loaded batch.
+//  - Global outlier: a DU whose total op-row count is far below the batch median.
+//  - Per-WO dip: op count must be non-increasing over a WO's life (closed ops drop out), so any
+//    reading below a LATER date's count is impossible -> that earlier DU was truncated for that WO.
+//  - Manual: dates the user pasted into the known-bad-dates box.
+function computeDuIntegrity() {
+  var factor = parseFloat(document.getElementById('global-factor').value);
+  if (!isFinite(factor) || factor <= 0 || factor >= 1) factor = 0.6;
+  var stats = [];
+  for (var ds in dailyByDate) {
+    var d = dailyByDate[ds], p = ds.split('/');
+    stats.push({ dateStr: ds, fileName: d.fileName, rowCount: d.rowCount || 0, woCount: d.woCount || 0, dateMs: new Date(+p[2], +p[0] - 1, +p[1]).getTime() });
+  }
+  stats.sort(function(a, b) { return a.dateMs - b.dateMs; });
+  var counts = stats.map(function(s) { return s.rowCount; }).sort(function(a, b) { return a - b; });
+  var median = 0;
+  if (counts.length) { var mid = Math.floor(counts.length / 2); median = counts.length % 2 ? counts[mid] : (counts[mid - 1] + counts[mid]) / 2; }
+  var reasons = {};
+  function addReason(ds, r) { if (!reasons[ds]) reasons[ds] = []; reasons[ds].push(r); }
+  // Global outlier
+  stats.forEach(function(s) {
+    s.pctMedian = median > 0 ? Math.round(100 * s.rowCount / median) : 100;
+    if (median > 0 && s.rowCount < median * factor) addReason(s.dateStr, 'global-outlier (' + s.pctMedian + '% of median ' + median + ')');
+  });
+  // Per-WO monotonicity dip
+  var perWoDipDates = {}, woSet = {};
+  stats.forEach(function(s) { var bo = dailyByDate[s.dateStr].byOrder; for (var w in bo) woSet[w] = true; });
+  for (var w in woSet) {
+    var series = [];
+    stats.forEach(function(s) { var bo = dailyByDate[s.dateStr].byOrder; if (bo[w]) series.push({ dateStr: s.dateStr, op: bo[w].length }); });
+    var maxFuture = -Infinity;
+    for (var i = series.length - 1; i >= 0; i--) {
+      if (series[i].op < maxFuture) perWoDipDates[series[i].dateStr] = (perWoDipDates[series[i].dateStr] || 0) + 1;
+      if (series[i].op > maxFuture) maxFuture = series[i].op;
+    }
+  }
+  Object.keys(perWoDipDates).forEach(function(ds) {
+    if (perWoDipDates[ds] >= DIP_MIN_WOS) addReason(ds, 'per-WO dip (' + perWoDipDates[ds] + ' WOs with op-count recovery)');
+  });
+  // Manual
+  var manual = parseKnownBadDates();
+  Object.keys(manual).forEach(function(ds) { addReason(ds, 'manual (known-bad list)'); });
+  var quarantined = {};
+  Object.keys(reasons).forEach(function(ds) { quarantined[ds] = true; });
+  // Manual-vs-auto agreement (a manual date is "auto-caught" if it also has a non-manual reason)
+  function autoHit(ds) { return reasons[ds] && reasons[ds].some(function(r) { return r.indexOf('manual') < 0; }); }
+  var manualDates = Object.keys(manual);
+  return {
+    stats: stats, median: median, factor: factor, reasons: reasons, quarantined: quarantined,
+    manualDates: manualDates,
+    autoCaught: manualDates.filter(autoHit),
+    manualOnly: manualDates.filter(function(ds) { return !autoHit(ds); }),
+    autoExtra: Object.keys(reasons).filter(function(ds) { return !manual[ds]; })
+  };
+}
+
+// ---- Audit of an existing VAC tracker / GT snapshots ----
+function auditExistingTracker(cleanRows) {
+  // Audit 1: flat-CPI / VAC-jump scan (the already-polluted-row signature)
+  var byWo = {};
+  oldTrackerRows.forEach(function(r) { (byWo[r.wo] = byWo[r.wo] || []).push(r); });
+  var suspects = [];
+  for (var w in byWo) {
+    var ser = byWo[w].slice().sort(function(a, b) { return a.dateMs - b.dateMs; });
+    for (var i = 1; i < ser.length; i++) {
+      var prev = ser[i - 1], cur = ser[i];
+      if (prev.cpi === null || cur.cpi === null) continue;
+      if (Math.abs(cur.cpi - prev.cpi) <= TRUNC_CPI_EPS && (cur.vac - prev.vac) >= TRUNC_VAC_JUMP) {
+        suspects.push({ wo: w, dateStr: cur.dateStr, prevDate: prev.dateStr, deltaVac: +(cur.vac - prev.vac).toFixed(2), cpi: cur.cpi });
+      }
+    }
+  }
+  // Audit 2: rebuild-vs-old diff
+  var cleanMap = {}; cleanRows.forEach(function(r) { cleanMap[r.dateStr + '|' + r.wo] = { vac: r.vac, cpi: r.cpi }; });
+  var oldMap = {}; oldTrackerRows.forEach(function(r) { oldMap[r.dateStr + '|' + r.wo] = true; });
+  var corrected = [], removed = [], added = [], unchanged = 0;
+  oldTrackerRows.forEach(function(r) {
+    var c = cleanMap[r.dateStr + '|' + r.wo];
+    if (c) {
+      if (Math.abs(c.vac - r.vac) >= AUDIT_VAC_DIFF) corrected.push({ dateStr: r.dateStr, wo: r.wo, oldVac: r.vac, newVac: +c.vac.toFixed(2), delta: +(c.vac - r.vac).toFixed(2) });
+      else unchanged++;
+    } else {
+      var q = lastIntegrity && lastIntegrity.quarantined[r.dateStr];
+      removed.push({ dateStr: r.dateStr, wo: r.wo, oldVac: r.vac, reason: q ? 'date quarantined (truncated DU)' : 'not in rebuild (no P-File/DU match, or WO absent)' });
+    }
+  });
+  cleanRows.forEach(function(r) { if (!oldMap[r.dateStr + '|' + r.wo]) added.push({ dateStr: r.dateStr, wo: r.wo, newVac: +r.vac.toFixed(2) }); });
+  return { suspects: suspects, corrected: corrected, removed: removed, added: added, unchanged: unchanged };
+}
+
 // ---- Build (EVM math ported from gate-tracker-34.html:2505-2524) ----
 function buildVacRows() {
-  var omissions = { noDuDate: [], noWoInDu: [] };
+  var omissions = { noDuDate: [], noWoInDu: [], quarantined: [] };
   var coverage = { matchedOps: 0, unmatchedActiveOps: 0, unmatchedKeys: {} };
   var merged = {}; var dupCount = 0;
   var partMismatch = []; var blankPart = []; var cpiBlank = 0;
 
   pFileRecords.forEach(function(rec) {
     if (rec.error) return;
+    if (lastIntegrity && lastIntegrity.quarantined[rec.dateStr]) {
+      omissions.quarantined.push({ dateStr: rec.dateStr, fileName: rec.fileName, woCount: rec.woCount, reasons: (lastIntegrity.reasons[rec.dateStr] || []) });
+      return;
+    }
     var du = dailyByDate[rec.dateStr];
     if (!du) { omissions.noDuDate.push({ dateStr: rec.dateStr, fileName: rec.fileName, woCount: rec.woCount }); return; }
     Object.keys(rec.wos).forEach(function(wo) {
@@ -534,16 +734,54 @@ function rowsToCSV(rows) {
 }
 
 document.getElementById('run-btn').addEventListener('click', function() {
+  lastIntegrity = computeDuIntegrity();
   var result = buildVacRows();
+  lastResult = result;
   lastRows = result.rows;
+  lastAudit = (oldTrackerRows && oldTrackerRows.length) ? auditExistingTracker(result.rows) : null;
   renderValidationPanel(result);
   renderPreview(result.rows);
   document.getElementById('download-btn').style.display = result.rows.length ? 'inline-block' : 'none';
+  document.getElementById('download-suspect-btn').style.display = (lastIntegrity && lastIntegrity.stats.length) ? 'inline-block' : 'none';
+  document.getElementById('download-audit-btn').style.display = lastAudit ? 'inline-block' : 'none';
 });
 
 document.getElementById('download-btn').addEventListener('click', function() {
   if (!lastRows || !lastRows.length) return;
   triggerDownload('vac-tracker-log-' + todayStr() + '.csv', rowsToCSV(lastRows));
+});
+
+document.getElementById('download-suspect-btn').addEventListener('click', function() {
+  if (!lastIntegrity || !lastIntegrity.stats.length) return;
+  var lines = ['# Daily Upload integrity report  (median row count: ' + lastIntegrity.median + ', sensitivity factor: ' + lastIntegrity.factor + ')'];
+  lines.push(['Date', 'File', 'Op Rows', '% of Median', 'Quarantined', 'Reasons'].map(csvCell).join(','));
+  lastIntegrity.stats.forEach(function(s) {
+    var rs = lastIntegrity.reasons[s.dateStr] || [];
+    lines.push([s.dateStr, s.fileName, s.rowCount, s.pctMedian + '%', rs.length ? 'YES' : '', rs.join('; ')].map(csvCell).join(','));
+  });
+  triggerDownload('suspect-daily-uploads-' + todayStr() + '.csv', lines.join('\r\n'));
+});
+
+document.getElementById('download-audit-btn').addEventListener('click', function() {
+  if (!lastAudit) return;
+  var a = lastAudit, lines = [];
+  lines.push('# Existing-tracker audit report');
+  lines.push('# Flagged suspect rows (CPI flat but VAC jumped up = likely truncated-DU pollution)');
+  lines.push(['Section', 'WO', 'Date', 'Prev Date', 'ΔVAC', 'CPI'].map(csvCell).join(','));
+  a.suspects.forEach(function(s) { lines.push(['suspect', s.wo, s.dateStr, s.prevDate, s.deltaVac, s.cpi].map(csvCell).join(',')); });
+  lines.push('');
+  lines.push('# Corrected by clean rebuild (|Δvac| ≥ ' + AUDIT_VAC_DIFF + ')');
+  lines.push(['Section', 'WO', 'Date', 'Old VAC', 'New VAC', 'Δ'].map(csvCell).join(','));
+  a.corrected.forEach(function(c) { lines.push(['corrected', c.wo, c.dateStr, c.oldVac, c.newVac, c.delta].map(csvCell).join(',')); });
+  lines.push('');
+  lines.push('# Removed by clean rebuild (no longer emitted)');
+  lines.push(['Section', 'WO', 'Date', 'Old VAC', 'Reason'].map(csvCell).join(','));
+  a.removed.forEach(function(c) { lines.push(['removed', c.wo, c.dateStr, c.oldVac, c.reason].map(csvCell).join(',')); });
+  lines.push('');
+  lines.push('# New in clean rebuild (not in old tracker)');
+  lines.push(['Section', 'WO', 'Date', 'New VAC'].map(csvCell).join(','));
+  a.added.forEach(function(c) { lines.push(['new', c.wo, c.dateStr, c.newVac].map(csvCell).join(',')); });
+  triggerDownload('vac-audit-' + todayStr() + '.csv', lines.join('\r\n'));
 });
 
 // ---- Validation / completeness panel ----
@@ -585,9 +823,38 @@ function renderValidationPanel(result) {
     html += detailList(pDatesNoDu.map(function(o) { return o.dateStr + ' — ' + o.fileName + ' (' + o.woCount + ' WOs omitted)'; }));
   }
 
+  html += '<h3>Daily Upload integrity (truncation guard)</h3>';
+  if (lastIntegrity) {
+    var qDates = Object.keys(lastIntegrity.quarantined);
+    html += statLine('Daily Uploads checked', lastIntegrity.stats.length + ' (median op rows: ' + lastIntegrity.median + ')');
+    html += statLine('Dates quarantined as truncated', qDates.length, qDates.length ? 'flag-warn' : 'flag-ok');
+    if (qDates.length) {
+      html += detailList(qDates.sort().map(function(ds) { return ds + ' — ' + (lastIntegrity.reasons[ds] || []).join('; '); }));
+    }
+    // Low-but-not-quarantined DUs, for transparency
+    var lowish = lastIntegrity.stats.filter(function(s) { return !lastIntegrity.quarantined[s.dateStr] && s.pctMedian < 90; });
+    if (lowish.length) {
+      html += '<div class="stat-line muted">Below-median Daily Uploads (not quarantined):</div>';
+      html += detailList(lowish.map(function(s) { return s.dateStr + ' — ' + s.rowCount + ' op rows (' + s.pctMedian + '% of median)'; }), 30);
+    }
+    if (lastIntegrity.manualDates.length) {
+      html += statLine('Known-bad dates also auto-detected', lastIntegrity.autoCaught.length + ' / ' + lastIntegrity.manualDates.length, lastIntegrity.manualOnly.length ? 'flag-warn' : 'flag-ok');
+      if (lastIntegrity.manualOnly.length) html += '<div class="stat-line muted">Manual-only (auto-detector missed): ' + esc(lastIntegrity.manualOnly.join(', ')) + '</div>';
+      var extras = lastIntegrity.autoExtra.filter(function(ds) { return lastIntegrity.manualDates.indexOf(ds) < 0; });
+      if (extras.length) html += '<div class="stat-line muted">Auto-detected beyond your list: ' + esc(extras.join(', ')) + '</div>';
+    }
+  } else {
+    html += '<div class="stat-line muted">Run a build to evaluate Daily Upload integrity.</div>';
+  }
+
   html += '<h3>Omissions</h3>';
   html += statLine('WOs omitted (absent from that date’s Daily Upload)', result.omissions.noWoInDu.length, result.omissions.noWoInDu.length ? 'flag-warn' : 'flag-ok');
   if (result.omissions.noWoInDu.length) html += detailList(result.omissions.noWoInDu.map(function(o) { return o.dateStr + ' — ' + o.wo; }));
+  if (result.omissions.quarantined && result.omissions.quarantined.length) {
+    var qWos = result.omissions.quarantined.reduce(function(s, o) { return s + (o.woCount || 0); }, 0);
+    html += statLine('Rows omitted from quarantined dates', qWos + ' WO-rows across ' + result.omissions.quarantined.length + ' date(s)', 'flag-warn');
+    html += detailList(result.omissions.quarantined.map(function(o) { return o.dateStr + ' — ' + o.fileName + ' (' + o.woCount + ' WOs): ' + o.reasons.join('; '); }));
+  }
 
   html += '<h3>ETC / Decoder-Ring coverage</h3>';
   html += statLine('Active/In-Queue/Pending ops matched to Labor Hours', result.coverage.matchedOps + ' / ' + totalActiveOps + ' (' + covPct + '%)', covFlag);
@@ -608,6 +875,19 @@ function renderValidationPanel(result) {
   html += '<h3>Output</h3>';
   html += statLine('Total rows emitted', result.rows.length, result.rows.length ? 'flag-ok' : 'flag-err');
   html += statLine('Distinct dates in output', Object.keys(outDates).length);
+
+  if (lastAudit) {
+    var a = lastAudit;
+    html += '<h3>Audit vs existing tracker</h3>';
+    html += statLine('Already-polluted rows flagged (flat CPI, VAC jumped up)', a.suspects.length, a.suspects.length ? 'flag-warn' : 'flag-ok');
+    if (a.suspects.length) html += detailList(a.suspects.map(function(s) { return s.wo + ' @ ' + s.dateStr + ' — VAC +' + s.deltaVac + 'h since ' + s.prevDate + ' (CPI flat at ' + (s.cpi != null ? s.cpi.toFixed(3) : '—') + ')'; }));
+    html += statLine('Rows corrected by clean rebuild', a.corrected.length, a.corrected.length ? 'flag-warn' : 'flag-ok');
+    if (a.corrected.length) html += detailList(a.corrected.map(function(c) { return c.wo + ' @ ' + c.dateStr + ': ' + c.oldVac + 'h → ' + c.newVac + 'h (' + (c.delta >= 0 ? '+' : '') + c.delta + ')'; }));
+    html += statLine('Rows removed by clean rebuild', a.removed.length, a.removed.length ? 'flag-warn' : 'flag-ok');
+    if (a.removed.length) html += detailList(a.removed.map(function(c) { return c.wo + ' @ ' + c.dateStr + ' (old VAC ' + c.oldVac + 'h) — ' + c.reason; }));
+    html += statLine('New rows in clean rebuild', a.added.length);
+    html += statLine('Rows unchanged', a.unchanged, 'flag-ok');
+  }
 
   html += '</div>';
   document.getElementById('validation-panel').innerHTML = html;

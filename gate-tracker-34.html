@@ -343,6 +343,8 @@
 
 <button id="detail-toggle" onclick="toggleDetailView()" style="display:none">&#9654; Show Detail View</button>
 
+<div id="trunc-banner" style="display:none"></div>
+
 <div id="detail-view" style="display:none">
   <div class="detail-view-title">Detail View</div>
   <div id="program-filter" class="filter-bar">
@@ -396,8 +398,19 @@ let vacLogData = [];        // Parsed VAC tracker log rows
 let vacHistory = {};        // { WO: [{ date, vac, cpi, partNo }] } — populated during process(), consumed by renderVacPlot + exportVacLog
 let closedWosByPart = {};   // { partNo: [wo1, wo2, ...] } — WOs in vacHistory that aren't in today's Daily Upload; used for closed-line rendering + EVM report export
 let laborHoursLookup = {};  // { partNo|||operNo: laborHours }
-let evmResults = {};        // { WO: { programEAC, totalActualHours, percentComplete, etc, productionEAC, vac, ev, cpi, deltaVac, deltaWeeks } }
+let evmResults = {};        // { WO: { programEAC, totalActualHours, percentComplete, etc, productionEAC, vac, ev, cpi, deltaVac, deltaWeeks, suspectTruncation } }
 let evmPartHasHours = {};   // { partNo: true } — tracks which parts have labor hours in decoder ring
+
+// ---- Daily Upload truncation guard (data-integrity) ----
+// A Daily Upload pulled mid-refresh (the MES dashboard refreshes at midnight) is a partial file:
+// fewer Active/In-Queue/Pending ops -> ETC undercounted -> VAC = Baseline - (Actual + ETC) inflated.
+// Detector: a WO whose CPI is unchanged vs its last VAC-log entry but whose VAC jumped UP has moved
+// ONLY on ETC (ops vanished with no cost/progress change) -> the Daily Upload is likely truncated.
+const TRUNC_CPI_EPS = 0.02;   // |ΔCPI| ≤ this counts as "CPI unchanged"
+const TRUNC_VAC_JUMP = 5;     // hours; VAC must have risen by at least this much
+const TRUNC_MIN_COUNT = 3;    // min suspect WOs for the aggregate "whole file partial" alarm
+const TRUNC_FRAC = 0.25;      // ...and this fraction of judged WOs
+let truncationReport = { suspects: [], wosJudged: 0, alarm: false }; // populated post-pass in process()
 let bundleVelocityMap = {}; // { bundleName: { program, lookbackMonths, excludeCurrent, periodStart, periodEnd,
                             //                 velocityLookback, stdDevLookback, cvLookback, monthCountLookback,
                             //                 lastMonth, velocityLastMonth, stdDevLastMonth, cvLastMonth } }
@@ -1813,6 +1826,29 @@ function renderValidationPanel(issues) {
   panel.style.display = 'block';
 }
 
+// Render the Daily Upload truncation guard banner above the detail view (populated by process()).
+function renderTruncBanner() {
+  var el = document.getElementById('trunc-banner');
+  if (!el) return;
+  var s = truncationReport.suspects;
+  if (!s || s.length === 0) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  var sorted = s.slice().sort(function(a, b) { return b.deltaVac - a.deltaVac; });
+  var list = sorted.slice(0, 8).map(function(x) {
+    return esc(x.wo) + (x.partNo ? ' (' + esc(x.partNo) + ')' : '') + ' +' + Math.round(x.deltaVac) + 'h';
+  }).join(', ');
+  if (sorted.length > 8) list += ', +' + (sorted.length - 8) + ' more';
+  var headline = truncationReport.alarm
+    ? '⚠ Possible truncated Daily Upload — ' + s.length + ' of ' + truncationReport.wosJudged + ' judged work orders show VAC rising with flat CPI. This pattern means operations are missing (ETC dropped with no cost/progress change), which happens when the Daily Upload is downloaded during the midnight refresh. Re-download today’s Daily Upload before trusting these VAC numbers.'
+    : '⚠ ' + s.length + ' work order' + (s.length !== 1 ? 's' : '') + ' show VAC rising with flat CPI (ETC dropped with no cost/progress change) — possible partial Daily Upload. Spot-check or re-download.';
+  var bg = truncationReport.alarm ? '#fee2e2' : '#fef3c7';
+  var border = truncationReport.alarm ? '#dc2626' : '#f59e0b';
+  var color = truncationReport.alarm ? '#991b1b' : '#92400e';
+  el.innerHTML = '<div style="background:' + bg + ';border:2px solid ' + border + ';padding:10px 14px;margin:0.75rem 0;border-radius:4px;color:' + color + ';font-size:0.9rem;line-height:1.45;">'
+    + '<div style="font-weight:bold;margin-bottom:4px;">' + headline + '</div>'
+    + '<div style="font-size:0.85rem;">Suspect WOs: ' + list + '</div></div>';
+  el.style.display = 'block';
+}
+
 function toggleValidationPanel() {
   var body = document.getElementById('validation-body');
   var icon = document.querySelector('.vp-collapse-icon');
@@ -2552,6 +2588,30 @@ function process() {
     }
   }
 
+  // ---- Daily Upload truncation guard: post-pass over evmResults ----
+  // Flag WOs whose CPI is unchanged vs the last VAC-log entry but whose VAC jumped up (ETC fell with
+  // no cost/progress change -> the Daily Upload is likely a mid-refresh partial). Raise an aggregate
+  // alarm when several WOs trip at once (the whole file looks truncated). See TRUNC_* constants.
+  truncationReport = { suspects: [], wosJudged: 0, alarm: false };
+  for (var twi in evmResults) {
+    var te = evmResults[twi];
+    te.suspectTruncation = false;
+    var thist = vacHistory[twi];
+    if (!thist || !thist.length) continue;
+    var tlast = thist[thist.length - 1];
+    if (tlast.cpi === null || tlast.cpi === undefined) continue; // need history CPI to judge "flat"
+    if (te.cpi === null || te.cpi === undefined) continue;
+    if (te.deltaVac === null || te.deltaVac === undefined) continue;
+    truncationReport.wosJudged++;
+    if (Math.abs(te.cpi - tlast.cpi) <= TRUNC_CPI_EPS && te.deltaVac >= TRUNC_VAC_JUMP) {
+      te.suspectTruncation = true;
+      truncationReport.suspects.push({ wo: twi, partNo: te.partNo, program: te.program, deltaVac: te.deltaVac, etc: te.etc });
+    }
+  }
+  truncationReport.alarm = truncationReport.suspects.length >= TRUNC_MIN_COUNT &&
+    (truncationReport.suspects.length / Math.max(1, truncationReport.wosJudged)) >= TRUNC_FRAC;
+  renderTruncBanner();
+
   // ---- Render: Program -> Part No. -> Order No. ----
   for (const program of allPrograms) {
     const progSection = document.createElement('div');
@@ -2712,6 +2772,9 @@ function process() {
               var dvClass = evmData.deltaVac > 0 ? 'evm-arrow-up' : (evmData.deltaVac < 0 ? 'evm-arrow-down' : '');
               var dvArrow = evmData.deltaVac > 0 ? '\u25b2' : (evmData.deltaVac < 0 ? '\u25bc' : '');
               evmHtml += '<span class="evm-metric" title="Change in VAC since the previous P-File date. Positive = improving, negative = losing ground."><span class="evm-label">\u0394VAC(' + evmData.deltaWeeks + 'wk):</span> <span class="' + dvClass + '">' + dvArrow + ' ' + (evmData.deltaVac >= 0 ? '+' : '') + evmData.deltaVac.toFixed(1) + 'h</span></span>';
+            }
+            if (evmData.suspectTruncation) {
+              evmHtml += '<span class="evm-metric evm-amber" title="CPI is unchanged but VAC moved up since the last VAC-log entry. ETC fell with no cost/progress change, which means operations are missing from the Daily Upload \u2014 likely a mid-refresh partial download. Re-download the Daily Upload before trusting this VAC.">\u26a0 Suspect DU</span>';
             }
             evmHtml += '</div>';
           }
@@ -5244,6 +5307,26 @@ function saveEvmReport(programFilter) {
   html += '<button id="print-btn" onclick="printPage()" style="display:inline-block;">Print / Export PDF</button>\n';
   html += '<div id="print-timestamp" style="display:none;font-size:0.85rem;color:#555;margin-bottom:0.5rem;"></div>\n';
 
+  // Daily Upload truncation warning (data-integrity). Suspect WOs = CPI flat but VAC jumped up
+  // (ETC fell with no cost/progress change) -> the Daily Upload may be a mid-refresh partial.
+  if (truncationReport.suspects && truncationReport.suspects.length > 0) {
+    var _tSus = truncationReport.suspects;
+    if (_filterProg) _tSus = _tSus.filter(function(x) { return x.program === _filterProg; });
+    if (_tSus.length > 0) {
+      var _tSorted = _tSus.slice().sort(function(a, b) { return b.deltaVac - a.deltaVac; });
+      var _tList = _tSorted.slice(0, 12).map(function(x) { return esc(x.wo) + ' +' + Math.round(x.deltaVac) + 'h'; }).join(', ');
+      if (_tSorted.length > 12) _tList += ', +' + (_tSorted.length - 12) + ' more';
+      var _tAlarm = truncationReport.alarm;
+      var _tBg = _tAlarm ? '#fee2e2' : '#fef3c7', _tBd = _tAlarm ? '#dc2626' : '#f59e0b', _tCol = _tAlarm ? '#991b1b' : '#92400e';
+      var _tHead = _tAlarm
+        ? 'Possible truncated Daily Upload — ' + _tSus.length + ' work order(s) show VAC rising with flat CPI. Operations are missing (ETC dropped with no cost/progress change), the signature of a Daily Upload pulled during the midnight refresh. Re-download before trusting these VAC numbers.'
+        : _tSus.length + ' work order(s) show VAC rising with flat CPI (ETC fell with no cost/progress change) — possible partial Daily Upload. Spot-check or re-download.';
+      html += '<div style="background:' + _tBg + ';border:2px solid ' + _tBd + ';padding:10px 14px;margin-bottom:1rem;border-radius:4px;color:' + _tCol + ';font-size:0.9rem;line-height:1.45;">';
+      html += '<div style="font-weight:bold;margin-bottom:4px;">⚠ ' + _tHead + '</div>';
+      html += '<div style="font-size:0.85rem;">Suspect WOs: ' + _tList + '</div></div>\n';
+    }
+  }
+
   // === VAC Trend Plots (grouped by program, above summary tables) ===
   // v33: each plot is emitted as a live <canvas> with full interactive features (hover tooltip,
   // legend group toggles, drag-to-zoom). We walk the live plot containers to harvest metadata and
@@ -5469,6 +5552,7 @@ function saveEvmReport(programFilter) {
         var sitem = woList[swi];
         var se = sitem.evm;
         var rowBg = swi % 2 === 0 ? '' : ' style="background:#f8fafc;"';
+        if (se.suspectTruncation) rowBg = ' style="background:#fef3c7;"'; // amber tint: possible truncated Daily Upload
         // CPI color
         var cpiClass = se.cpi !== null ? (se.cpi >= 1.0 ? 'evm-green' : 'evm-red') : '';
         var cpiVal = se.cpi !== null ? se.cpi.toFixed(2) : 'N/A';
@@ -5479,7 +5563,8 @@ function saveEvmReport(programFilter) {
         var snDisplay = se.serialNo ? esc(se.serialNo) : '—';
 
         html += '<tr' + rowBg + '>';
-        html += '<td style="padding:4px 8px;"><a href="#wo-' + esc(sitem.wo) + '" style="color:#2563eb;text-decoration:none;">' + esc(sitem.wo) + '</a></td>';
+        var _suspMark = se.suspectTruncation ? ' <span class="evm-amber" title="CPI unchanged but VAC rose since the last VAC-log entry — ETC fell with no cost/progress change. Operations are likely missing from the Daily Upload (mid-refresh partial). Re-download before trusting this VAC.">⚠</span>' : '';
+        html += '<td style="padding:4px 8px;"><a href="#wo-' + esc(sitem.wo) + '" style="color:#2563eb;text-decoration:none;">' + esc(sitem.wo) + '</a>' + _suspMark + '</td>';
         html += '<td style="padding:4px 8px;">' + snDisplay + '</td>';
         html += '<td style="text-align:right;padding:4px 8px;" class="' + cpiClass + '">' + cpiVal + '</td>';
         html += '<td style="text-align:right;padding:4px 8px;">' + se.percentComplete.toFixed(1) + '%</td>';

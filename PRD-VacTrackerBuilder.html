@@ -27,10 +27,11 @@ li { margin: 0.3rem 0; }
 <h1>Product Requirements Document (PRD)</h1>
 <p><strong>Product Name:</strong> True-VAC Tracker Builder</p>
 <p><strong>File:</strong> <code>vac-tracker-builder-1.html</code></p>
-<p class="version">Version 1.0 | June 2, 2026 | Author: Oscar Castillo</p>
+<p class="version">Version 1.1 | June 2, 2026 | Author: Oscar Castillo</p>
 
 <h2>1. Overview</h2>
 <p>A client-side, one-shot tool that rebuilds the VAC Tracker Log from a <strong>batch of historical P-Files</strong>, so the user does not have to load P-Files into the Gate Tracker one week at a time. For each P-File (dated from cell <code>C3</code>) the tool pairs the same-dated Daily Upload and a single Decoder Ring, computes Earned-Value metrics per work order using the <em>exact</em> Gate Tracker EVM formula, and emits a CSV in the exact format Gate Tracker's <code>exportVacLog()</code> produces (<code>Date, WO, Part #, VAC, CPI</code>). The output is intended to be byte-identical, for any matching <code>(Date, WO)</code>, to what the Gate Tracker EVM report would compute for that date.</p>
+<p><strong>v1.1</strong> adds a data-integrity layer: it detects and quarantines <em>truncated</em> Daily Uploads (partial files pulled during the MES midnight refresh, which undercount operations and inflate VAC), and it audits an existing VAC tracker / old Gate Tracker snapshots for rows already polluted by that defect. See &sect;6.4&ndash;&sect;6.5 and &sect;11.7&ndash;&sect;11.9.</p>
 <p>This tool exists because of a root-cause finding (2026-06-02): the VAC stored in the tracker is <strong>not</strong> a pure-P-File quantity. It carries an <code>ETC</code> term whose operation statuses come from the live Daily Upload, so a month-old P-File replayed against a <em>different</em> day's Daily Upload yields a different VAC. The stored "historical" VAC was therefore always a hybrid of a dated P-File and whatever Daily Upload happened to be loaded that day &mdash; not reproducible. This tool restores reproducibility by pairing each P-File with the Daily Upload of its own date.</p>
 
 <h2>2. Objectives</h2>
@@ -94,6 +95,12 @@ li { margin: 0.3rem 0; }
 </table>
 <p>The lookup is keyed <code>partNo + '|||' + normOper(operNo)</code>, identical to Gate Tracker's <code>laborHoursLookup</code>.</p>
 
+<h3>5.4 Existing VAC Tracker / GT Snapshots (.csv, multiple, optional &mdash; v1.1)</h3>
+<p>The user's current VAC tracker and/or previously-generated Gate Tracker report snapshots, in <code>exportVacLog</code> format (<code>Date, WO, Part #, VAC, CPI</code>). Parsed with the ported <code>parseCSV</code>/<code>colIndex</code>; rows with a blank/non-numeric VAC or unparseable date are skipped (counted). When present, this input drives the audit (&sect;6.5).</p>
+
+<h3>5.5 Integrity settings (v1.1)</h3>
+<p>Two action-bar controls: a <strong>truncation sensitivity</strong> number input (default 0.6 &mdash; flag a Daily Upload whose op-row count is below this fraction of the batch median) and a <strong>known-bad dates</strong> textarea (one <code>M/D/YYYY</code> per line) for manual force-quarantine.</p>
+
 <h2>6. Functional Requirements</h2>
 
 <h3>6.1 Computation</h3>
@@ -128,6 +135,20 @@ CPI&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= Total Actual Ho
   <li><strong>Data quality:</strong> Part # missing on emitted rows; P-File vs Daily-Upload part mismatches; duplicate <code>(Date, WO)</code> collisions resolved last-wins; rows with blank CPI (Total Actual Hours = 0).</li>
   <li><strong>Output:</strong> total rows emitted; distinct dates in output.</li>
 </ul>
+
+<h3>6.4 Daily Upload truncation detection &amp; quarantine (v1.1)</h3>
+<p>A mid-refresh Daily Upload is a partial file (fewer ops &rarr; ETC undercounted &rarr; VAC inflated). <code>computeDuIntegrity()</code> runs over the loaded batch before <code>buildVacRows</code> and quarantines suspect dates.</p>
+<p><span class="req">F-40</span> <strong>Global outlier (primary).</strong> Compute the batch <strong>median</strong> op-row count across all Daily Uploads; flag any DU whose row count is below <code>median &times; factor</code> (factor from the sensitivity control, default 0.6). Matches the whole-file failure mode (the dashboard writes a partial file, so the entire pull is short).</p>
+<p><span class="req">F-41</span> <strong>Per-WO monotonicity dip (secondary).</strong> A WO's active-op count only ever declines over its life (closed ops drop out of the Daily Upload). For each WO, any date whose op count is below a <em>later</em> date's count is an impossible rebound &rarr; that DU is truncated for that WO. A date is dip-quarantined when at least <code>DIP_MIN_WOS</code> (default 2) WOs show the rebound, reducing false positives from a lone re-opened op.</p>
+<p><span class="req">F-42</span> <strong>Manual override.</strong> Dates pasted into the known-bad-dates box are force-quarantined. The panel reports manual-vs-auto agreement: which manual dates the detector also caught, manual-only dates (the detector missed), and auto-detected dates beyond the user's list.</p>
+<p><span class="req">F-43</span> <strong>Quarantine handling.</strong> A quarantined date's rows are omitted entirely from the build (routed to <code>omissions.quarantined</code> with reasons), mirroring the no-Daily-Upload omission path. Quarantine, not substitution (user decision; substitution is out of scope for v1.1). The completeness panel adds a "Daily Upload integrity" section (median, quarantined dates + reasons, below-median-but-kept DUs, manual/auto agreement) and the omitted-rows count.</p>
+<p><span class="req">F-44</span> <strong>Suspect Daily Uploads report.</strong> A downloadable CSV lists every DU with its op-row count, % of median, quarantine flag, and reasons. Filename <code>suspect-daily-uploads-YYYY-MM-DD.csv</code>.</p>
+
+<h3>6.5 Audit of an existing tracker (v1.1)</h3>
+<p>Active only when input 5.4 is provided.</p>
+<p><span class="req">F-50</span> <strong>Flat-CPI / VAC-jump scan.</strong> Group old rows by WO, sort by date; flag the later row of any consecutive pair where <code>|&Delta;CPI| &le; CPI_EPS</code> (0.02) and <code>&Delta;VAC &ge; VAC_JUMP</code> (5h). This is the already-polluted-row signature (ETC fell with no cost/progress change), the same rule as the Gate Tracker live guard.</p>
+<p><span class="req">F-51</span> <strong>Rebuild-vs-old diff.</strong> Compare the clean rebuild to the old tracker per <code>(Date, WO)</code>: classify <strong>corrected</strong> (<code>|&Delta;vac| &ge; 0.5h</code>), <strong>removed</strong> (in old, not in rebuild &mdash; distinguishing "date quarantined" from "no P-File/DU match or WO absent"), <strong>new</strong>, and <strong>unchanged</strong>.</p>
+<p><span class="req">F-52</span> <strong>Audit report.</strong> Panel section summarizing F-50/F-51 plus a downloadable multi-section CSV (suspect / corrected / removed / new). Filename <code>vac-audit-YYYY-MM-DD.csv</code>.</p>
 
 <h2>7. Visual &amp; UI Requirements</h2>
 <p><span class="req">V-01</span> Navy/slate palette consistent with the suite: <code>#1e3a5f</code> headings, <code>#334155</code> table headers, <code>#2563eb</code> primary button ("Build VAC Log"), <code>#16a34a</code> green for the download CTA.</p>
@@ -178,8 +199,18 @@ CPI&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= Total Actual Ho
 <h3>11.6 Relationship to the VAC Tracker Backfill Tool</h3>
 <p>This tool and <code>vac-backfill-tool-1.html</code> both emit the <code>exportVacLog</code> schema but are distinct. The Backfill Tool computes a CPI <em>proxy</em> (<code>cumulative earned &divide; cumulative actual</code>) from tech-charge <code>.xlsx</code> + Hours Earned, for periods with no P-File coverage, and writes blank VAC. This Builder uses real P-Files + the Daily Upload + the Decoder Ring to compute the <em>true</em> ETC-based VAC and the true Gate-Tracker CPI. Use the Builder when P-Files exist for the period; use the Backfill Tool only when they do not.</p>
 
+<h3>11.7 Truncation root cause &amp; the detection signature (v1.1)</h3>
+<p>Oscar traced the persistent VAC fluctuation to the MES dashboard's <strong>midnight refresh</strong>: a Daily Upload downloaded mid-refresh is a partial file. Because closed operations drop out of the Daily Upload, a WO's active-op count is monotonically non-increasing, so a partial pull shows fewer ops than reality (one WO seen at 16 ops dropped to 8). Fewer ops &rarr; ETC undercounted &rarr; VAC inflated &mdash; even though the P-File never moved. He confirmed it affects multiple dormant WOs in the same windows (whole-file truncation) and noted the specific bad dates back to March. The detection signature &mdash; CPI flat but VAC up &mdash; is identical to the Gate Tracker live guard (see <code>PRD-GateTracker.html</code> &sect;4.9.2 F-230/F-231).</p>
+
+<h3>11.8 Quarantine, not substitution (decision, v1.1)</h3>
+<p>A flagged date's rows are omitted, not reconstructed from a neighbor Daily Upload. Substitution was considered (the daily cadence usually provides a healthy neighbor within 1&ndash;3 days) but rejected for v1.1: operation statuses shift day-to-day, so a substituted VAC would be approximate, and the user preferred a clean omission they can re-pull. Revisit once detection is trusted.</p>
+
+<h3>11.9 Two detectors, layered (decision, v1.1)</h3>
+<p>The global median-outlier test (F-40) is the primary guard because the observed failure is whole-file. The per-WO monotonicity dip (F-41) is a precision complement for the rarer case where a file isn't globally short but a WO's op count rebounds. The known-bad-dates box (F-42) both lets the user force a quarantine and serves as ground truth: the panel reports whether the auto-detector independently caught the dates the user already identified. Verified 2026-06-02: global-outlier catches a whole-file 29%-of-median truncation; the dip detector independently catches a mild (91%-of-median) drop-and-rebound across 2 WOs; the audit flags a planted flat-CPI/VAC-jump pair while leaving a clean progression untouched; a healthy cohort yields zero quarantines and the unchanged v1.0 ground-truth output.</p>
+
 <h2>12. Out of Scope</h2>
 <ul>
+  <li><strong>Auto-substitution of a healthy neighbor Daily Upload.</strong> Quarantine-only for v1.1 (see &sect;11.8).</li>
   <li><strong>Merging the output into the live VAC tracker.</strong> The user concatenates externally.</li>
   <li><strong>Changing the Gate Tracker's VAC definition.</strong> Whether the Gate Tracker itself should pair a dated P-File with a same-dated Daily Upload (rather than the live one) is a separate methodology decision logged against <code>gate-tracker-34.html</code>; this tool does not modify the Gate Tracker.</li>
   <li><strong>Operation-level VAC/CPI.</strong> WO-level only, matching Gate Tracker.</li>
