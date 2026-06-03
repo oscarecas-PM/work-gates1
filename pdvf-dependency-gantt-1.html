@@ -130,6 +130,12 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .bar.chips .chip-stack .oper-chip { padding: 1px 4px; font-size: 0.64rem; line-height: 1.2; }
 .bar.chips .more-ellipsis { padding: 1px 4px; font-size: 0.7rem; font-weight: bold; color: #475569; align-self: center; }
 .slip-flag { position: absolute; right: -4px; top: -2px; font-size: 0.7rem; color: #dc2626; }
+/* "Won't finish" treatment: a WO with no computable forecast gets a near-full-width bar so the gate
+   detail stays usable. The dashed outline + low-opacity stripes keep gate colors/names legible; the
+   message pill is left-anchored and click-through so it stays put at any zoom. */
+.bar.no-forecast { outline: 2px dashed #b45309; outline-offset: -2px; }
+.bar.no-forecast::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(45deg, rgba(180,83,9,0.14) 0 6px, transparent 6px 12px); pointer-events: none; }
+.no-forecast-msg { position: absolute; top: 50%; left: 8px; transform: translateY(-50%); background: rgba(180,83,9,0.92); color: #fff; font-size: 0.7rem; font-weight: bold; padding: 1px 6px; border-radius: 3px; white-space: nowrap; pointer-events: none; z-index: 4; box-shadow: 0 0 0 1px rgba(255,255,255,0.45); max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; }
 
 /* Milestone diamond + slack bar (forecast vs. target) */
 .milestone-track { position: absolute; left: 6px; right: 6px; top: 0; height: 10px; pointer-events: none; }
@@ -1322,10 +1328,12 @@ function holdReason(node) {
 // noProgressInfo: returns { required, daysToMilestone, milestonePassed } when the WO has zero
 // effective velocity AND still has remaining work. Null otherwise. Used to surface the
 // "no confidence in milestone" indicator near the milestone diamond.
-function noProgressInfo(node) {
+// Rate (h/mo) a real WO needs to hit its milestone, plus current effective velocity and remaining
+// hours. No velocity guard — works for any pace (used by the "won't-finish" bar message). Returns
+// null for placeholders / WO-less nodes. `required` is null when there's no milestone or it has passed.
+function requiredRateInfo(node) {
   if (node.isPlaceholder || !node.woNo) return null;
   var eff = fleetCache && fleetCache.fleet ? fleetCache.fleet.eff[node.id] : null;
-  if (eff == null || eff > 0.001) return null;
   var prog = computeWOProgress(node);
   if (!prog || prog.remainHrs <= 0.01) return null;
   var daysToMilestone = node.completion ? daysBetween(todayISO(), node.completion) : null;
@@ -1334,7 +1342,15 @@ function noProgressInfo(node) {
     if (daysToMilestone <= 0) { milestonePassed = true; required = null; }
     else { required = prog.remainHrs / (daysToMilestone / DAYS_PER_MONTH); }
   }
-  return { required: required, daysToMilestone: daysToMilestone, milestonePassed: milestonePassed, remainHrs: prog.remainHrs };
+  return { required: required, daysToMilestone: daysToMilestone, milestonePassed: milestonePassed, remainHrs: prog.remainHrs, eff: eff };
+}
+
+// Zero-velocity "!" indicator near the diamond — a narrower case of requiredRateInfo.
+function noProgressInfo(node) {
+  var info = requiredRateInfo(node);
+  if (!info) return null;
+  if (info.eff == null || info.eff > 0.001) return null;   // only when there's no recent progress
+  return info;
 }
 
 // ============================== Rendering ==============================
@@ -1364,6 +1380,16 @@ function barWidthPct(node) {
   return p;
 }
 
+// True when a ringed WO has remaining work but no computable forecast (rate <= 0, or it can't
+// finish within projectForecast's 60-month cap). Distinguishes "key present and === null" (a real
+// WO we can't project) from "key absent" (placeholders / ring-less WOs — no velocity data at all,
+// left untouched). Placeholders never enter fleet.ids, so their key is absent.
+function noForecast(node) {
+  if (node.isPlaceholder || !fleetCache || !fleetCache.forecast) return false;
+  var fe = fleetCache.forecast.forecastEnd;
+  return (node.id in fe) && fe[node.id] === null;
+}
+
 // Left edge of the bar as a percent of [gStart, gMax]. 0 (gStart) unless the row has a
 // user-set planned start date (non-WO placeholder rows). Clamped to the timeline.
 function barStartPct(node) {
@@ -1376,7 +1402,12 @@ function barStartPct(node) {
 function renderBar(node) {
   var rd = resolveOps(node);
   var startPct = barStartPct(node);
-  var widthPct = Math.max(barWidthPct(node) - startPct, 0);  // span from start to end; feeds segment px math below
+  // No computable forecast (too slow / no velocity): don't let the bar masquerade as ending on the
+  // target date. Stretch it nearly full-width so the gate/chips detail stays visible and an explicit
+  // "won't finish" message (with the rate needed to hit the milestone) carries the truth.
+  var nf = noForecast(node);
+  var endPct = nf ? 100 : barWidthPct(node);
+  var widthPct = Math.max(endPct - startPct, 0);  // span from start to end; feeds segment px math below
   var inner = '';
   var chipsLayout = false;   // true only when chips actually render (not when degraded to solid)
   if (globalView === 'bars' || !rd.hasRing) {
@@ -1453,10 +1484,34 @@ function renderBar(node) {
   }
   var isChipsView = chipsLayout;
   var wrapClass = 'bar-wrap' + (isChipsView ? ' chips' : '');
-  var barClass = 'bar' + (isChipsView ? ' chips' : '');
+  var barClass = 'bar' + (isChipsView ? ' chips' : '') + (nf ? ' no-forecast' : '');
   var past = (node.completion && scheduleStart && daysBetween(scheduleStart, node.completion) < 0) ? '<span class="slip-flag" title="Completion is before the schedule start">&#9888;</span>' : '';
   var posStyle = isChipsView ? 'width:' + widthPct + '%' : 'left:' + startPct + '%;width:' + widthPct + '%';
-  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="' + posStyle + '" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + '</div>';
+  // "Won't-finish" overlay: explicit message + the rate needed to hit the milestone. Overlaid on the
+  // full-width bar (pointer-events:none) so gate segments / chips underneath stay visible and clickable.
+  var nfMsg = '';
+  if (nf) {
+    var rr = requiredRateInfo(node);
+    var shortTxt = '⚠ Won’t finish at current pace';
+    var longTxt = rr ? (rr.remainHrs.toFixed(0) + ' h remaining') : 'No computable forecast';
+    if (rr && rr.eff > 0.001) {
+      shortTxt += ' (~' + rr.eff.toFixed(1) + ' h/mo, ~' + Math.round(rr.remainHrs / rr.eff) + ' mo)';
+      longTxt += ' at ~' + rr.eff.toFixed(1) + ' h/mo (~' + Math.round(rr.remainHrs / rr.eff) + ' months to finish)';
+    } else {
+      shortTxt += ' (no recent progress)';
+      longTxt += ' with no recent earned hours';
+    }
+    if (rr && rr.required != null) {
+      var tgt = ''; if (node.completion) { var dd = parseISO(node.completion); tgt = (dd.getMonth() + 1) + '/' + dd.getDate(); }
+      shortTxt += ' · needs ' + rr.required.toFixed(1) + ' h/mo' + (tgt ? ' by ' + tgt : '');
+      longTxt += '. Needs ~' + rr.required.toFixed(1) + ' h/mo to hit the ' + node.completion + ' target.';
+    } else if (rr && rr.milestonePassed) {
+      shortTxt += ' · target passed';
+      longTxt += '. Milestone date has already passed.';
+    }
+    nfMsg = '<div class="no-forecast-msg" title="' + esc(longTxt) + '">' + esc(shortTxt) + '</div>';
+  }
+  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="' + posStyle + '" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + nfMsg + '</div>';
 }
 
 // Milestone diamond + slack bar above the main bar. Always renders the diamond when a Milestone is set;
@@ -1504,8 +1559,21 @@ function renderMilestone(node) {
       html += '<div class="no-prog-warn" style="left:' + npX + '%" title="' + esc(npTip) + '">!</div>';
     }
     // Diamond on top of the milestone date — same color tier (gray "unknown" when no forecast).
-    var tipParts = ['Milestone: ' + node.completion,
-                    forecastEnd ? ('Forecast: ' + forecastEnd) : (npi ? 'Forecast: none — zero velocity' : null),
+    // When there's no forecast, surface why (too slow vs. no progress) + the rate needed to hit target.
+    var forecastPart = null, neededPart = null;
+    if (forecastEnd) {
+      forecastPart = 'Forecast: ' + forecastEnd;
+    } else {
+      var rrD = requiredRateInfo(node);
+      if (rrD) {
+        forecastPart = (rrD.eff > 0.001)
+          ? ('Forecast: beyond 60 mo at ~' + rrD.eff.toFixed(1) + ' h/mo')
+          : 'Forecast: none — no recent progress';
+        if (rrD.required != null) neededPart = 'Needs ~' + rrD.required.toFixed(1) + ' h/mo to hit target';
+        else if (rrD.milestonePassed) neededPart = 'Target date passed';
+      }
+    }
+    var tipParts = ['Milestone: ' + node.completion, forecastPart, neededPart,
                     slackDays != null ? ((slackDays >= 0 ? '+' : '') + slackDays + ' days slack') : null];
     var tip = tipParts.filter(Boolean).join(' · ');
     html += '<div class="milestone-diamond slack-' + tier + '" style="left:' + milestoneX + '%" title="' + esc(tip) + '"></div>';
@@ -2072,10 +2140,10 @@ function saveSnapshot() {
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
-    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, noProgressInfo,
+    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
     setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, setHrsPerEmployee,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
-    barWidthPct, barStartPct, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
+    barWidthPct, barStartPct, noForecast, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, computeGateLoading, renderLoadingTable,
     csvQuote, sanitizeFilename, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
