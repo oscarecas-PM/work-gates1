@@ -60,7 +60,9 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .vel-reset:hover { color: #5b21b6; }
 .hold-warn { display: inline-block; padding: 0 4px; font-size: 0.85rem; color: #b45309; cursor: help; vertical-align: middle; }
 /* Clear HOLD label on the far left of any row with an op on hold — must be impossible to miss. */
-.hold-label { display: inline-block; padding: 1px 7px; margin-right: 4px; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.05em; color: #fff; background: #dc2626; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: help; flex-shrink: 0; }
+/* Reserved status gutter (HOLD pill or empty) — keeps every row's content aligned. */
+.hold-gutter { width: 44px; flex-shrink: 0; display: flex; align-items: center; }
+.hold-label { display: inline-block; padding: 1px 5px; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.04em; color: #fff; background: #dc2626; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: help; flex-shrink: 0; }
 .gantt-row.on-hold .task-col { background: linear-gradient(to right, rgba(220,38,38,0.10), transparent 200px); }
 
 /* Edit mode: row height grows so the identifier + part # + description and the chips + date input + buttons can wrap to multiple lines instead of cramming onto one. */
@@ -116,7 +118,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 /* Bars */
 .bar-wrap { position: absolute; left: 6px; right: 6px; top: 12px; bottom: 4px; }
 .bar { position: absolute; left: 0; top: 0; bottom: 0; min-width: 16px; display: flex; border-radius: 3px; overflow: hidden; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
-.bar-solid { flex: 1 1 auto; display: flex; align-items: center; padding: 0 8px; font-size: 0.72rem; color: #fff; font-weight: bold; white-space: nowrap; overflow: hidden; }
+.bar-solid { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 0.72rem; color: #fff; font-weight: bold; white-space: nowrap; overflow: hidden; }
+.bar-note { font-weight: normal; font-style: italic; opacity: 0.95; }
 .gate-seg { flex: 1 1 0; display: flex; align-items: center; justify-content: flex-start; font-size: 0.66rem; color: #fff; font-weight: bold; border-right: 1px solid rgba(255,255,255,0.5); overflow: hidden; white-space: nowrap; padding: 0 3px; }
 .gate-seg:last-child { border-right: none; }
 .gate-seg.expanded { outline: 2px solid #111; outline-offset: -2px; }
@@ -174,7 +177,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .reveal-op .op-meta { color: #64748b; }
 
 /* legend */
-.legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 0.72rem; color: #555; margin-bottom: 0.8rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 0.72rem; color: #555; position: sticky; top: 30px; z-index: 900; background: #f1f5f9; padding: 6px 8px; margin: 0 0 0.8rem; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 2px 4px rgba(15,23,42,0.06); }
+.legend-cap { color: #334155; font-weight: bold; margin-right: 2px; }
 .legend .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 3px; vertical-align: middle; }
 
 .empty-msg { padding: 2rem; text-align: center; color: #94a3b8; background: #fff; border: 1px dashed #cbd5e1; border-radius: 6px; }
@@ -440,6 +444,24 @@ function operColorClass(status, dept) {
 function statusRank(status) {
   var s = (status||'').toUpperCase().trim();
   if (s === 'ACTIVE') return 0; if (s === 'IN QUEUE') return 1; if (s === 'PENDING') return 2; return 3;
+}
+
+// View-specific legend, kept always-visible (sticky) so the colors can be referenced at any time.
+// Chips view keeps the detailed operation-status palette; gate and bar views use the simplified scheme.
+function legendHTML(view) {
+  function sw(c, txt){ return '<span><span class="sw ' + c + '"></span>' + txt + '</span>'; }
+  if (view === 'gateblocks') {
+    return '<strong class="legend-cap">Gate view</strong>' + sw('c-green', 'Open work in gate') +
+      sw('c-gray', 'All ops complete / closed') + sw('c-yellow', 'Part not mapped (no decoder ring)');
+  }
+  if (view === 'bars') {
+    return '<strong class="legend-cap">Bar view</strong>' + sw('c-green', 'Mapped (decoder ring found)') +
+      sw('c-gray', 'Not mapped');
+  }
+  return '<strong class="legend-cap">Operation status</strong>' + sw('c-green', 'Active') +
+    sw('c-purple', 'Active (non-SMART)') + sw('c-yellow', 'In Queue') + sw('c-blue', 'QA') +
+    sw('c-pink', 'Pending') + sw('c-gray', 'Complete / none') +
+    '<span><span class="sw held" style="background:#fff"></span>On hold</span>';
 }
 function isHold(h) { var v = (h||'').trim().toUpperCase(); return v !== '' && v !== 'NONE' && v !== 'N'; }
 
@@ -998,12 +1020,17 @@ function resolveOps(node) {
     });
     ring.gateOrder.forEach(function(g) {
       var gops = byGate[g];
+      // colorClass = detailed operation-status color (kept for chips view).
+      // simpleColor = simplified gate-view color: green if the gate still has open work, grey if all
+      // its ops are complete/closed (present only in the ring, not the live daily upload).
       var color = 'c-gray';
       if (node.isPlaceholder) { color = 'c-plan'; }
       else { var best = 3; gops.forEach(function(o){ var rk = statusRank(o.status); if (rk < best) { best = rk; color = operColorClass(o.status, o.dept); } }); }
-      out.gates.push({ num: g, name: ring.gateName[g] || ('Gate ' + g), ops: gops, colorClass: color });
+      var simple = gops.some(function(o){ return o.remaining > 0; }) ? 'c-green' : 'c-gray';
+      out.gates.push({ num: g, name: ring.gateName[g] || ('Gate ' + g), ops: gops, colorClass: color, simpleColor: simple });
     });
-    if (ungated.length) out.gates.push({ num: '', name: 'Unmapped ops', ops: ungated, colorClass: node.isPlaceholder ? 'c-plan' : 'c-gray' });
+    if (ungated.length) out.gates.push({ num: '', name: 'Unmapped ops', ops: ungated, colorClass: node.isPlaceholder ? 'c-plan' : 'c-gray',
+      simpleColor: ungated.some(function(o){ return o.remaining > 0; }) ? 'c-green' : 'c-gray' });
   }
   return out;
 }
@@ -1014,6 +1041,18 @@ function barStatusClass(node) {
   var best = 3, color = 'c-gray';
   ops.forEach(function(o){ var rk = statusRank(o.status); if (rk < best) { best = rk; color = operColorClass(o.status, o.dept); } });
   return color;
+}
+
+// Solid-bar HTML for the simplified color scheme:
+//  • Bars view: green if the part is mapped to a decoder ring, grey if not.
+//  • Gate/chips view fallen back to a solid (no ring, or auto-degraded at low zoom): yellow + a
+//    "not mapped" note when there's no ring; otherwise green if any op is still open, grey if all closed.
+function solidBarHTML(node, rd) {
+  var label = esc(node.woNo || node.partNo), cls, note = '';
+  if (!rd.hasRing) { note = 'not mapped'; cls = (globalView === 'bars') ? 'c-gray' : 'c-yellow'; }
+  else if (globalView === 'bars') { cls = 'c-green'; }
+  else { cls = rd.flat.some(function(o){ return o.remaining > 0; }) ? 'c-green' : 'c-gray'; }
+  return '<span class="bar-solid ' + cls + '">' + label + (note ? ' <span class="bar-note">' + note + '</span>' : '') + '</span>';
 }
 
 // Visible row identifier: S/N if present, else "x"+last 4 of the WO, else (placeholder) the part number.
@@ -1414,7 +1453,7 @@ function renderBar(node) {
     if (globalView === 'chips' && rd.flat.length) {
       // chips with no ring -> still show solid bar per spec; reveal on click. (fallthrough to solid)
     }
-    inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo || node.partNo) + '</span>';
+    inner = solidBarHTML(node, rd);
   } else if (globalView === 'gateblocks') {
     var prog = computeWOProgress(node);
     // Per-segment width (px) drives the "hide gate name if it can't fit ~5 chars" rule.
@@ -1426,7 +1465,7 @@ function renderBar(node) {
     // Auto-degrade: when gate segments would be <6 px wide, collapse to a solid bar.
     // The bar end stays at the forecast date; gate detail returns as you zoom back in.
     if (segPx < 6) {
-      inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo || node.partNo) + '</span>';
+      inner = solidBarHTML(node, rd);
     } else {
     rd.gates.forEach(function(g) {
       var exp = node.expandedGates[g.num] ? ' expanded' : '';
@@ -1437,7 +1476,7 @@ function renderBar(node) {
       } else {
         tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
       }
-      inner += '<span class="gate-seg ' + g.colorClass + exp + '" title="' + esc(tip) +
+      inner += '<span class="gate-seg ' + g.simpleColor + exp + '" title="' + esc(tip) +
         '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
         (showName ? esc(g.name) : '') + '</span>';
     });
@@ -1452,7 +1491,7 @@ function renderBar(node) {
     var chipsPerRowRaw = Math.floor((segPx2 - 6) / 28);   // chip ≈ 26–28 px wide incl. gap
     // Auto-degrade (binary chips ↔ solid): when even one chip per gate can't fit, collapse to solid.
     if (chipsPerRowRaw < 1) {
-      inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo || node.partNo) + '</span>';
+      inner = solidBarHTML(node, rd);
     } else {
     chipsLayout = true;
     var chipsPerRow = chipsPerRowRaw;
@@ -1479,7 +1518,7 @@ function renderBar(node) {
         '<div class="gate-name">' + (showName2 ? esc(g.name) : '') + '</div>' +
         '<div class="chip-stack">' + chips + '</div></div>';
     });
-    if (!inner) inner = '<span class="bar-solid ' + barStatusClass(node) + '">' + esc(node.woNo) + '</span>';
+    if (!inner) inner = solidBarHTML(node, rd);
     } // close: chips else (chipsPerRowRaw >= 1)
   }
   var isChipsView = chipsLayout;
@@ -1681,6 +1720,7 @@ function buildRows(rootId, level, acc) {
 
 function render() {
   updateButtons();
+  var lg = document.getElementById('legend'); if (lg) lg.innerHTML = legendHTML(globalView);
   var board = document.getElementById('board');
   board.className = compactMode ? 'compact' : '';
   if (!rootIds.length) {
@@ -1737,11 +1777,11 @@ function render() {
         // row inputs/buttons stay usable.
         html += '<span class="drag-handle" draggable="true" title="Drag to reorder"' +
           ' ondragstart="onRowDragStart(event,\'' + n.id + '\')" ondragend="onRowDragEnd(event)">&#9776;</span>';
-        // HOLD label on the far left when any op is on hold — makes the state unmissable.
-        if (isOnHold(n)) {
-          var hr = holdReason(n);
-          html += '<span class="hold-label" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">HOLD</span>';
-        }
+        // Fixed-width status gutter — reserved on EVERY row so the presence of a HOLD pill never
+        // shifts the S/N identifier or the %/remaining/velocity chips out of alignment.
+        var hr = isOnHold(n) ? holdReason(n) : '';
+        html += '<span class="hold-gutter">' + (isOnHold(n)
+          ? '<span class="hold-label" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">HOLD</span>' : '') + '</span>';
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
         var ident = nodeIdent(n);
         var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
@@ -2115,7 +2155,7 @@ function saveSnapshot() {
   html += '<span class="vel-ctrl"><span class="vel-cap">Lab Capacity</span><input type="number" id="lab-cap-input" placeholder="—" step="1" min="0" onchange="setLabCapacity(this.value)"><span class="vel-cap" style="color:#475569"> h/mo</span><span id="lab-cap-calc" class="vel-cap" style="color:#475569"></span><span class="vel-reset" title="Reset to calculated" onclick="resetLabCapacity()">&#8634;</span></span>';
   html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>';
   html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button></div>\n';
-  html += '<div class="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
+  html += '<div class="legend" id="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
   html += '<div id="board"></div>\n';
   html += '<div id="loading"></div>\n';
   html += document.getElementById('search-modal').outerHTML + '\n';
@@ -2134,7 +2174,7 @@ function saveSnapshot() {
   html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
   html += 'var _dateRenderTimer = null; var dragSrcId = null;\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
-    operColorClass, statusRank, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
+    operColorClass, statusRank, legendHTML, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
     getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
     reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
@@ -2143,7 +2183,7 @@ function saveSnapshot() {
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
     setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, setHrsPerEmployee,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
-    barWidthPct, barStartPct, noForecast, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
+    barWidthPct, barStartPct, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, computeGateLoading, renderLoadingTable,
     csvQuote, sanitizeFilename, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
