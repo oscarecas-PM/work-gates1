@@ -230,6 +230,11 @@ tr.lt-grouphdr .lt-sub-head { padding-left: 12px !important; }
 .lt-excl { color: #cbd5e1; cursor: pointer; font-size: 0.72rem; padding: 0 2px; }
 .lt-excl:hover { color: #dc2626; }
 .lt-behind-flag { color: #dc2626; font-weight: bold; font-size: 0.66rem; margin-left: 6px; white-space: nowrap; }
+/* Coverage sanity badge: % of remaining hours NOT shown in the table, per curve (P=plan, Pa=pace). */
+.lt-cov { font-size: 0.6rem; font-weight: bold; margin-right: 5px; white-space: nowrap; cursor: help; border: 1px solid #e2e8f0; border-radius: 3px; padding: 0 3px; background: #fff; }
+.lt-cov .lt-plan, .lt-cov .lt-pace { font-weight: bold; }
+.lt-cov .lt-cov-warn { text-decoration: underline; text-decoration-color: #dc2626; }
+.lt-cov-na { color: #94a3b8; }
 tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-size: 0.7rem; font-weight: normal; font-style: italic; }
 .lt-pp { font-weight: bold; color: #cbd5e1; }
 @media print { .lt-scroll { overflow: visible; } }
@@ -2053,9 +2058,29 @@ function computeGateLoading() {
     }
 
     var wm = {}; woMonths(planCurve, 'plan', wm); woMonths(paceCurve, 'pace', wm);
+    // Coverage sanity-check: how many of the WO's remaining hours actually landed in the table
+    // (post-truncation). Denominator is the authoritative remaining-hours figure.
+    var planSum = 0, paceSum = 0;
+    Object.keys(wm).forEach(function(mk){ planSum += wm[mk].plan; paceSum += wm[mk].pace; });
+    var remHrs = (computeWOProgress(n) || {}).remainHrs || totalRem;
     store.wos.push({ id:id, label:label, idTag:idTag, pn:n.partNo, sn:n.serial, woNo:n.woNo,
       isPlaceholder:n.isPlaceholder, planMissing: !planCurve, paceMissing: !paceCurve,
-      behind: behind, catchup: catchup, required: required, eff: eff, months: wm });
+      behind: behind, catchup: catchup, required: required, eff: eff, months: wm,
+      planSum: planSum, paceSum: paceSum, remHrs: remHrs });
+  });
+
+  // Roll WO coverage up to program + lab. Only included WOs count (excluded/no-ring are intentional).
+  lab.cov = { planSum: 0, paceSum: 0, rem: 0, anyPlan: false, anyPace: false };
+  programs.forEach(function(p){
+    var st = byProg[p]; if (!st) return;
+    st.cov = { planSum: 0, paceSum: 0, rem: 0, anyPlan: false, anyPace: false };
+    st.wos.forEach(function(w){
+      st.cov.rem += w.remHrs;
+      if (!w.planMissing) { st.cov.planSum += w.planSum; st.cov.anyPlan = true; }
+      if (!w.paceMissing) { st.cov.paceSum += w.paceSum; st.cov.anyPace = true; }
+    });
+    lab.cov.rem += st.cov.rem; lab.cov.planSum += st.cov.planSum; lab.cov.paceSum += st.cov.paceSum;
+    lab.cov.anyPlan = lab.cov.anyPlan || st.cov.anyPlan; lab.cov.anyPace = lab.cov.anyPace || st.cov.anyPace;
   });
 
   return { months: months, programs: programs, lab: lab, byProg: byProg, todayDay: todayDay };
@@ -2108,12 +2133,29 @@ function renderLoadingTable() {
     var h = '';
     wos.forEach(function(w){
       var flag = w.behind ? '<span class="lt-behind-flag" title="Behind schedule — must speed up to hit target">▾ needs +' + (w.catchup != null ? w.catchup.toFixed(1) : '?') + ' h/mo</span>' : '';
-      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + esc(w.label) + flag + '</th>';
+      var cov = covBadge({ planSum: w.planSum, paceSum: w.paceSum, rem: w.remHrs, anyPlan: !w.planMissing, anyPace: !w.paceMissing });
+      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + cov + esc(w.label) + flag + '</th>';
       h += subRow(head, w.months, false, 'lt-sub lt-wo');
     });
     return h;
   }
   function caret(key){ return '<span class="lt-caret">' + (loadExpand[key] ? '&#9660;' : '&#9654;') + '</span>'; }
+  // Coverage badge: how much of the remaining hours actually appear in the table, per curve.
+  // % shown = the difference (remaining hours NOT represented). 0% = fully accounted; "–" = curve N/A.
+  function covBadge(cov) {
+    if (!cov || cov.rem <= 0.05) return '';
+    function part(sum, any, label, cls) {
+      if (!any) return '<span class="lt-cov-na">' + label + ' –</span>';
+      var miss = Math.round((cov.rem - sum) / cov.rem * 100); if (miss < 0) miss = 0;
+      var sev = miss >= 10 ? ' lt-cov-warn' : '';
+      return '<span class="' + cls + sev + '">' + label + ' ' + miss + '%</span>';
+    }
+    var warn = ((cov.anyPlan && (cov.rem - cov.planSum) / cov.rem >= 0.10) || (cov.anyPace && (cov.rem - cov.paceSum) / cov.rem >= 0.10) || (!cov.anyPlan && !cov.anyPace));
+    var tip = 'Coverage vs ' + cov.rem.toFixed(1) + ' h remaining. % = remaining hours NOT represented in the table (0% = all accounted). ' +
+      'Plan: ' + cov.planSum.toFixed(1) + ' h shown' + (cov.anyPlan ? '' : ' (no milestone → no Plan)') + '. ' +
+      'Pace: ' + cov.paceSum.toFixed(1) + ' h shown' + (cov.anyPace ? (cov.rem - cov.paceSum > 0.5 ? ' (' + (cov.rem - cov.paceSum).toFixed(1) + ' h fall beyond the chart)' : '') : ' (no velocity → no Pace)') + '.';
+    return '<span class="lt-cov" title="' + esc(tip) + '">' + (warn ? '&#9888; ' : '') + part(cov.planSum, cov.anyPlan, 'P', 'lt-plan') + ' ' + part(cov.paceSum, cov.anyPace, 'Pa', 'lt-pace') + '</span>';
+  }
 
   var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — <span class="lt-pp">Plan</span> / <span class="lt-pp lt-pace">Pace</span> hours (plan = needed to hit milestone · pace = at current velocity)</div>';
   html += '<div class="lt-scroll"><table class="loading-table"><thead><tr><th class="lt-rowhead">Program</th>';
@@ -2121,7 +2163,7 @@ function renderLoadingTable() {
   html += '<th class="lt-rowtotal">Total</th></tr></thead><tbody>';
 
   // Entire Lab
-  var labHead = '<th class="lt-rowhead lt-clickable" onclick="toggleLoadExpand(\'lab\')">' + caret('lab') + ' Entire Lab</th>';
+  var labHead = '<th class="lt-rowhead lt-clickable" onclick="toggleLoadExpand(\'lab\')">' + caret('lab') + ' Entire Lab ' + covBadge(gl.lab.cov) + '</th>';
   html += subRow(labHead, gl.lab.sub, true, 'lt-lab');
   if (loadExpand['lab']) {
     html += '<tr class="lt-grouphdr"><th class="lt-rowhead lt-sub-head">Gates (shop-wide)</th><td class="lt-cell" colspan="' + (months.length + 1) + '"></td></tr>';
@@ -2131,7 +2173,7 @@ function renderLoadingTable() {
   // Per program
   gl.programs.forEach(function(p) {
     var store = gl.byProg[p]; if (!store) return;
-    var pHead = '<th class="lt-rowhead lt-clickable" onclick="toggleLoadExpand(\'' + esc(p).replace(/'/g, "\\'") + '\')">' + caret(p) + ' ' + esc(p) + '</th>';
+    var pHead = '<th class="lt-rowhead lt-clickable" onclick="toggleLoadExpand(\'' + esc(p).replace(/'/g, "\\'") + '\')">' + caret(p) + ' ' + esc(p) + ' ' + covBadge(store.cov) + '</th>';
     html += subRow(pHead, store.sub, true, 'lt-prog');
     if (loadExpand[p]) {
       html += '<tr class="lt-grouphdr"><th class="lt-rowhead lt-sub-head">Gates</th><td class="lt-cell" colspan="' + (months.length + 1) + '"></td></tr>';
