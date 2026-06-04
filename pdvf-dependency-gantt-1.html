@@ -56,6 +56,10 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .vel-chip { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; white-space: nowrap; margin-left: 4px; vertical-align: middle; background: #0d9488; color: #fff; cursor: pointer; }
 .vel-chip.overridden { background: #7c3aed; }
 .vel-chip:hover { filter: brightness(1.1); }
+.vel-edit { opacity: 0.75; font-size: 0.62rem; margin-left: 1px; }
+.emp-step { width: 20px; height: 20px; padding: 0; border: 1px solid #cbd5e1; border-radius: 3px; background: #f8fafc; color: #1e293b; font-weight: bold; font-size: 0.9rem; line-height: 1; cursor: pointer; }
+.emp-step:hover { background: #e2e8f0; }
+#add-emp-input { width: 44px; text-align: center; }
 .vel-reset { display: inline-block; padding: 0 4px; font-size: 0.85rem; font-weight: bold; color: #7c3aed; cursor: pointer; vertical-align: middle; user-select: none; }
 .vel-reset:hover { color: #5b21b6; }
 .hold-warn { display: inline-block; padding: 0 4px; font-size: 0.85rem; color: #b45309; cursor: help; vertical-align: middle; }
@@ -208,6 +212,26 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .lt-hpe-ctrl { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; font-weight: normal; font-size: 0.78rem; }
 .lt-hpe-ctrl input { width: 70px; padding: 2px 5px; border: 1px solid #cbd5e1; border-radius: 3px; font-size: 0.78rem; color: #1e293b; background: #fff; }
 .lt-foot { font-size: 0.72rem; color: #b45309; padding: 6px 14px 0; }
+/* Plan vs Pace cells */
+.lt-cell { min-width: 92px; text-align: center; white-space: nowrap; }
+.lt-plan { color: #1e3a5f; font-weight: bold; }
+.lt-pace { color: #0d9488; font-weight: bold; }
+.lt-sep { color: #94a3b8; margin: 0 3px; }
+.lt-emp { font-size: 0.64rem; color: #64748b; font-weight: normal; margin-top: 1px; }
+td.lt-behind { background: #fef2f2; }
+.lt-caret { display: inline-block; width: 12px; color: #64748b; font-size: 0.62rem; }
+.lt-clickable { cursor: pointer; user-select: none; }
+.lt-clickable:hover { background: #e2e8f0; }
+tr.lt-prog .lt-rowhead { background: #f1f5f9; }
+tr.lt-sub > th, tr.lt-sub > td { background: #fff; font-weight: normal; }
+.lt-sub-head { font-weight: normal !important; padding-left: 20px !important; color: #475569; }
+tr.lt-grouphdr > th, tr.lt-grouphdr > td { background: #f8fafc; color: #64748b; font-style: italic; font-weight: bold; }
+tr.lt-grouphdr .lt-sub-head { padding-left: 12px !important; }
+.lt-excl { color: #cbd5e1; cursor: pointer; font-size: 0.72rem; padding: 0 2px; }
+.lt-excl:hover { color: #dc2626; }
+.lt-behind-flag { color: #dc2626; font-weight: bold; font-size: 0.66rem; margin-left: 6px; white-space: nowrap; }
+tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-size: 0.7rem; font-weight: normal; font-style: italic; }
+.lt-pp { font-weight: bold; color: #cbd5e1; }
 @media print { .lt-scroll { overflow: visible; } }
 
 /* Search modal */
@@ -295,11 +319,13 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
     <span id="zoom-label" class="zoom-label">1.00×</span></span>
   <span class="vel-ctrl"><span class="vel-cap">Lookback</span>
     <input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>
-  <span class="vel-ctrl"><span class="vel-cap">Lab Capacity</span>
-    <input type="number" id="lab-cap-input" placeholder="—" step="1" min="0" onchange="setLabCapacity(this.value)">
-    <span class="vel-cap" style="color:#475569"> h/mo</span>
-    <span id="lab-cap-calc" class="vel-cap" style="color:#475569"></span>
-    <span class="vel-reset" title="Reset to calculated" onclick="resetLabCapacity()">&#8634;</span></span>
+  <span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span>
+    <input type="number" id="hrs-per-emp" min="0" step="1" placeholder="—" onchange="setHrsPerEmployee(this.value)"></span>
+  <span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span>
+    <button class="emp-step" title="Remove a tech" onclick="bumpEmployees(-1)">&minus;</button>
+    <input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)">
+    <button class="emp-step" title="Add a tech" onclick="bumpEmployees(1)">+</button>
+    <span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>
   <button class="btn btn-green" id="export-csv-btn" disabled onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>
   <button class="btn btn-slate" id="save-btn" disabled onclick="saveSnapshot()">Save for Editing</button>
 </div>
@@ -353,8 +379,9 @@ var zoomFactor = 1.0;    // 0.25 .. 5 — stretches timeline width in #4
 var compactMode = false; // hides date + row buttons, reveals part number inline
 var weeklyEarned = {};   // woNo -> { isoWeek: hrs }  — built from EHA upload
 var lookbackWeeks = 4;   // trailing weeks averaged to derive per-WO velocity
-var overrideLabTotal = null; // null = use computed sum of calc velocities; else hrs/mo
-var hrsPerEmployee = null;   // typical earned hrs/mo per employee; drives Gate Loading headcount column
+var overrideLabTotal = null; // legacy absolute lab-capacity override (still imported); superseded by addEmployees
+var hrsPerEmployee = null;   // typical earned hrs/mo per employee; drives Gate Loading headcount + the Add/Remove Employees control
+var addEmployees = 0;        // staffing delta (whole techs, +/-); back-calculated to a lab-capacity delta via hrsPerEmployee
 var fleetCache = null;   // memoized fleet velocity for this render pass
 var pendingSearch = null;// { mode:'root'|'child'|'parent'|'link', nodeId, selected:{woNo:true} }
 var isSnapshot = false;
@@ -363,6 +390,7 @@ var gStart = '', gMax = '';  // computed axis domain per render
 
 var _dateRenderTimer = null; // debounce handle for date-input edits (see scheduleDateRender)
 var dragSrcId = null;        // node id currently being dragged (family/child reorder)
+var loadExpand = {};         // Gate Loading collapsible state: key ('lab'|prog|prog+':gate'|prog+':wo') -> true when expanded
 
 // ============================== Utilities (from gate-tracker / decoder-ring) ==============================
 var CSV_MAX_FIELD_LEN = 500;
@@ -811,7 +839,7 @@ function newNode(wo, parentId, completion) {
   var id = 'n' + num;
   var n = { id: id, woNo: wo, partNo: '', partDesc: '', program: '', serial: '', isPlaceholder: false,
             parentId: parentId, completion: completion, manualDate: false, startDate: '', order: num,
-            overrideVelocity: null, joinGate: null,
+            overrideVelocity: null, joinGate: null, excluded: false,
             collapsed: false, opsExpanded: false, expandedGates: {} };
   bindNodeFields(n);
   nodes[id] = n;
@@ -823,7 +851,7 @@ function newPlaceholderNode(partNo, partDesc, program, parentId, completion) {
   var id = 'n' + num;
   var n = { id: id, woNo: '', partNo: partNo, partDesc: partDesc || '', program: program || '(Unassigned)', serial: '',
             isPlaceholder: true, parentId: parentId, completion: completion, manualDate: false, startDate: '', order: num,
-            overrideVelocity: null, joinGate: null,
+            overrideVelocity: null, joinGate: null, excluded: false,
             collapsed: false, opsExpanded: false, expandedGates: {} };
   nodes[id] = n;
   return n;
@@ -1035,14 +1063,6 @@ function resolveOps(node) {
   return out;
 }
 
-function barStatusClass(node) {
-  if (node.isPlaceholder) return 'c-plan';
-  var ops = woOps[node.woNo] || [];
-  var best = 3, color = 'c-gray';
-  ops.forEach(function(o){ var rk = statusRank(o.status); if (rk < best) { best = rk; color = operColorClass(o.status, o.dept); } });
-  return color;
-}
-
 // Solid-bar HTML for the simplified color scheme:
 //  • Bars view: green if the part is mapped to a decoder ring, grey if not.
 //  • Gate/chips view fallen back to a solid (no ring, or auto-degraded at low zoom): yellow + a
@@ -1113,12 +1133,35 @@ function setLabCapacity(v) {
 }
 function resetLabCapacity() { setLabCapacity(''); }
 
-// Headcount input for Gate Loading: drives the "Emp" column = hours / hrsPerEmployee.
+// Headcount basis (h/mo per employee). Drives the loading-table emp counts AND gates the
+// Add/Remove Staff control (which needs it to convert techs <-> hours). Clearing it resets the
+// staffing delta and hides the stepper.
 function setHrsPerEmployee(v) {
   if (v === '' || v == null) { hrsPerEmployee = null; }
   else { var n = parseFloat(v); hrsPerEmployee = (n > 0) ? n : null; }
-  var el = document.getElementById('hrs-per-emp'); if (el) el.value = (hrsPerEmployee == null ? '' : hrsPerEmployee);
-  renderLoadingTable();
+  if (hrsPerEmployee == null) addEmployees = 0;
+  render();
+}
+// Staffing delta in whole techs; back-calculated to a lab-capacity delta via hrsPerEmployee.
+function setAddEmployees(v) {
+  var n = parseInt(v, 10); if (isNaN(n)) n = 0;
+  addEmployees = n;
+  render();
+}
+function bumpEmployees(d) { setAddEmployees(addEmployees + d); }
+// Push current state into the action-bar staffing inputs (the action bar isn't re-rendered).
+function syncEmpControls() {
+  var hpe = document.getElementById('hrs-per-emp'); if (hpe && document.activeElement !== hpe) hpe.value = (hrsPerEmployee == null ? '' : hrsPerEmployee);
+  var ctrl = document.getElementById('emp-adjust-ctrl'); if (ctrl) ctrl.style.display = (hrsPerEmployee && hrsPerEmployee > 0) ? '' : 'none';
+  var inp = document.getElementById('add-emp-input'); if (inp && document.activeElement !== inp) inp.value = addEmployees;
+  var hint = document.getElementById('emp-adjust-hint');
+  if (hint) {
+    if (hrsPerEmployee && hrsPerEmployee > 0) {
+      var delta = addEmployees * hrsPerEmployee;
+      var labEff = (fleetCache && fleetCache.fleet) ? fleetCache.fleet.labEff : null;
+      hint.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(0) + ' h/mo' + (labEff != null ? ' · lab ' + labEff.toFixed(0) + ' h/mo' : '');
+    } else hint.textContent = '';
+  }
 }
 
 function promptVelocity(id) {
@@ -1223,9 +1266,13 @@ function computeFleetVelocity() {
   });
   var labCalc = 0; ids.forEach(function(id){ labCalc += calc[id]; });
 
-  // Step A — Lab-capacity override
-  var labTarget = (overrideLabTotal != null) ? overrideLabTotal : labCalc;
-  if (overrideLabTotal != null && ids.length) {
+  // Step A — Lab-capacity override. Primary control is "Add/Remove Employees": each tech is worth
+  // hrsPerEmployee h/mo, so the staffing delta back-calculates to a lab-capacity delta on top of the
+  // calculated total. The legacy absolute Override Lab Total still applies when no employee delta is set.
+  var empDeltaHrs = (hrsPerEmployee && addEmployees) ? addEmployees * hrsPerEmployee : null;
+  var labTarget = (empDeltaHrs != null) ? (labCalc + empDeltaHrs) : ((overrideLabTotal != null) ? overrideLabTotal : labCalc);
+  if (labTarget < 0) labTarget = 0;
+  if (labTarget !== labCalc && ids.length) {
     var deltaA = labTarget - labCalc;
     // Distribute equally with zero-floor cascade.
     var pool = ids.slice();
@@ -1729,6 +1776,7 @@ function render() {
        'Upload a Daily Upload CSV to begin.') + '</div>';
     renderLoadingTable();
     syncFloatingAxis();
+    syncEmpControls();
     return;
   }
   // Compute fleet velocity + per-WO forecast once per render; cache for downstream helpers.
@@ -1800,9 +1848,9 @@ function render() {
         if (fleetCache && fleetCache.fleet.eff[n.id] != null) {
           var v = fleetCache.fleet.eff[n.id];
           var isOver = n.overrideVelocity != null;
-          var vTip = 'Velocity: ' + v.toFixed(1) + ' h/mo' + (isOver ? ' (overridden — click ↺ to reset)' : ' (from last ' + lookbackWeeks + ' weeks of EHA actuals)');
+          var vTip = 'Velocity: ' + v.toFixed(1) + ' h/mo — click to override' + (isOver ? ' (currently overridden — ↺ to reset)' : ' (from last ' + lookbackWeeks + ' weeks of EHA actuals)');
           html += '<span class="vel-chip' + (isOver ? ' overridden' : '') + '" title="' + esc(vTip) +
-            '" onclick="event.stopPropagation();promptVelocity(\'' + n.id + '\')">' + v.toFixed(1) + ' h/mo</span>';
+            '" onclick="event.stopPropagation();promptVelocity(\'' + n.id + '\')">' + v.toFixed(1) + ' h/mo <span class="vel-edit">&#9998;</span></span>';
           if (isOver) html += '<span class="vel-reset" title="Reset to calculated velocity" onclick="event.stopPropagation();resetVelocity(\'' + n.id + '\')">&#8634;</span>';
         }
         // (Hold warning moved: HOLD label on far left of the row when on hold, and a no-progress
@@ -1840,6 +1888,7 @@ function render() {
   board.innerHTML = html;
   renderLoadingTable();
   syncFloatingAxis();
+  syncEmpControls();
 }
 
 // Populate the global floating calendar overlay with the current axis + width, and attach the
@@ -1885,52 +1934,135 @@ function monthList() {
   return out;
 }
 
+// Remaining hours per gate for a node, in ring order (gates with no open hours dropped).
+function gateRemaining(node) {
+  var rd = resolveOps(node);
+  if (!rd.hasRing) return null;
+  var out = [];
+  rd.gates.forEach(function(g) {
+    var H = 0; g.ops.forEach(function(o){ H += o.remaining; });
+    if (H <= 0.001) return;
+    out.push({ gk: (g.num === '' ? 'unmapped' : g.num + '|' + g.name), num: (g.num === '' ? '' : g.num),
+               name: (g.num === '' ? 'Unmapped' : g.name), H: H });
+  });
+  return out;
+}
+
+// Spread a node's gate hours across calendar months by consuming gates sequentially (left to right)
+// at `rate` h/mo starting `startDay` days from gStart. Returns { gk: {num,name,H, byMonth:{mk:hrs}} }
+// or null when the curve can't be computed (rate <= 0). Reuses the month-overlap proration.
+function simulateLoad(gates, rate, startDay, months, monthRange) {
+  if (!gates || !gates.length || !(rate > 0)) return null;
+  var res = {}, cum = 0;
+  gates.forEach(function(g) {
+    var t0 = startDay + (cum / rate) * DAYS_PER_MONTH;
+    var t1 = startDay + ((cum + g.H) / rate) * DAYS_PER_MONTH;
+    cum += g.H;
+    var segLen = t1 - t0;
+    var byMonth = {};
+    months.forEach(function(m) {
+      var mr = monthRange[m.key];
+      var ov = Math.min(t1, mr[1]) - Math.max(t0, mr[0]);
+      if (ov <= 0) return;
+      byMonth[m.key] = g.H * (segLen > 0 ? ov / segLen : 1);
+    });
+    res[g.gk] = { num: g.num, name: g.name, H: g.H, byMonth: byMonth };
+  });
+  return res;
+}
+
+// Build the Plan-vs-Pace loading cube. Plan = pace needed to hit the milestone; Pace = where the
+// hours actually fall at current velocity. Either half is null when it can't be computed (no
+// milestone / no velocity). Aggregated for Lab + per-program subtotals, gate-level, and WO-level.
 function computeGateLoading() {
   var months = monthList();
   var monthRange = {};
   months.forEach(function(m){ monthRange[m.key] = [daysBetween(gStart, m.firstISO), daysBetween(gStart, m.nextISO)]; });
   var programs = [], seenProg = {};
   rootIds.forEach(function(rid){ var p = nodes[rid].program || '(no program)'; if (!seenProg[p]) { seenProg[p] = true; programs.push(p); } });
-  var data = {}, labTotals = {}, excluded = [];
-  function bucket(store, mk, gk, num, name, hrs) {
-    if (!store[mk]) store[mk] = {};
-    if (!store[mk][gk]) store[mk][gk] = { num: num, name: name, hours: 0 };
-    store[mk][gk].hours += hrs;
-  }
-  Object.keys(nodes).forEach(function(id) {
-    var n = nodes[id];
-    var rd = resolveOps(n);
-    if (!rd.hasRing) { excluded.push(n.woNo); return; }
-    var prog = n.program || '(no program)';
-    if (!data[prog]) data[prog] = {};
-    var S = gStart, C = n.completion || gStart;
-    var spanDays = daysBetween(S, C);
-    var N = rd.gates.length;
-    if (!N) return;
-    rd.gates.forEach(function(g, i) {
-      var H = 0; g.ops.forEach(function(o){ H += o.remaining; });
-      if (H <= 0) return;
-      var gk = (g.num === '' ? 'unmapped' : g.num + '|' + g.name);
-      var label = (g.num === '' ? 'Unmapped' : g.name);
-      var entryNum = (g.num === '' ? '' : g.num);
-      if (spanDays <= 0) {
-        var mk0 = months.length ? months[0].key : null;
-        if (mk0) { bucket(data[prog], mk0, gk, entryNum, label, H); bucket(labTotals, mk0, gk, entryNum, label, H); }
-        return;
-      }
-      var segStart = i * spanDays / N, segEnd = (i + 1) * spanDays / N, segLen = segEnd - segStart;
-      months.forEach(function(m) {
-        var mr = monthRange[m.key];
-        var ov = Math.min(segEnd, mr[1]) - Math.max(segStart, mr[0]);
-        if (ov <= 0) return;
-        var hrs = H * (segLen > 0 ? ov / segLen : 1);
-        bucket(data[prog], m.key, gk, entryNum, label, hrs);
-        bucket(labTotals, m.key, gk, entryNum, label, hrs);
+  var today = todayISO();
+  var todayDay = Math.max(0, daysBetween(gStart, today));
+
+  function blankSub(){ return {}; }
+  function addSub(store, mk, field, hrs){ if (!store[mk]) store[mk] = { plan:0, pace:0 }; store[mk][field] += hrs; }
+  function addGate(store, mk, gk, num, name, field, hrs){ if (!store[mk]) store[mk] = {}; if (!store[mk][gk]) store[mk][gk] = { num:num, name:name, plan:0, pace:0 }; store[mk][gk][field] += hrs; }
+
+  var lab = { sub: blankSub(), gates: {} };
+  var byProg = {};
+  programs.forEach(function(p){ byProg[p] = { sub: blankSub(), gates: {}, wos: [], excluded: [] }; });
+
+  function accumulate(store, curve, field) {           // curve = simulateLoad result
+    if (!curve) return;
+    Object.keys(curve).forEach(function(gk){
+      var g = curve[gk];
+      Object.keys(g.byMonth).forEach(function(mk){
+        var hrs = g.byMonth[mk];
+        addSub(store.sub, mk, field, hrs);
+        addGate(store.gates, mk, gk, g.num, g.name, field, hrs);
+        addSub(lab.sub, mk, field, hrs);
+        addGate(lab.gates, mk, gk, g.num, g.name, field, hrs);
       });
     });
+  }
+  function woMonths(curve, field, into){            // collapse gates -> per-month for the WO row
+    if (!curve) return;
+    Object.keys(curve).forEach(function(gk){ var bm = curve[gk].byMonth;
+      Object.keys(bm).forEach(function(mk){ if (!into[mk]) into[mk] = { plan:0, pace:0 }; into[mk][field] += bm[mk]; }); });
+  }
+
+  Object.keys(nodes).forEach(function(id) {
+    var n = nodes[id];
+    var prog = n.program || '(no program)';
+    var store = byProg[prog]; if (!store) { store = byProg[prog] = { sub:blankSub(), gates:{}, wos:[], excluded:[] }; programs.push(prog); }
+    var label = nodeIdent(n);
+    var idTag = (n.serial ? 'S/N ' + n.serial : (n.woNo || n.partNo));
+    var pnsn = (n.partNo || '?') + (n.serial ? ' · S/N ' + n.serial : (n.woNo ? ' · ' + n.woNo : ''));
+    var gates = gateRemaining(n);
+    if (!gates) { store.excluded.push({ text: pnsn, reason: 'no decoder ring' }); return; }
+    if (n.excluded) { store.excluded.push({ text: pnsn, reason: 'excluded' }); return; }
+    var totalRem = 0; gates.forEach(function(g){ totalRem += g.H; });
+    if (totalRem <= 0.05) return;   // nothing left to load
+
+    // ----- Plan (needed to hit the milestone) -----
+    var planCurve = null, required = null;
+    if (n.isPlaceholder) {
+      var planStartISO = (n.startDate && n.startDate > today) ? n.startDate : today;
+      var mTo = n.completion ? daysBetween(planStartISO, n.completion) / DAYS_PER_MONTH : 0;
+      if (mTo > 0) { required = totalRem / mTo;
+        planCurve = simulateLoad(gates, required, Math.max(0, daysBetween(gStart, planStartISO)), months, monthRange); }
+    } else {
+      var rr = requiredRateInfo(n);
+      if (rr && rr.required != null) { required = rr.required;
+        planCurve = simulateLoad(gates, required, todayDay, months, monthRange); }
+    }
+    // ----- Pace (at current velocity) -----
+    var paceCurve = null, eff = null;
+    if (!n.isPlaceholder && fleetCache && fleetCache.fleet) {
+      eff = fleetCache.fleet.eff[id];
+      if (eff != null && eff > 0) paceCurve = simulateLoad(gates, eff, todayDay, months, monthRange);
+    }
+
+    accumulate(store, planCurve, 'plan'); accumulate(store, paceCurve, 'pace');
+
+    // Behind? + catch-up. Only real WOs can be "behind" — placeholders have no velocity and are
+    // planned work, not stalled, so they never get a red flag.
+    var behind = false, catchup = null;
+    if (!n.isPlaceholder && n.completion && required != null) {
+      if (eff != null && eff > 0) { behind = eff < required - 1e-6; if (behind) catchup = required - eff; }
+      else { behind = true; catchup = required; }   // no/zero velocity but a future target
+    }
+
+    var wm = {}; woMonths(planCurve, 'plan', wm); woMonths(paceCurve, 'pace', wm);
+    store.wos.push({ id:id, label:label, idTag:idTag, pn:n.partNo, sn:n.serial, woNo:n.woNo,
+      isPlaceholder:n.isPlaceholder, planMissing: !planCurve, paceMissing: !paceCurve,
+      behind: behind, catchup: catchup, required: required, eff: eff, months: wm });
   });
-  return { months: months, programs: programs, data: data, labTotals: labTotals, excluded: excluded };
+
+  return { months: months, programs: programs, lab: lab, byProg: byProg, todayDay: todayDay };
 }
+
+function toggleLoadExpand(key) { loadExpand[key] = !loadExpand[key]; renderLoadingTable(); }
+function toggleExclude(id) { if (nodes[id]) { nodes[id].excluded = !nodes[id].excluded; renderLoadingTable(); } }
 
 function renderLoadingTable() {
   var el = document.getElementById('loading');
@@ -1938,57 +2070,81 @@ function renderLoadingTable() {
   if (!rootIds.length) { el.innerHTML = ''; return; }
   var gl = computeGateLoading();
   if (!gl.months.length) { el.innerHTML = ''; return; }
-  function gateSort(gates) {
-    return Object.keys(gates).sort(function(a, b) {
-      var na = gates[a].num === '' ? 9999 : (parseInt(gates[a].num, 10) || 0);
-      var nb = gates[b].num === '' ? 9999 : (parseInt(gates[b].num, 10) || 0);
-      return na - nb;
-    });
-  }
+  var months = gl.months;
   function empFor(h) { return (hrsPerEmployee && hrsPerEmployee > 0) ? (h / hrsPerEmployee).toFixed(1) : '—'; }
-  function cellHTML(store, mk) {
-    var gates = store[mk];
-    if (!gates) return '<td class="lt-cell">—</td>';
-    var rows = '', total = 0, any = false;
-    gateSort(gates).forEach(function(k) {
-      var g = gates[k]; if (g.hours <= 0.05) return; any = true; total += g.hours;
-      rows += '<tr><td>' + (g.num !== '' ? 'G' + esc(g.num) + ' ' : '') + esc(g.name) +
-        '</td><td>' + g.hours.toFixed(1) + 'h</td><td>' + empFor(g.hours) + '</td></tr>';
+  function num(h){ return (h > 0.05) ? h : 0; }
+  // Plan / Pace cell. Blank half shows "·" (we don't have that estimate). Highlights when Pace < Plan.
+  function ppCell(o, showEmp, cls) {
+    cls = cls || 'lt-cell';
+    if (!o || (num(o.plan) <= 0 && num(o.pace) <= 0)) return '<td class="' + cls + '">—</td>';
+    var plan = num(o.plan), pace = num(o.pace);
+    var behind = plan > 0 && pace > 0 && pace < plan - 0.05;
+    var planTxt = plan > 0 ? plan.toFixed(1) : '·';
+    var paceTxt = pace > 0 ? pace.toFixed(1) : '·';
+    var emp = (showEmp && hrsPerEmployee) ? '<div class="lt-emp">' + (plan > 0 ? empFor(plan) : '·') + ' / ' + (pace > 0 ? empFor(pace) : '·') + ' emp</div>' : '';
+    return '<td class="' + cls + (behind ? ' lt-behind' : '') + '"><span class="lt-plan">' + planTxt + '</span><span class="lt-sep">/</span><span class="lt-pace">' + paceTxt + '</span>' + emp + '</td>';
+  }
+  function subTotals(sub) { var tp = 0, tc = 0; months.forEach(function(m){ var c = sub[m.key]; if (c){ tp += num(c.plan); tc += num(c.pace); } }); return { plan: tp, pace: tc }; }
+  function subRow(headHTML, sub, showEmp, rowCls) {
+    var h = '<tr class="' + (rowCls || '') + '">' + headHTML;
+    months.forEach(function(m){ h += ppCell(sub[m.key], showEmp); });
+    h += ppCell(subTotals(sub), showEmp, 'lt-rowtotal') + '</tr>';
+    return h;
+  }
+  function gateKeyOrder(gstore) {
+    var keys = {}; months.forEach(function(m){ var gs = gstore[m.key]; if (gs) Object.keys(gs).forEach(function(k){ keys[k] = gs[k]; }); });
+    return Object.keys(keys).sort(function(a, b){ var na = keys[a].num === '' ? 9999 : (parseInt(keys[a].num,10)||0), nb = keys[b].num === '' ? 9999 : (parseInt(keys[b].num,10)||0); return na - nb; }).map(function(k){ return { gk:k, meta:keys[k] }; });
+  }
+  function gateRows(gstore) {
+    var h = '';
+    gateKeyOrder(gstore).forEach(function(o){
+      var head = '<th class="lt-rowhead lt-sub-head">' + (o.meta.num !== '' ? 'G' + esc(o.meta.num) + ' ' : '') + esc(o.meta.name) + '</th>';
+      var sub = {}; months.forEach(function(m){ var c = gstore[m.key] && gstore[m.key][o.gk]; if (c) sub[m.key] = c; });
+      h += subRow(head, sub, true, 'lt-sub');
     });
-    if (!any) return '<td class="lt-cell">—</td>';
-    return '<td class="lt-cell"><table class="lt-mini"><thead><tr><th>Gate</th><th>Hrs</th><th>Emp</th></tr></thead><tbody>' +
-      rows + '<tr class="lt-mini-total"><td>Total</td><td>' + total.toFixed(1) + 'h</td><td>' + empFor(total) + '</td></tr></tbody></table></td>';
+    return h;
   }
-  function rowTotal(store) {
-    var t = 0;
-    gl.months.forEach(function(m){ var gs = store[m.key]; if (gs) Object.keys(gs).forEach(function(k){ t += gs[k].hours; }); });
-    return t;
+  function woRows(wos) {
+    var h = '';
+    wos.forEach(function(w){
+      var flag = w.behind ? '<span class="lt-behind-flag" title="Behind schedule — must speed up to hit target">▾ needs +' + (w.catchup != null ? w.catchup.toFixed(1) : '?') + ' h/mo</span>' : '';
+      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + esc(w.label) + flag + '</th>';
+      h += subRow(head, w.months, false, 'lt-sub lt-wo');
+    });
+    return h;
   }
-  function rowTotalHTML(store) {
-    var t = rowTotal(store);
-    return '<td class="lt-rowtotal"><div>' + t.toFixed(1) + 'h</div><div class="lt-rowtotal-emp">' + empFor(t) + ' emp</div></td>';
-  }
-  var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — remaining hours' +
-    '<span class="lt-hpe-ctrl">h/mo per employee: <input type="number" id="hrs-per-emp" min="0" step="1" placeholder="—" value="' +
-    (hrsPerEmployee == null ? '' : hrsPerEmployee) + '" onchange="setHrsPerEmployee(this.value)"></span></div>';
+  function caret(key){ return '<span class="lt-caret">' + (loadExpand[key] ? '&#9660;' : '&#9654;') + '</span>'; }
+
+  var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — <span class="lt-pp">Plan</span> / <span class="lt-pp lt-pace">Pace</span> hours (plan = needed to hit milestone · pace = at current velocity)</div>';
   html += '<div class="lt-scroll"><table class="loading-table"><thead><tr><th class="lt-rowhead">Program</th>';
-  gl.months.forEach(function(m){ html += '<th>' + esc(m.label) + '</th>'; });
+  months.forEach(function(m){ html += '<th>' + esc(m.label) + '</th>'; });
   html += '<th class="lt-rowtotal">Total</th></tr></thead><tbody>';
-  html += '<tr class="lt-lab"><th class="lt-rowhead">Entire Lab</th>';
-  gl.months.forEach(function(m){ html += cellHTML(gl.labTotals, m.key); });
-  html += rowTotalHTML(gl.labTotals) + '</tr>';
-  gl.programs.forEach(function(p) {
-    var store = gl.data[p] || {};
-    html += '<tr><th class="lt-rowhead">' + esc(p) + '</th>';
-    gl.months.forEach(function(m){ html += cellHTML(store, m.key); });
-    html += rowTotalHTML(store) + '</tr>';
-  });
-  html += '</tbody></table></div>';
-  if (gl.excluded.length) {
-    var uniq = gl.excluded.filter(function(v, i, a){ return a.indexOf(v) === i; });
-    html += '<div class="lt-foot">' + uniq.length + ' work order(s) excluded (no decoder ring): ' + esc(uniq.join(', ')) + '</div>';
+
+  // Entire Lab
+  var labHead = '<th class="lt-rowhead lt-clickable" onclick="toggleLoadExpand(\'lab\')">' + caret('lab') + ' Entire Lab</th>';
+  html += subRow(labHead, gl.lab.sub, true, 'lt-lab');
+  if (loadExpand['lab']) {
+    html += '<tr class="lt-grouphdr"><th class="lt-rowhead lt-sub-head">Gates (shop-wide)</th><td class="lt-cell" colspan="' + (months.length + 1) + '"></td></tr>';
+    html += gateRows(gl.lab.gates);
   }
-  html += '</div>';
+
+  // Per program
+  gl.programs.forEach(function(p) {
+    var store = gl.byProg[p]; if (!store) return;
+    var pHead = '<th class="lt-rowhead lt-clickable" onclick="toggleLoadExpand(\'' + esc(p).replace(/'/g, "\\'") + '\')">' + caret(p) + ' ' + esc(p) + '</th>';
+    html += subRow(pHead, store.sub, true, 'lt-prog');
+    if (loadExpand[p]) {
+      html += '<tr class="lt-grouphdr"><th class="lt-rowhead lt-sub-head">Gates</th><td class="lt-cell" colspan="' + (months.length + 1) + '"></td></tr>';
+      html += gateRows(store.gates);
+      html += '<tr class="lt-grouphdr"><th class="lt-rowhead lt-sub-head">Work orders</th><td class="lt-cell" colspan="' + (months.length + 1) + '"></td></tr>';
+      html += woRows(store.wos);
+    }
+    if (store.excluded.length) {
+      html += '<tr class="lt-exrow"><th class="lt-rowhead lt-sub-head">Not loaded</th><td class="lt-cell" colspan="' + (months.length + 1) + '">' +
+        store.excluded.map(function(e){ return esc(e.text) + ' (' + esc(e.reason) + ')'; }).join(' · ') + '</td></tr>';
+    }
+  });
+  html += '</tbody></table></div></div>';
   el.innerHTML = html;
 }
 
@@ -2010,7 +2166,7 @@ function downloadFile(content, filename, type) {
 }
 
 function exportHierarchyCSV() {
-  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order'];
+  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order,Excluded,Add Employees'];
   var labCapStr = (overrideLabTotal == null ? '' : String(overrideLabTotal));
   // Sync each root's order field to its rootIds position so the exported Order column reflects the
   // current (possibly drag-reordered) family sequence and round-trips on import.
@@ -2026,7 +2182,8 @@ function exportHierarchyCSV() {
       csvQuote(n.serial), n.isPlaceholder ? 'Y' : 'N', csvQuote(parent ? parent.woNo : ''), csvQuote(parent ? parent.partNo : ''),
       csvQuote(n.completion || ''), n.manualDate ? 'Y' : 'N', csvQuote(fc),
       csvQuote(jg), csvQuote(ovStr), csvQuote(labCapStr), String(lookbackWeeks),
-      csvQuote(n.startDate || ''), String(n.order == null ? '' : n.order)].join(','));
+      csvQuote(n.startDate || ''), String(n.order == null ? '' : n.order),
+      n.excluded ? 'Y' : 'N', String(addEmployees)].join(','));
     getChildren(id).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ walk(c.id); });
   }
   rootIds.forEach(walk);
@@ -2054,13 +2211,15 @@ function importHierarchy(rows) {
   var iLBW = colIndex(h, 'Lookback Weeks');
   var iStart = colIndex(h, 'Start Date');
   var iOrder = colIndex(h, 'Order');
+  var iExcl = colIndex(h, 'Excluded');
+  var iAddEmp = colIndex(h, 'Add Employees');
   var byId = (iId >= 0 && iPid >= 0);
   if (!byId && (iWO < 0 || iPWO < 0)) {
     showStatus('hier-status', 'Error: hierarchy CSV needs Node ID/Parent ID (or WO/Parent WO) columns.', 'error'); return;
   }
 
   nodes = {}; rootIds = []; nextNodeId = 0; programLabels = {}; familyComments = {};
-  overrideLabTotal = null;   // refresh: import will pick up the first non-empty value below
+  overrideLabTotal = null; addEmployees = 0;   // refresh: import will pick up the first non-empty value below
   var byWO = {}, maxNum = -1, pending = [];
   for (var r = 1; r < rows.length; r++) {
     var row = rows[r];
@@ -2092,6 +2251,7 @@ function importHierarchy(rows) {
       order: (ordRaw !== '' && !isNaN(parseInt(ordRaw, 10))) ? parseInt(ordRaw, 10) : idNum,
       overrideVelocity: ovRaw === '' ? null : (parseFloat(ovRaw) >= 0 ? parseFloat(ovRaw) : null),
       joinGate: jgRaw === '' ? null : (parseInt(jgRaw, 10) || null),
+      excluded: iExcl >= 0 ? /^y/i.test((row[iExcl]||'').trim()) : false,
       collapsed: false, opsExpanded: false, expandedGates: {} };
     nodes[id] = n; if (wo) byWO[wo] = id;
     pending.push({ id: id, parentRef: byId ? (row[iPid]||'').trim() : (iPWO>=0?(row[iPWO]||'').trim():''), fc: iFC>=0 ? (row[iFC]||'').trim() : '' });
@@ -2103,6 +2263,10 @@ function importHierarchy(rows) {
     if (iLBW >= 0) {
       var lbwRaw = (row[iLBW] || '').trim();
       if (lbwRaw !== '') { var lbwN = parseInt(lbwRaw, 10); if (lbwN >= 1) lookbackWeeks = lbwN; }
+    }
+    if (iAddEmp >= 0) {
+      var aeRaw = (row[iAddEmp] || '').trim();
+      if (aeRaw !== '') { var aeN = parseInt(aeRaw, 10); if (!isNaN(aeN)) addEmployees = aeN; }
     }
   }
   // link parents (second pass — row order independent)
@@ -2131,7 +2295,7 @@ function saveSnapshot() {
                 programLabels: programLabels, familyComments: familyComments,
                 zoomFactor: zoomFactor, compactMode: compactMode,
                 weeklyEarned: weeklyEarned, lookbackWeeks: lookbackWeeks, overrideLabTotal: overrideLabTotal,
-                hrsPerEmployee: hrsPerEmployee };
+                hrsPerEmployee: hrsPerEmployee, addEmployees: addEmployees };
   var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
 
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
@@ -2152,7 +2316,8 @@ function saveSnapshot() {
   html += '<button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>';
   html += '<span class="zoom-ctrl"><span class="zoom-cap">Zoom</span><input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)"><span id="zoom-label" class="zoom-label">1.00×</span></span>';
   html += '<span class="vel-ctrl"><span class="vel-cap">Lookback</span><input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>';
-  html += '<span class="vel-ctrl"><span class="vel-cap">Lab Capacity</span><input type="number" id="lab-cap-input" placeholder="—" step="1" min="0" onchange="setLabCapacity(this.value)"><span class="vel-cap" style="color:#475569"> h/mo</span><span id="lab-cap-calc" class="vel-cap" style="color:#475569"></span><span class="vel-reset" title="Reset to calculated" onclick="resetLabCapacity()">&#8634;</span></span>';
+  html += '<span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span><input type="number" id="hrs-per-emp" min="0" step="1" placeholder="&mdash;" onchange="setHrsPerEmployee(this.value)"></span>';
+  html += '<span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span><button class="emp-step" onclick="bumpEmployees(-1)">&minus;</button><input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)"><button class="emp-step" onclick="bumpEmployees(1)">+</button><span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>';
   html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>';
   html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button></div>\n';
   html += '<div class="legend" id="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
@@ -2170,9 +2335,10 @@ function saveSnapshot() {
   html += 'var zoomFactor = snapshotState.zoomFactor || 1, compactMode = !!snapshotState.compactMode;\n';
   html += 'var weeklyEarned = snapshotState.weeklyEarned || {}, lookbackWeeks = snapshotState.lookbackWeeks || 4, overrideLabTotal = (snapshotState.overrideLabTotal == null ? null : snapshotState.overrideLabTotal);\n';
   html += 'var hrsPerEmployee = (snapshotState.hrsPerEmployee == null ? null : snapshotState.hrsPerEmployee);\n';
+  html += 'var addEmployees = snapshotState.addEmployees || 0;\n';
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
-  html += 'var _dateRenderTimer = null; var dragSrcId = null;\n';
+  html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
     operColorClass, statusRank, legendHTML, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
     getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
@@ -2181,10 +2347,11 @@ function saveSnapshot() {
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
-    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, setHrsPerEmployee,
-    cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, barStatusClass, opTooltip,
+    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis,
+    setHrsPerEmployee, setAddEmployees, bumpEmployees, syncEmpControls,
+    cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
     barWidthPct, barStartPct, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
-    monthList, computeGateLoading, renderLoadingTable,
+    monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderLoadingTable,
     csvQuote, sanitizeFilename, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
   html += 'wireInputs();\n';
@@ -2194,9 +2361,7 @@ function saveSnapshot() {
   html += 'document.getElementById("compact-btn").textContent = "Mode: " + (compactMode ? "Review" : "Edit");\n';
   html += 'document.body.classList.toggle("compact-mode", compactMode);\n';
   html += 'document.getElementById("lookback-input").value = lookbackWeeks;\n';
-  html += 'document.getElementById("lab-cap-input").value = (overrideLabTotal == null ? "" : overrideLabTotal);\n';
   html += 'render();\n';
-  html += 'if (fleetCache && document.getElementById("lab-cap-calc")) document.getElementById("lab-cap-calc").textContent = fleetCache.fleet.labCalc.toFixed(1) + " calc";\n';
   html += '<\/script>\n</body>\n</html>';
 
   downloadFile(html, 'pdvf-dependency-gantt-' + dateStr() + '.html', 'text/html');
