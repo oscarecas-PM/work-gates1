@@ -62,6 +62,9 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 #add-emp-input { width: 44px; text-align: center; }
 .vel-reset { display: inline-block; padding: 0 4px; font-size: 0.85rem; font-weight: bold; color: #7c3aed; cursor: pointer; vertical-align: middle; user-select: none; }
 .vel-reset:hover { color: #5b21b6; }
+/* Join-gate selector — feeder declares the parent gate it must be ready for. */
+.join-gate-sel { font-size: 0.66rem; margin-left: 4px; vertical-align: middle; max-width: 120px; border: 1px solid #cbd5e1; border-radius: 3px; background: #f8fafc; color: #475569; padding: 0 2px; cursor: pointer; }
+.join-gate-sel.linked { background: #dbeafe; border-color: #2563eb; color: #1e3a5f; font-weight: bold; }
 .hold-warn { display: inline-block; padding: 0 4px; font-size: 0.85rem; color: #b45309; cursor: help; vertical-align: middle; }
 /* Clear HOLD label on the far left of any row with an op on hold — must be impossible to miss. */
 /* Reserved status gutter (HOLD pill or empty) — keeps every row's content aligned. */
@@ -86,7 +89,7 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 /* Program section + Gantt */
 .prog-section { background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; margin-bottom: 1.2rem; overflow: hidden; }
 .prog-title { background: #1e3a5f; color: #fff; font-weight: bold; padding: 7px 14px; font-size: 0.95rem; }
-.gantt { width: 100%; }
+.gantt { width: 100%; position: relative; }   /* position:relative so the .conn-overlay SVG anchors to the scrolled content */
 .gantt-row, .gantt-head { display: flex; align-items: stretch; border-bottom: 1px solid #eef2f7; }
 .gantt-head { background: #f8fafc; border-bottom: 2px solid #cbd5e1; }
 .task-col { width: 360px; flex-shrink: 0; padding: 4px 8px; border-right: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; }
@@ -127,6 +130,9 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .gate-seg { flex: 1 1 0; display: flex; align-items: center; justify-content: flex-start; font-size: 0.66rem; color: #fff; font-weight: bold; border-right: 1px solid rgba(255,255,255,0.5); overflow: hidden; white-space: nowrap; padding: 0 3px; }
 .gate-seg:last-child { border-right: none; }
 .gate-seg.expanded { outline: 2px solid #111; outline-offset: -2px; }
+/* Cascade wait gap — idle time on a parent bar before a gate a late feeder pushed. */
+.gate-wait { display: block; align-self: stretch; min-height: 14px; background: repeating-linear-gradient(45deg, rgba(148,163,184,0.30) 0 5px, transparent 5px 10px); border-right: 1px dashed #94a3b8; }
+.bar.chips .gate-wait { min-height: 30px; }
 .bar.chips { background: transparent; padding: 0; box-shadow: none; }
 /* Chips view: row grows naturally to fit chip stacks (up to 5 rows per gate). */
 .bar-wrap.chips { position: relative; left: auto; right: auto; top: auto; bottom: auto; padding: 12px 6px 4px; }
@@ -159,6 +165,18 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
    colored completion diamond so the two ends of a bar are never confused. */
 .milestone-diamond.start { background: #fff; box-shadow: inset 0 0 0 1.6px #475569, 0 0 0 1px rgba(255,255,255,0.8); }
 .no-prog-warn { position: absolute; top: -1px; font-size: 0.78rem; font-weight: 900; color: #fff; background: #b45309; padding: 0 4px; border-radius: 50%; line-height: 11px; cursor: help; box-shadow: 0 0 0 1px rgba(15,23,42,0.25); pointer-events: auto; z-index: 3; }
+/* Dependency connectors (feeder -> parent gate). SVG overlay inside .gantt; scrolls with the bars. */
+.conn-overlay { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 5; overflow: visible; }
+.conn-overlay path { stroke-width: 1.6px; opacity: 0.9; }
+.conn-overlay .conn-red { stroke: #dc2626; }
+.conn-overlay .conn-amber { stroke: #d97706; stroke-dasharray: 5 3; }
+.conn-overlay .conn-dark { stroke: #475569; stroke-dasharray: 4 4; }
+.conn-overlay .conn-unknown { stroke: #94a3b8; stroke-dasharray: 1 3; }
+.conn-overlay circle.conn-dot { stroke: none; }
+.conn-overlay circle.conn-red { fill: #dc2626; }
+.conn-overlay circle.conn-amber { fill: #d97706; }
+.conn-overlay circle.conn-dark { fill: #475569; }
+.conn-overlay circle.conn-unknown { fill: #94a3b8; }
 .slack-label { position: absolute; top: -2px; font-size: 0.68rem; font-weight: bold; color: #1e293b; background: rgba(255,255,255,0.95); padding: 0 5px; border-radius: 3px; line-height: 1.4; box-shadow: 0 0 0 1px rgba(15,23,42,0.18); white-space: nowrap; pointer-events: auto; z-index: 2; }
 
 /* status colors (from Gate Tracker) */
@@ -283,7 +301,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.7</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -1176,6 +1194,15 @@ function promptVelocity(id) {
 }
 function resetVelocity(id) { if (nodes[id]) { nodes[id].overrideVelocity = null; render(); } }
 
+// Set the gate on the PARENT that this feeder (child) must be ready for. null = no dependency
+// constraint (Option B default). Cascade activates only for children with a real gate set.
+function setJoinGate(id, val) {
+  var n = nodes[id]; if (!n) return;
+  n.joinGate = (val === '' || val == null) ? null : (parseInt(val, 10));
+  if (isNaN(n.joinGate)) n.joinGate = null;
+  render();
+}
+
 // Hours-based progress for a WO node: planned hours from its decoder ring,
 // remaining = sum of ring planned for ops still in the daily upload (status != COMPLETE).
 // Returns null when no ring matches (no canonical total available).
@@ -1231,6 +1258,9 @@ function opTooltip(o) {
 // Approximate weeks-per-month constant — 365.25 / 12 / 7.
 var WEEKS_PER_MONTH = 4.3452;
 var DAYS_PER_MONTH = 30.4375;
+// Dependency cascade: hard cap on the fixpoint sweeps that propagate feeder delays up the tree.
+// Pushes are monotonic-later so this is only a runaway guard; on overflow we warn and render last state.
+var CASCADE_MAX_ITERS = 50;
 
 // List the ISO-week labels for the N completed weeks ending just before "today".
 function trailingWeeks(todayISO, n) {
@@ -1389,6 +1419,136 @@ function projectForecast(fleet) {
   return { forecastEnd: forecastEnd, monthsTaken: monthsTaken };
 }
 
+// ============================== Dependency cascade ==============================
+// Per-gate calendar positions for a node, as day-offsets from gStart. The gates (remaining hours,
+// ring order) are proportioned across [bar start, endISO] so the LAST gate's exit lands exactly on
+// endISO — the velocity forecast for a real WO, the milestone for a placeholder. This keeps the bar
+// end "sacred": making the segments time-proportional never moves the forecast (projectForecast does
+// month-stepping with sibling redistribution, so a naive remain/rate per gate would disagree with it).
+// Returns { order:[gateNum], entry:{g:off}, exit:{g:off}, end:off, H:{g:hrs} } or null.
+function computeGateDates(node, endISO) {
+  var gates = gateRemaining(node);
+  if (!gates || !gates.length || !endISO) return null;
+  var totalH = 0; gates.forEach(function(g){ totalH += g.H; });
+  if (totalH <= 0) return null;
+  var startOff = node.startDate ? daysBetween(gStart, node.startDate) : 0;   // 0 = gStart (= today in the common case)
+  var endOff = daysBetween(gStart, endISO);
+  var span = endOff - startOff; if (span <= 0) span = 0.01;
+  var order = [], entry = {}, exit = {}, Hby = {}, cum = 0;
+  gates.forEach(function(g) {
+    var e0 = startOff + (cum / totalH) * span; cum += g.H;
+    var e1 = startOff + (cum / totalH) * span;
+    order.push(g.num); entry[g.num] = e0; exit[g.num] = e1; Hby[g.num] = g.H;
+  });
+  return { order: order, entry: entry, exit: exit, end: exit[order[order.length - 1]], H: Hby };
+}
+
+// Post-pass overlay (read-only over fleet/forecast — fleetCache is not yet assigned while this runs,
+// so we use the passed args, never the global). Starting from each ringed node's natural per-gate
+// dates, push any parent whose feeder (a child with a Join Gate set) is forecast to finish AFTER the
+// parent would naturally reach that gate; the delay re-consumes that gate onward at the parent's rate
+// and propagates UP the tree to a fixpoint. A blocked parent does NOT release its capacity to other
+// WOs (the deliberately-deferred "re-pooling" model). Returns ISO-dated maps for the renderers.
+function computeCascade(fleet, forecast) {
+  var gd = {};        // id -> { order, entry:{g:off}, exit:{g:off}, H:{g:hrs} }  (effective, mutated by pushes)
+  var nat = {};       // id -> { g: naturalEntryOff }  (for wait-gap span + float color)
+  var effEndOff = {}; // id -> off | null
+  // Seed natural dates for every ringed node we can anchor (real WO -> forecastEnd; placeholder -> milestone).
+  Object.keys(nodes).forEach(function(id) {
+    var n = nodes[id];
+    var endISO = n.isPlaceholder ? (n.completion || null) : (forecast.forecastEnd[id] || null);
+    var d = endISO ? computeGateDates(n, endISO) : null;
+    if (d) {
+      gd[id] = { order: d.order, entry: d.entry, exit: d.exit, H: d.H };
+      nat[id] = {}; d.order.forEach(function(g){ nat[id][g] = d.entry[g]; });
+      effEndOff[id] = d.end;
+    } else {
+      effEndOff[id] = (!n.isPlaceholder && forecast.forecastEnd[id] != null)
+        ? daysBetween(gStart, forecast.forecastEnd[id]) : null;
+    }
+  });
+
+  // Feeder finish (day-offset) for a child: its effective end if known, else a placeholder's milestone.
+  function feederEndOff(c) {
+    if (c.id in effEndOff && effEndOff[c.id] != null) return effEndOff[c.id];
+    if (c.isPlaceholder && c.completion) return daysBetween(gStart, c.completion);
+    return null;
+  }
+  // Push parent gate `jg` (and every later gate) to begin no earlier than `forcedOff`, re-consuming at
+  // the parent's effective rate. Earlier gates keep their natural positions; a gate is never moved
+  // earlier than where it already sits (so multiple feeders on a parent settle on the latest). Updates
+  // effEnd for the next sweep's upward propagation. Returns true if anything moved later.
+  function pushParentGate(p, jg, forcedOff) {
+    var g = gd[p.id]; if (!g) return false;
+    var i = g.order.indexOf(jg); if (i < 0) return false;
+    var eff = fleet.eff[p.id]; if (!(eff > 0)) return false;
+    var cum = 0, moved = false;
+    for (var k = i; k < g.order.length; k++) {
+      var gnum = g.order[k];
+      var e0 = forcedOff + (cum / eff) * DAYS_PER_MONTH;
+      cum += g.H[gnum];
+      var e1 = forcedOff + (cum / eff) * DAYS_PER_MONTH;
+      if (e0 > g.entry[gnum] + 0.01) { g.entry[gnum] = e0; moved = true; }
+      if (e1 > g.exit[gnum] + 0.01) { g.exit[gnum] = e1; moved = true; }
+    }
+    effEndOff[p.id] = g.exit[g.order[g.order.length - 1]];
+    return moved;
+  }
+
+  var children = Object.keys(nodes).filter(function(id) {
+    var n = nodes[id]; return n.joinGate != null && n.parentId && nodes[n.parentId];
+  }).map(function(id){ return nodes[id]; });
+
+  var iter = 0, changed = true;
+  while (changed && iter++ < CASCADE_MAX_ITERS) {
+    changed = false;
+    children.forEach(function(c) {
+      var p = nodes[c.parentId], jg = String(c.joinGate);
+      if (!gd[p.id] || !(jg in gd[p.id].entry)) return;   // Option B: gate absent on parent -> no constraint
+      var fe = feederEndOff(c);
+      if (fe == null) return;                             // blocked-unknown -> informational link only
+      if (fe - gd[p.id].entry[jg] > 0.5) { if (pushParentGate(p, jg, fe)) changed = true; }
+    });
+  }
+  if (changed) console.warn('[cascade] did not converge after ' + CASCADE_MAX_ITERS + ' sweeps');
+
+  // Build ISO output + connector links + wait gaps from the converged state.
+  function offToISO(off) { return addDays(gStart, Math.round(off)); }
+  var gateEntry = {}, gateExit = {}, gateEntryNatural = {}, effEnd = {}, waitGap = {}, links = [];
+  Object.keys(gd).forEach(function(id) {
+    var g = gd[id]; gateEntry[id] = {}; gateExit[id] = {}; gateEntryNatural[id] = {};
+    g.order.forEach(function(gnum) {
+      gateEntry[id][gnum] = offToISO(g.entry[gnum]);
+      gateExit[id][gnum] = offToISO(g.exit[gnum]);
+      gateEntryNatural[id][gnum] = offToISO(nat[id][gnum]);
+    });
+  });
+  Object.keys(effEndOff).forEach(function(id) {
+    effEnd[id] = (effEndOff[id] == null) ? null : offToISO(effEndOff[id]);
+  });
+  children.forEach(function(c) {
+    var p = nodes[c.parentId], jg = String(c.joinGate);
+    var link = { childId: c.id, parentId: p.id, joinGate: jg, floatDays: null, childEnd: null };
+    if (gd[p.id] && (jg in gd[p.id].entry)) {
+      link.parentNaturalEntry = offToISO(nat[p.id][jg]);
+      var fe = feederEndOff(c);
+      if (fe != null) {
+        link.childEnd = offToISO(fe);
+        link.floatDays = Math.round(fe - nat[p.id][jg]);   // + = feeder late vs the parent's NATURAL entry
+        if (gd[p.id].entry[jg] - nat[p.id][jg] > 0.5) {
+          if (!waitGap[p.id]) waitGap[p.id] = {};
+          waitGap[p.id][jg] = { fromISO: offToISO(nat[p.id][jg]), toISO: offToISO(gd[p.id].entry[jg]), feederId: c.id };
+        }
+      }
+    } else {
+      link.skip = true;   // gate not on parent (or parent unanchorable) -> informational only
+    }
+    links.push(link);
+  });
+  return { gateEntry: gateEntry, gateExit: gateExit, gateEntryNatural: gateEntryNatural,
+           effEnd: effEnd, waitGap: waitGap, links: links };
+}
+
 // True when the WO is on hold at the WORK-ORDER level (Hold Status == 'ORDER_HOLD').
 // Op-level holds (other codes such as QA_HOLD, STOPPED, etc.) are surfaced separately by the
 // red outline on individual chips and do NOT trigger the row HOLD label.
@@ -1457,6 +1617,10 @@ function barWidthPct(node) {
   if (fleetCache && fleetCache.forecast && fleetCache.forecast.forecastEnd[node.id]) {
     endDate = fleetCache.forecast.forecastEnd[node.id];
   }
+  // A cascade (late feeder pushing a joined gate) extends the effective end past the raw forecast.
+  if (fleetCache && fleetCache.cascade && fleetCache.cascade.effEnd[node.id]) {
+    endDate = fleetCache.cascade.effEnd[node.id];
+  }
   if (!endDate || !gMax || gMax === gStart) return 0;
   var p = pctOfDate(endDate);
   if (!isFinite(p)) return 0;
@@ -1484,6 +1648,49 @@ function barStartPct(node) {
   return p;
 }
 
+// Time-proportional gate layout for a node's bar: an ordered list of the node's remaining gates with
+// each gate's width and the idle "wait" before it, expressed as percentages of the BAR's own width
+// (so they map straight onto flex-basis). Driven by the cascade's effective per-gate dates. Returns
+// null when the node has no cascade dates (won't-finish / ring-less / placeholder w/o milestone) —
+// the caller then falls back to equal-width segments.
+function gateSegPcts(node) {
+  if (!fleetCache || !fleetCache.cascade) return null;
+  var ge = fleetCache.cascade.gateEntry[node.id], gx = fleetCache.cascade.gateExit[node.id];
+  if (!ge || !gx) return null;
+  var startPct = barStartPct(node), endPct = barWidthPct(node);
+  var span = endPct - startPct; if (span <= 0) return null;
+  var rd = resolveOps(node);
+  var order = rd.gates.map(function(g){ return g.num; }).filter(function(n){ return n in ge; });
+  if (!order.length) return null;
+  var out = [], prevExit = startPct;
+  order.forEach(function(num) {
+    var e = pctOfDate(ge[num]), x = pctOfDate(gx[num]);
+    if (!isFinite(e)) e = prevExit; if (!isFinite(x)) x = e;
+    out.push({ num: num, waitPct: Math.max(0, (e - prevExit) / span * 100), widthPct: Math.max(0, (x - e) / span * 100) });
+    prevExit = x;
+  });
+  return out;
+}
+// Shared gate-segment tooltip (remaining/planned/% when known, else op count).
+function gateSegTip(node, g) {
+  var prog = computeWOProgress(node);
+  if (prog && prog.perGate[g.num]) {
+    var pg = prog.perGate[g.num];
+    return 'Gate ' + g.num + ': ' + g.name + ' — ' + pg.remainHrs.toFixed(1) + 'h remaining / ' + pg.totalHrs.toFixed(1) + 'h planned (' + pg.pct.toFixed(0) + '% complete)';
+  }
+  return 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
+}
+// Idle "waiting on feeder" spacer drawn before a gate a late feeder pushed. `pct` is % of the bar.
+function gateWaitHTML(node, gnum, pct) {
+  var tip = 'Waiting before gate ' + gnum + ' (feeder not ready)';
+  var wg = fleetCache && fleetCache.cascade && fleetCache.cascade.waitGap[node.id];
+  if (wg && wg[gnum]) {
+    var f = nodes[wg[gnum].feederId];
+    tip = 'Gate ' + gnum + ' delayed to ' + wg[gnum].toISO + ' — waiting on feeder' + (f ? ' ' + nodeIdent(f) : '');
+  }
+  return '<span class="gate-wait" style="flex:0 0 ' + pct.toFixed(3) + '%" title="' + esc(tip) + '"></span>';
+}
+
 function renderBar(node) {
   var rd = resolveOps(node);
   var startPct = barStartPct(node);
@@ -1501,56 +1708,45 @@ function renderBar(node) {
     }
     inner = solidBarHTML(node, rd);
   } else if (globalView === 'gateblocks') {
-    var prog = computeWOProgress(node);
-    // Per-segment width (px) drives the "hide gate name if it can't fit ~5 chars" rule.
     var baselinePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - taskColPx();
     if (baselinePx < 200) baselinePx = 200;
-    var timelinePx = baselinePx * zoomFactor;
-    var segPx = (timelinePx * widthPct / 100) / Math.max(rd.gates.length, 1);
-    var showName = segPx >= 36;
-    // Auto-degrade: when gate segments would be <6 px wide, collapse to a solid bar.
-    // The bar end stays at the forecast date; gate detail returns as you zoom back in.
-    if (segPx < 6) {
-      inner = solidBarHTML(node, rd);
-    } else {
-    rd.gates.forEach(function(g) {
+    var barPx = baselinePx * zoomFactor * widthPct / 100;   // px width of this WO's bar
+    var segs = gateSegPcts(node);
+    var gmap = {}; rd.gates.forEach(function(g){ gmap[g.num] = g; });
+    var emitGate = function(g, wPct, showName) {
       var exp = node.expandedGates[g.num] ? ' expanded' : '';
-      var tip;
-      if (prog && prog.perGate[g.num]) {
-        var pg = prog.perGate[g.num];
-        tip = 'Gate ' + g.num + ': ' + g.name + ' — ' + pg.remainHrs.toFixed(1) + 'h remaining / ' + pg.totalHrs.toFixed(1) + 'h planned (' + pg.pct.toFixed(0) + '% complete)';
-      } else {
-        tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
-      }
-      inner += '<span class="gate-seg ' + g.simpleColor + exp + '" title="' + esc(tip) +
-        '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
+      var wStyle = (wPct != null) ? ' style="flex:0 0 ' + wPct.toFixed(3) + '%"' : '';
+      return '<span class="gate-seg ' + g.simpleColor + exp + '"' + wStyle + ' title="' + esc(gateSegTip(node, g)) +
+        '" data-conn-gate="' + esc(node.id + ':' + g.num) + '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
         (showName ? esc(g.name) : '') + '</span>';
-    });
-    } // close: gate-blocks else (segPx >= 6)
+    };
+    if (segs) {
+      // Time-proportional: degrade to a solid bar when the narrowest non-zero gate seg can't render.
+      var minPx = Infinity; segs.forEach(function(s){ var px = barPx * s.widthPct / 100; if (s.widthPct > 0 && px < minPx) minPx = px; });
+      if (minPx < 6) { inner = solidBarHTML(node, rd); }
+      else {
+        segs.forEach(function(s) {
+          var g = gmap[s.num]; if (!g) return;
+          if (s.waitPct > 0.01) inner += gateWaitHTML(node, s.num, s.waitPct);
+          inner += emitGate(g, s.widthPct, (barPx * s.widthPct / 100) >= 36);
+        });
+        if (!inner) inner = solidBarHTML(node, rd);
+      }
+    } else {
+      // No cascade dates (won't-finish / unanchorable): equal-width segments across the bar, as before.
+      var segPx = barPx / Math.max(rd.gates.length, 1);
+      if (segPx < 6) { inner = solidBarHTML(node, rd); }
+      else { rd.gates.forEach(function(g) { inner += emitGate(g, null, segPx >= 36); }); }
+    }
   } else { // chips, has ring — gate-segmented layout with chips packed inside each segment
-    var prog2 = computeWOProgress(node);
     var baselinePx2 = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - taskColPx();
     if (baselinePx2 < 200) baselinePx2 = 200;
-    var timelinePx2 = baselinePx2 * zoomFactor;
-    var segPx2 = (timelinePx2 * widthPct / 100) / Math.max(rd.gates.length, 1);
-    var showName2 = segPx2 >= 36;
-    var chipsPerRowRaw = Math.floor((segPx2 - 6) / 28);   // chip ≈ 26–28 px wide incl. gap
-    // Auto-degrade (binary chips ↔ solid): when even one chip per gate can't fit, collapse to solid.
-    if (chipsPerRowRaw < 1) {
-      inner = solidBarHTML(node, rd);
-    } else {
-    chipsLayout = true;
-    var chipsPerRow = chipsPerRowRaw;
-    var maxVisible = chipsPerRow * 5;
-    inner = '';
-    rd.gates.forEach(function(g) {
-      var tip;
-      if (prog2 && prog2.perGate[g.num]) {
-        var pg2 = prog2.perGate[g.num];
-        tip = 'Gate ' + g.num + ': ' + g.name + ' — ' + pg2.remainHrs.toFixed(1) + 'h remaining / ' + pg2.totalHrs.toFixed(1) + 'h planned (' + pg2.pct.toFixed(0) + '% complete)';
-      } else {
-        tip = 'Gate ' + g.num + ': ' + g.name + ' (' + g.ops.length + ' op' + (g.ops.length===1?'':'s') + ')';
-      }
+    var barPx2 = baselinePx2 * zoomFactor * widthPct / 100;   // px width of this WO's bar
+    var cpr = function(px){ return Math.floor((px - 6) / 28); };   // chips per row at a given seg px (chip ≈ 26–28px)
+    var segs2 = gateSegPcts(node);
+    var gmap2 = {}; rd.gates.forEach(function(g){ gmap2[g.num] = g; });
+    var emitChips = function(g, wPct, segPx) {
+      var chipsPerRow = cpr(segPx), maxVisible = chipsPerRow * 5;
       var opsToShow = g.ops, overflow = false;
       if (g.ops.length > maxVisible) { opsToShow = g.ops.slice(0, Math.max(maxVisible - 1, 1)); overflow = true; }
       var chips = '';
@@ -1559,13 +1755,30 @@ function renderBar(node) {
           '" title="' + esc(opTooltip(o)) + '">' + esc(o.operNo) + '</span>';
       });
       if (overflow) chips += '<span class="more-ellipsis" title="Click to reveal all ' + g.ops.length + ' operations">…</span>';
-      inner += '<div class="gate-seg chips-seg ' + g.colorClass + '" title="' + esc(tip) +
-        '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
-        '<div class="gate-name">' + (showName2 ? esc(g.name) : '') + '</div>' +
+      var wStyle = (wPct != null) ? ' style="flex:0 0 ' + wPct.toFixed(3) + '%"' : '';
+      return '<div class="gate-seg chips-seg ' + g.colorClass + '"' + wStyle + ' title="' + esc(gateSegTip(node, g)) +
+        '" data-conn-gate="' + esc(node.id + ':' + g.num) + '" onclick="event.stopPropagation();toggleGate(\'' + node.id + '\',\'' + esc(g.num) + '\')">' +
+        '<div class="gate-name">' + (segPx >= 36 ? esc(g.name) : '') + '</div>' +
         '<div class="chip-stack">' + chips + '</div></div>';
-    });
-    if (!inner) inner = solidBarHTML(node, rd);
-    } // close: chips else (chipsPerRowRaw >= 1)
+    };
+    if (segs2) {
+      // Degrade to solid when the narrowest non-zero gate seg can't fit even one chip.
+      var minPx2 = Infinity; segs2.forEach(function(s){ var px = barPx2 * s.widthPct / 100; if (s.widthPct > 0 && px < minPx2) minPx2 = px; });
+      if (cpr(minPx2) < 1) { inner = solidBarHTML(node, rd); }
+      else {
+        chipsLayout = true;
+        segs2.forEach(function(s) {
+          var g = gmap2[s.num]; if (!g) return;
+          if (s.waitPct > 0.01) inner += gateWaitHTML(node, s.num, s.waitPct);
+          inner += emitChips(g, s.widthPct, barPx2 * s.widthPct / 100);
+        });
+        if (!inner) inner = solidBarHTML(node, rd);
+      }
+    } else {
+      var segPx2 = barPx2 / Math.max(rd.gates.length, 1);
+      if (cpr(segPx2) < 1) { inner = solidBarHTML(node, rd); }
+      else { chipsLayout = true; rd.gates.forEach(function(g) { inner += emitChips(g, null, segPx2); }); }
+    }
   }
   var isChipsView = chipsLayout;
   var wrapClass = 'bar-wrap' + (isChipsView ? ' chips' : '');
@@ -1596,7 +1809,7 @@ function renderBar(node) {
     }
     nfMsg = '<div class="no-forecast-msg" title="' + esc(longTxt) + '">' + esc(shortTxt) + '</div>';
   }
-  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="' + posStyle + '" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + nfMsg + '</div>';
+  return '<div class="' + wrapClass + '"><div class="' + barClass + '" style="' + posStyle + '" data-conn-end="' + esc(node.id) + '" onclick="toggleOps(\'' + node.id + '\')">' + inner + '</div>' + past + nfMsg + '</div>';
 }
 
 // Milestone diamond + slack bar above the main bar. Always renders the diamond when a Milestone is set;
@@ -1610,6 +1823,8 @@ function renderMilestone(node) {
   var milestoneX = node.completion ? pctOfDate(node.completion) : NaN;
   if (node.completion && isFinite(milestoneX) && milestoneX >= -1 && milestoneX <= 101) {
     var forecastEnd = fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[node.id] : null;
+    // Honor the cascade-pushed effective end so a parent delayed by a late feeder shows true slack.
+    if (fleetCache && fleetCache.cascade && fleetCache.cascade.effEnd[node.id]) forecastEnd = fleetCache.cascade.effEnd[node.id];
     var slackDays = forecastEnd ? daysBetween(forecastEnd, node.completion) : null;
     // Diamond color tier. "unknown" (gray) when there's no forecast — i.e., velocity is zero so
     // we have no real projection. Don't lie green/on-track in that case.
@@ -1785,15 +2000,19 @@ function render() {
     return;
   }
   // Compute fleet velocity + per-WO forecast once per render; cache for downstream helpers.
-  var fleet = computeFleetVelocity();
-  fleetCache = { fleet: fleet, forecast: projectForecast(fleet) };
-  // compute axis domain — extend across milestone AND forecast
+  // gStart must be set before computeCascade (it converts gate day-offsets relative to gStart).
   gStart = scheduleStart || todayISO();
+  var fleet = computeFleetVelocity();
+  var forecast = projectForecast(fleet);
+  fleetCache = { fleet: fleet, forecast: forecast, cascade: computeCascade(fleet, forecast) };
+  // compute axis domain — extend across milestone, forecast AND cascade-pushed end
   gMax = gStart;
   Object.keys(nodes).forEach(function(id){
     var c = nodes[id].completion; if (c && c > gMax) gMax = c;
     var fe = fleetCache.forecast.forecastEnd[id];
     if (fe && fe > gMax) gMax = fe;
+    var ce = fleetCache.cascade.effEnd[id];
+    if (ce && ce > gMax) gMax = ce;
   });
   if (gMax === gStart) gMax = addDays(gStart, 30);
 
@@ -1858,6 +2077,22 @@ function render() {
             '" onclick="event.stopPropagation();promptVelocity(\'' + n.id + '\')">' + v.toFixed(1) + ' h/mo <span class="vel-edit">&#9998;</span></span>';
           if (isOver) html += '<span class="vel-reset" title="Reset to calculated velocity" onclick="event.stopPropagation();resetVelocity(\'' + n.id + '\')">&#8634;</span>';
         }
+        // Join-gate selector — feeder declares which gate on its PARENT it must be ready for. Only for
+        // non-root nodes whose parent has a decoder ring (so there are gates to pick). Option B: default
+        // "no link" = no cascade until the planner opts in.
+        var par = n.parentId ? nodes[n.parentId] : null;
+        var parRd = par ? resolveOps(par) : null;
+        if (par && parRd && parRd.hasRing) {
+          var jgSel = '<select class="join-gate-sel' + (n.joinGate != null ? ' linked' : '') +
+            '" title="Join the parent at gate… (feeder must be ready before that gate)" onchange="setJoinGate(\'' + n.id + '\', this.value)">' +
+            '<option value=""' + (n.joinGate == null ? ' selected' : '') + '>no link</option>';
+          parRd.gates.forEach(function(g) {
+            if (g.num === '') return;
+            jgSel += '<option value="' + esc(g.num) + '"' + (String(n.joinGate) === String(g.num) ? ' selected' : '') + '>&#128279; G' + esc(g.num) + (g.name ? ': ' + esc(g.name) : '') + '</option>';
+          });
+          jgSel += '</select>';
+          html += jgSel;
+        }
         // (Hold warning moved: HOLD label on far left of the row when on hold, and a no-progress
         //  exclamation near the milestone diamond when velocity is zero — see renderMilestone.)
         // Date controls clustered so the right-alignment (margin-left:auto) applies to the group,
@@ -1895,6 +2130,7 @@ function render() {
   renderLoadingTable();
   syncFloatingAxis();
   syncEmpControls();
+  drawConnectors();
   _childIndex = null;
 }
 
@@ -1922,6 +2158,59 @@ function syncFloatingAxis() {
       if (track) track.style.transform = 'translateX(' + (-sl) + 'px)';
       hSyncing = false;
     });
+  });
+}
+
+// Draw dependency connectors (feeder bar-end -> parent gate-entry) as an SVG overlay inside each
+// .gantt. Because .gantt is the scrolled content inside .gantt-wrap, an SVG child scrolls WITH the
+// bars for free (no scroll-sync needed). Anchors are measured from the live DOM so they stay correct
+// under zoom and the degrade-to-solid fallback. Rebuilt on every render. pointer-events:none keeps
+// bars/chips clickable. Float (slack = parent natural gate-entry − feeder end) drives the color.
+function drawConnectors() {
+  Array.prototype.forEach.call(document.querySelectorAll('.conn-overlay'), function(s){ s.remove(); });
+  if (!fleetCache || !fleetCache.cascade) return;
+  var links = fleetCache.cascade.links || [];
+  if (!links.length) return;
+  var NS = 'http://www.w3.org/2000/svg';
+  var overlays = [];   // [{gantt, svg, rect}]
+  function overlayFor(gantt) {
+    for (var i = 0; i < overlays.length; i++) if (overlays[i].gantt === gantt) return overlays[i];
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'conn-overlay');
+    svg.setAttribute('width', gantt.scrollWidth); svg.setAttribute('height', gantt.scrollHeight);
+    gantt.appendChild(svg);
+    var rec = { gantt: gantt, svg: svg, rect: gantt.getBoundingClientRect() };
+    overlays.push(rec); return rec;
+  }
+  links.forEach(function(lk) {
+    if (lk.skip) return;
+    var childEl = document.querySelector('[data-conn-end="' + lk.childId + '"]');
+    if (!childEl) return;                                   // child row collapsed/hidden
+    var gantt = childEl.closest('.gantt'); if (!gantt) return;
+    var gateEl = gantt.querySelector('[data-conn-gate="' + lk.parentId + ':' + lk.joinGate + '"]');
+    var anchor = gateEl || gantt.querySelector('[data-conn-end="' + lk.parentId + '"]');  // fallback: parent bar (degraded/solid)
+    if (!anchor) return;                                    // parent row hidden
+    var rec = overlayFor(gantt), gr = rec.rect;
+    var cr = childEl.getBoundingClientRect(), pr = anchor.getBoundingClientRect();
+    var x1 = cr.right - gr.left, y1 = cr.top + cr.height / 2 - gr.top;
+    var x2 = pr.left - gr.left,  y2 = pr.top + pr.height / 2 - gr.top;
+    var slack = (lk.floatDays == null) ? null : -lk.floatDays;   // + = feeder finishes before the gate (healthy)
+    var cls = (slack == null) ? 'conn-unknown' : (slack <= 14 ? 'conn-red' : (slack <= 30 ? 'conn-amber' : 'conn-dark'));
+    var dx = Math.max(20, Math.abs(x2 - x1) / 2);
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', 'M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2);
+    path.setAttribute('class', cls); path.setAttribute('fill', 'none');
+    var feeder = nodes[lk.childId], parent = nodes[lk.parentId];
+    var ttl = document.createElementNS(NS, 'title');
+    ttl.textContent = (feeder ? nodeIdent(feeder) : lk.childId) + ' → ' + (parent ? nodeIdent(parent) : lk.parentId) +
+      ' gate ' + lk.joinGate + (slack == null ? ' · feeder has no forecast' : (slack >= 0 ? ' · ' + slack + 'd slack' : ' · ' + (-slack) + 'd late'));
+    path.appendChild(ttl);
+    rec.svg.appendChild(path);
+    // Endpoint dot marks the join target (avoids arrowhead orientation math).
+    var dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('cx', x2); dot.setAttribute('cy', y2); dot.setAttribute('r', 3);
+    dot.setAttribute('class', cls + ' conn-dot');
+    rec.svg.appendChild(dot);
   });
 }
 
@@ -2385,7 +2674,7 @@ function saveSnapshot() {
   html += 'var _opsCache = {}, _progCache = {}; var _childIndex = null; var _savedScroll = 0;\n';
   // Module-scope constants used by serialized functions (velocity/forecast math, CSV parsing) —
   // not functions, so they must be re-declared here or the snapshot would ReferenceError at runtime.
-  html += 'var WEEKS_PER_MONTH = ' + WEEKS_PER_MONTH + ', DAYS_PER_MONTH = ' + DAYS_PER_MONTH + ', CSV_MAX_FIELD_LEN = ' + CSV_MAX_FIELD_LEN + ';\n';
+  html += 'var WEEKS_PER_MONTH = ' + WEEKS_PER_MONTH + ', DAYS_PER_MONTH = ' + DAYS_PER_MONTH + ', CSV_MAX_FIELD_LEN = ' + CSV_MAX_FIELD_LEN + ', CASCADE_MAX_ITERS = ' + CASCADE_MAX_ITERS + ';\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
     operColorClass, statusRank, legendHTML, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
     getChildren, nodeLevel, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
@@ -2393,11 +2682,12 @@ function saveSnapshot() {
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
     nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, _computeWOProgress, setZoom, setCompactMode, onGanttWheel,
-    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
-    setLookback, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis,
+    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast,
+    computeGateDates, computeCascade, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
+    setLookback, promptVelocity, resetVelocity, setJoinGate, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, drawConnectors,
     setHrsPerEmployee, setAddEmployees, bumpEmployees, syncEmpControls,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
-    barWidthPct, barStartPct, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
+    barWidthPct, barStartPct, gateSegPcts, gateSegTip, gateWaitHTML, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderLoadingTable,
     csvQuote, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
