@@ -396,6 +396,9 @@ var gStart = '', gMax = '';  // computed axis domain per render
 var _dateRenderTimer = null; // debounce handle for date-input edits (see scheduleDateRender)
 var dragSrcId = null;        // node id currently being dragged (family/child reorder)
 var loadExpand = {};         // Gate Loading collapsible state: key ('lab'|prog|prog+':gate'|prog+':wo') -> true when expanded
+var _opsCache = {}, _progCache = {}; // per-render memo caches for resolveOps / computeWOProgress (reset at render() top)
+var _childIndex = null;      // per-render parentId -> [childNodes] index; null outside a render pass
+var _savedScroll = 0;        // horizontal scroll position carried across a re-render
 
 // ============================== Utilities (from gate-tracker / decoder-ring) ==============================
 var CSV_MAX_FIELD_LEN = 500;
@@ -720,16 +723,16 @@ function parseEHA(rows) {
 
 // ============================== Tree helpers ==============================
 function getChildren(id) {
+  if (_childIndex) return _childIndex[id] || [];   // O(1) during a render pass
   var out = [];
   Object.keys(nodes).forEach(function(k) { if (nodes[k].parentId === id) out.push(nodes[k]); });
   return out;
 }
 function nodeLevel(id) { var lvl = 0, n = nodes[id]; while (n && n.parentId) { lvl++; n = nodes[n.parentId]; } return lvl; }
-function getRootOf(id) { var n = nodes[id]; while (n && n.parentId) n = nodes[n.parentId]; return n; }
 function collectSubtree(id, acc) { acc.push(id); getChildren(id).forEach(function(c){ collectSubtree(c.id, acc); }); return acc; }
 function treeMaxLevel(rootId) {
-  var ids = collectSubtree(rootId, []), mx = 0;
-  ids.forEach(function(id){ var l = nodeLevel(id); if (l > mx) mx = l; });
+  var mx = 0;
+  (function walk(id, d) { if (d > mx) mx = d; getChildren(id).forEach(function(c){ walk(c.id, d + 1); }); })(rootId, 0);
   return mx;
 }
 
@@ -1005,6 +1008,8 @@ function toggleGate(id, gnum) { var n = nodes[id]; if (n.expandedGates[gnum]) de
 // ============================== Node operation resolution ==============================
 function resolveOps(node) {
   // returns { hasRing, gates: [ {num, name, ops:[op...], colorClass} ], flat: [op...] }
+  // Memoized per render — pure in (node, ringByPart, woOps); cache cleared at render() top.
+  var cached = _opsCache[node.id]; if (cached) return cached;
   var ring = ringByPart[node.partNo];
   var ops;
   if (node.isPlaceholder) {
@@ -1065,6 +1070,7 @@ function resolveOps(node) {
     if (ungated.length) out.gates.push({ num: '', name: 'Unmapped ops', ops: ungated, colorClass: node.isPlaceholder ? 'c-plan' : 'c-gray',
       simpleColor: ungated.some(function(o){ return o.remaining > 0; }) ? 'c-green' : 'c-gray' });
   }
+  _opsCache[node.id] = out;
   return out;
 }
 
@@ -1127,16 +1133,6 @@ function setLookback(v) {
   render();
 }
 
-function setLabCapacity(v) {
-  if (v === '' || v == null) { overrideLabTotal = null; }
-  else { var n = parseFloat(v); overrideLabTotal = (n >= 0) ? n : null; }
-  var el = document.getElementById('lab-cap-input'); if (el) el.value = (overrideLabTotal == null ? '' : overrideLabTotal.toFixed(1));
-  render();
-  // Update the "current calc" display after render rebuilt the fleet.
-  var calcEl = document.getElementById('lab-cap-calc');
-  if (calcEl && fleetCache) calcEl.textContent = fleetCache.fleet.labCalc.toFixed(1) + ' calc';
-}
-function resetLabCapacity() { setLabCapacity(''); }
 
 // Headcount basis (h/mo per employee). Drives the loading-table emp counts AND gates the
 // Add/Remove Staff control (which needs it to convert techs <-> hours). Clearing it resets the
@@ -1183,7 +1179,14 @@ function resetVelocity(id) { if (nodes[id]) { nodes[id].overrideVelocity = null;
 // Hours-based progress for a WO node: planned hours from its decoder ring,
 // remaining = sum of ring planned for ops still in the daily upload (status != COMPLETE).
 // Returns null when no ring matches (no canonical total available).
+// Memoized per render (cache cleared at render() top); null results are cached too.
 function computeWOProgress(node) {
+  if (node.id in _progCache) return _progCache[node.id];
+  var r = _computeWOProgress(node);
+  _progCache[node.id] = r;
+  return r;
+}
+function _computeWOProgress(node) {
   var ring = ringByPart[node.partNo];
   if (!ring) return null;
   var allOps = Object.keys(ring.operToGate);
@@ -1386,18 +1389,6 @@ function projectForecast(fleet) {
   return { forecastEnd: forecastEnd, monthsTaken: monthsTaken };
 }
 
-// Hold-status warning: WO has zero earned hours across the trailing N weeks AND no op currently on hold.
-function shouldWarnHold(node) {
-  if (node.isPlaceholder || !node.woNo) return false;
-  var weeks = trailingWeeks(todayISO(), lookbackWeeks);
-  var sum = 0; weeks.forEach(function(w) { sum += (weeklyEarned[node.woNo] && weeklyEarned[node.woNo][w]) || 0; });
-  if (sum > 0.01) return false;
-  var ops = woOps[node.woNo] || [];
-  if (!ops.length) return false;          // no active ops at all — different concern (e.g. closed WO)
-  for (var i = 0; i < ops.length; i++) if (isHold(ops[i].hold)) return false;
-  return true;
-}
-
 // True when the WO is on hold at the WORK-ORDER level (Hold Status == 'ORDER_HOLD').
 // Op-level holds (other codes such as QA_HOLD, STOPPED, etc.) are surfaced separately by the
 // red outline on individual chips and do NOT trigger the row HOLD label.
@@ -1449,8 +1440,9 @@ function noProgressInfo(node) {
 function taskColPx() { return compactMode ? 360 : 440; }
 
 // Position on the timeline as a percent of [gStart, gMax]. Returns -1 if the date can't be placed.
+// Returns NaN (not a position) when the date can't be placed — callers guard with isFinite.
 function pctOfDate(d) {
-  if (!d || !gMax || gMax === gStart) return -1;
+  if (!d || !gMax || gMax === gStart) return NaN;
   var total = daysBetween(gStart, gMax); if (total <= 0) total = 1;
   var p = daysBetween(gStart, d) / total * 100;
   return p;
@@ -1467,6 +1459,7 @@ function barWidthPct(node) {
   }
   if (!endDate || !gMax || gMax === gStart) return 0;
   var p = pctOfDate(endDate);
+  if (!isFinite(p)) return 0;
   if (p < 0) p = 0; if (p > 100) p = 100;
   return p;
 }
@@ -1486,6 +1479,7 @@ function noForecast(node) {
 function barStartPct(node) {
   if (!node.startDate) return 0;
   var p = pctOfDate(node.startDate);
+  if (!isFinite(p)) return 0;
   if (p < 0) p = 0; if (p > 100) p = 100;
   return p;
 }
@@ -1613,8 +1607,8 @@ function renderMilestone(node) {
   var trackClass = 'milestone-track' + (isChipsView ? ' chips-track' : '');
   var html = '<div class="' + trackClass + '">';
   // ----- Completion (milestone) diamond + slack bar -----
-  var milestoneX = node.completion ? pctOfDate(node.completion) : -999;
-  if (node.completion && milestoneX >= -1 && milestoneX <= 101) {
+  var milestoneX = node.completion ? pctOfDate(node.completion) : NaN;
+  if (node.completion && isFinite(milestoneX) && milestoneX >= -1 && milestoneX <= 101) {
     var forecastEnd = fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[node.id] : null;
     var slackDays = forecastEnd ? daysBetween(forecastEnd, node.completion) : null;
     // Diamond color tier. "unknown" (gray) when there's no forecast — i.e., velocity is zero so
@@ -1624,7 +1618,7 @@ function renderMilestone(node) {
     else tier = 'unknown';
     // Slack bar — between forecast and milestone (clamped to [0,100]).
     if (forecastEnd && slackDays !== 0) {
-      var forecastX = pctOfDate(forecastEnd);
+      var forecastX = pctOfDate(forecastEnd); if (!isFinite(forecastX)) forecastX = milestoneX;
       var lo = Math.max(0, Math.min(forecastX, milestoneX));
       var hi = Math.min(100, Math.max(forecastX, milestoneX));
       var w = Math.max(hi - lo, 0.2);
@@ -1672,7 +1666,7 @@ function renderMilestone(node) {
   // ----- Planned-start diamond (hollow) for non-WO rows -----
   if (node.startDate) {
     var sx = pctOfDate(node.startDate);
-    if (sx >= -1 && sx <= 101)
+    if (isFinite(sx) && sx >= -1 && sx <= 101)
       html += '<div class="milestone-diamond start" style="left:' + sx + '%" title="Planned start: ' + esc(node.startDate) + '"></div>';
   }
   html += '</div>';
@@ -1772,6 +1766,11 @@ function buildRows(rootId, level, acc) {
 
 function render() {
   updateButtons();
+  // Per-render memo caches + children index (pure-in-data within a render pass). Reset here only;
+  // every data-mutating path ends in render(), so this always covers a real change.
+  _opsCache = {}; _progCache = {};
+  _childIndex = {};
+  Object.keys(nodes).forEach(function(k){ var p = nodes[k].parentId; (_childIndex[p] = _childIndex[p] || []).push(nodes[k]); });
   var lg = document.getElementById('legend'); if (lg) lg.innerHTML = legendHTML(globalView);
   var board = document.getElementById('board');
   board.className = compactMode ? 'compact' : '';
@@ -1782,6 +1781,7 @@ function render() {
     renderLoadingTable();
     syncFloatingAxis();
     syncEmpControls();
+    _childIndex = null;
     return;
   }
   // Compute fleet velocity + per-WO forecast once per render; cache for downstream helpers.
@@ -1890,10 +1890,12 @@ function render() {
     });
     html += '</div></div></div>'; // gantt, gantt-wrap, prog-section
   });
+  var fw = document.querySelector('.gantt-wrap'); _savedScroll = fw ? fw.scrollLeft : 0;
   board.innerHTML = html;
   renderLoadingTable();
   syncFloatingAxis();
   syncEmpControls();
+  _childIndex = null;
 }
 
 // Populate the global floating calendar overlay with the current axis + width, and attach the
@@ -1908,11 +1910,11 @@ function syncFloatingAxis() {
   if (track) {
     track.style.width = (100 * zoomFactor).toFixed(1) + '%';
     track.innerHTML = axisTicksHTML();
-    track.style.transform = 'translateX(0)';
+    track.style.transform = 'translateX(' + (-_savedScroll) + 'px)';
   }
   var hSyncing = false;
   wraps.forEach(function(w) {
-    w.scrollLeft = 0;     // reset to 0 on every render so the overlay's translateX(0) stays aligned
+    w.scrollLeft = _savedScroll;   // restore the pre-render scroll so edits don't snap lanes to the start
     w.addEventListener('scroll', function() {
       if (hSyncing) return; hSyncing = true;
       var sl = w.scrollLeft;
@@ -2199,7 +2201,6 @@ function updateButtons() {
 
 // ============================== Export: Hierarchy CSV ==============================
 function csvQuote(s) { s = String(s == null ? '' : s); return (s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0) ? '"' + s.replace(/"/g,'""') + '"' : s; }
-function sanitizeFilename(s) { return String(s).replace(/[^a-zA-Z0-9_\-]/g, '_'); }
 function dateStr() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
 function downloadFile(content, filename, type) {
   var blob = new Blob([content], { type: type }), url = URL.createObjectURL(blob);
@@ -2381,20 +2382,24 @@ function saveSnapshot() {
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
   html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
+  html += 'var _opsCache = {}, _progCache = {}; var _childIndex = null; var _savedScroll = 0;\n';
+  // Module-scope constants used by serialized functions (velocity/forecast math, CSV parsing) —
+  // not functions, so they must be re-declared here or the snapshot would ReferenceError at runtime.
+  html += 'var WEEKS_PER_MONTH = ' + WEEKS_PER_MONTH + ', DAYS_PER_MONTH = ' + DAYS_PER_MONTH + ', CSV_MAX_FIELD_LEN = ' + CSV_MAX_FIELD_LEN + ';\n';
   var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
     operColorClass, statusRank, legendHTML, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
-    getChildren, nodeLevel, getRootOf, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
+    getChildren, nodeLevel, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
     reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
-    nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, setZoom, setCompactMode, onGanttWheel,
-    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, shouldWarnHold, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
-    setLookback, setLabCapacity, resetLabCapacity, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis,
+    nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, _computeWOProgress, setZoom, setCompactMode, onGanttWheel,
+    isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
+    setLookback, promptVelocity, resetVelocity, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis,
     setHrsPerEmployee, setAddEmployees, bumpEmployees, syncEmpControls,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
     barWidthPct, barStartPct, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderLoadingTable,
-    csvQuote, sanitizeFilename, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
+    csvQuote, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
   html += 'wireInputs();\n';
   html += 'document.getElementById("view-btn").textContent = "View: " + (globalView==="bars"?"Bars":(globalView==="gateblocks"?"Gate blocks":"Chips"));\n';
@@ -2405,6 +2410,19 @@ function saveSnapshot() {
   html += 'document.getElementById("lookback-input").value = lookbackWeeks;\n';
   html += 'render();\n';
   html += '<\/script>\n</body>\n</html>';
+
+  // Self-check: every inline handler referenced in the LIVE DOM must be serialized in fns[], or the
+  // snapshot would throw a ReferenceError at runtime (only in the saved file). Warn loudly but still
+  // download — a false positive must never block a save. Catches handlers in the currently-rendered
+  // DOM (action bar + all rendered rows); a handler only in an unrendered branch wouldn't be seen.
+  try {
+    var fnNames = {}; fns.forEach(function(f){ if (f && f.name) fnNames[f.name] = true; });
+    var dom = document.documentElement.innerHTML, m, missing = {};
+    var re = /on(?:click|input|change|wheel|dragstart|dragover|dragleave|dragend|drop)="(?:event\.stopPropagation\(\);)?\s*([A-Za-z_$][\w$]*)\s*\(/g;
+    while ((m = re.exec(dom))) { if (!fnNames[m[1]]) missing[m[1]] = true; }
+    var miss = Object.keys(missing);
+    if (miss.length) { console.error('[snapshot] handler(s) missing from fns[] — snapshot would break:', miss.join(', ')); alert('Snapshot warning: these click/input handlers are not serialized and will break in the saved file:\n' + miss.join(', ')); }
+  } catch (e) { console.error('[snapshot] self-check failed to run', e); }
 
   downloadFile(html, 'pdvf-dependency-gantt-' + dateStr() + '.html', 'text/html');
 }
