@@ -94,6 +94,11 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .tc-line1, .tc-line2 { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; }
 .tc-line2 { min-height: 18px; }
 .tc-right { margin-left: auto; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* Line-2 lead: invisible copies of line 1's drag+caret+token reserve the same width so the action
+   buttons start exactly under the part number. The WO HOLD pill overlays at the far left of the lead. */
+.l2-lead { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.l2-lead .l2-spacer { visibility: hidden; }
+.l2-lead .wo-hold { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
 /* Edit mode rows carry the date input + four row buttons in addition to the full label — give the task column more horizontal room so nothing truncates. Review mode keeps the narrower column so the bars are at the original x position. */
 #board:not(.compact) .task-col { width: 440px; }
 .task-col.head { font-weight: bold; color: #475569; font-size: 0.78rem; }
@@ -117,6 +122,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .row-btn { width: 18px; height: 18px; line-height: 16px; text-align: center; border: 1px solid #cbd5e1; border-radius: 3px; background: #fff; cursor: pointer; font-size: 0.72rem; font-weight: bold; color: #475569; flex-shrink: 0; }
 .row-btn:hover { background: #eff6ff; border-color: #2563eb; }
 .row-btn:disabled { opacity: 0.3; cursor: default; }
+/* WO link button (TBD -> work order) needs room for the letters. */
+.row-btn.link { width: auto; min-width: 26px; padding: 0 5px; }
 .row-btn.del:hover { background: #fef2f2; border-color: #dc2626; color: #dc2626; }
 
 /* Time axis */
@@ -282,7 +289,9 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 .modal-manual .mm-row input { flex: 1 1 120px; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.82rem; }
 
 /* node identifier + placeholder gate shade */
-.node-label .ident { font-weight: bold; color: #1e293b; }
+/* Fixed-width leading token so the part number always starts at the same x for a given hierarchy
+   level, regardless of whether the row is a WO (SN ###/WO ###) or a placeholder (TBD). */
+.node-label .ident { display: inline-block; min-width: 4em; font-weight: bold; color: #1e293b; font-variant-numeric: tabular-nums; }
 .node-label.placeholder .ident { color: #7c3aed; }
 .c-plan { background: #cbd5e1; color: #475569; }
 .row-btn.link:hover { background: #ede9fe; border-color: #7c3aed; color: #7c3aed; }
@@ -302,7 +311,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.8</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.9</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -1116,9 +1125,10 @@ function nodeIdent(n) {
   if (n.woNo) { var d = n.woNo.replace(/\D/g, ''); return 'WO ' + (d.slice(-3) || n.woNo.slice(-3)); }
   return n.partNo || '(no part)';
 }
-// Leading token for a task row: same as nodeIdent, but a WO-less placeholder reads "Placeholder"
-// (its part number still follows on the line). Keeps the first column consistent across row types.
-function identToken(n) { return n.isPlaceholder ? 'Placeholder' : nodeIdent(n); }
+// Leading token for a task row: same as nodeIdent, but a WO-less placeholder reads "TBD" (work order
+// to-be-determined). Short + fixed-width (see .ident CSS) so the part number that follows always
+// starts at the same x for a given hierarchy level, regardless of row type.
+function identToken(n) { return n.isPlaceholder ? 'TBD' : nodeIdent(n); }
 
 function setProgramLabel(prog, val) { programLabels[prog] = (val || '').slice(0, 20); }
 function setFamilyComment(rootId, val) { familyComments[rootId] = val || ''; }
@@ -2097,22 +2107,27 @@ function render() {
           jgSel += '</select>';
           html += jgSel;
         }
-        // Action buttons — right end of line 1, consistent position regardless of which chips show.
+        html += '</div>';   // .tc-right  (line 1 right cluster: progress / velocity / join-gate only)
+        html += '</div>';   // .tc-line1
+        // ----- Line 2: WO HOLD (far left) + action buttons (under the part #) + dates (right) -----
+        html += '<div class="tc-line2">';
+        var hr = isOnHold(n) ? holdReason(n) : '';
+        // Lead reproduces line 1's drag+caret+token width (hidden copies) so the buttons start exactly
+        // under the part number; the WO HOLD pill overlays at the far left of that lead.
+        html += '<span class="l2-lead">' +
+          '<span class="drag-handle l2-spacer">&#9776;</span>' +
+          '<span class="caret empty"></span>' +
+          '<span class="ident l2-spacer">SN 000</span>' +
+          (isOnHold(n) ? '<span class="wo-hold" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">WO HOLD</span>' : '') +
+          '</span>';
         html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
         if (isRoot) html += '<button class="row-btn" title="Add a parent above this assembly"' + (canAddParent ? '' : ' disabled') + ' onclick="openSearch(\'parent\',\'' + n.id + '\')">&#8593;</button>';
         if (n.isPlaceholder) html += '<button class="row-btn link" title="Link this placeholder to a work order" onclick="openSearch(\'link\',\'' + n.id + '\')">WO</button>';
         html += '<button class="row-btn del" title="Delete this node and its branch" onclick="deleteNode(\'' + n.id + '\')">&times;</button>';
-        html += '</div>';   // .tc-right
-        html += '</div>';   // .tc-line1
-        // ----- Line 2: WO HOLD (far left) + date inputs (right-aligned, under the line-1 cluster) -----
-        html += '<div class="tc-line2">';
-        var hr = isOnHold(n) ? holdReason(n) : '';
-        if (isOnHold(n)) html += '<span class="wo-hold" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">WO HOLD</span>';
         html += '<span class="date-cluster tc-right">';
-        // Planned start date — only for non-WO placeholder rows. Moves the bar's left edge and draws a hollow start diamond.
+        // Planned start date — placeholders only (moves the bar's left edge + draws the hollow start diamond).
         if (n.isPlaceholder) {
-          html += '<span class="date-cap" title="Planned start date">start</span>' +
-            '<input type="date" class="node-date start" value="' + esc(n.startDate || '') +
+          html += '<input type="date" class="node-date start" value="' + esc(n.startDate || '') +
             '" title="Planned start date (bar begins here)" onchange="setStartDate(\'' + n.id + '\', this.value)">';
         }
         html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
