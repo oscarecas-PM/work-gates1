@@ -66,16 +66,13 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .join-gate-sel { font-size: 0.66rem; margin-left: 4px; vertical-align: middle; max-width: 120px; border: 1px solid #cbd5e1; border-radius: 3px; background: #f8fafc; color: #475569; padding: 0 2px; cursor: pointer; }
 .join-gate-sel.linked { background: #dbeafe; border-color: #2563eb; color: #1e3a5f; font-weight: bold; }
 .hold-warn { display: inline-block; padding: 0 4px; font-size: 0.85rem; color: #b45309; cursor: help; vertical-align: middle; }
-/* Clear HOLD label on the far left of any row with an op on hold — must be impossible to miss. */
-/* Reserved status gutter (HOLD pill or empty) — keeps every row's content aligned. */
-.hold-gutter { width: 44px; flex-shrink: 0; display: flex; align-items: center; }
-.hold-label { display: inline-block; padding: 1px 5px; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.04em; color: #fff; background: #dc2626; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: help; flex-shrink: 0; }
+/* WO HOLD pill — far left of line 2 on any row with an op on hold. ~25% smaller than the old label. */
+.wo-hold { display: inline-block; padding: 1px 4px; font-size: 0.47rem; font-weight: 900; letter-spacing: 0.04em; color: #fff; background: #dc2626; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: help; flex-shrink: 0; }
 .gantt-row.on-hold .task-col { background: linear-gradient(to right, rgba(220,38,38,0.10), transparent 200px); }
 
-/* Edit mode: row height grows so the identifier + part # + description and the chips + date input + buttons can wrap to multiple lines instead of cramming onto one. */
-#board:not(.compact) .task-col { flex-wrap: wrap; align-content: center; min-height: 56px; padding-top: 8px; padding-bottom: 8px; }
-#board:not(.compact) .node-label { flex: 0 1 auto; max-width: 100%; }
-#board:not(.compact) .date-cluster { margin-left: auto; }
+/* Edit mode: two-line rows need a bit more height + horizontal room than review mode. */
+#board:not(.compact) .task-col { min-height: 52px; padding-top: 6px; padding-bottom: 6px; }
+.node-label { flex: 1 1 auto; min-width: 0; }
 .date-cluster { display: inline-flex; align-items: center; gap: 4px; }
 .date-cap { font-size: 0.6rem; font-weight: bold; letter-spacing: 0.03em; color: #64748b; text-transform: uppercase; }
 .node-date.start { border-color: #94a3b8; background: #f8fafc; }
@@ -92,7 +89,11 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .gantt { width: 100%; position: relative; }   /* position:relative so the .conn-overlay SVG anchors to the scrolled content */
 .gantt-row, .gantt-head { display: flex; align-items: stretch; border-bottom: 1px solid #eef2f7; }
 .gantt-head { background: #f8fafc; border-bottom: 2px solid #cbd5e1; }
-.task-col { width: 360px; flex-shrink: 0; padding: 4px 8px; border-right: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4px; font-size: 0.8rem; }
+.task-col { width: 360px; flex-shrink: 0; padding: 4px 8px; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; justify-content: center; gap: 2px; font-size: 0.8rem; }
+/* Fixed two-line task row: line 1 = identity + chips/buttons, line 2 = WO HOLD + dates. */
+.tc-line1, .tc-line2 { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.tc-line2 { min-height: 18px; }
+.tc-right { margin-left: auto; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 /* Edit mode rows carry the date input + four row buttons in addition to the full label — give the task column more horizontal room so nothing truncates. Review mode keeps the narrower column so the bars are at the original x position. */
 #board:not(.compact) .task-col { width: 440px; }
 .task-col.head { font-weight: bold; color: #475569; font-size: 0.78rem; }
@@ -301,7 +302,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.7</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.8</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -1108,12 +1109,16 @@ function solidBarHTML(node, rd) {
 // S/N is rendered as "S/N <value>" with a space; idempotent if the data already starts with SN/S/N.
 function nodeIdent(n) {
   if (n.serial) {
-    var s = String(n.serial).trim();
-    return /^S\/?N[\s-]?/i.test(s) ? s : 'S/N ' + s;
+    // Normalize any existing S/N, SN-, SN prefix to a single "SN <value>" form.
+    var s = String(n.serial).trim().replace(/^S\/?N[\s-]?/i, '');
+    return 'SN ' + s;
   }
-  if (n.woNo) { var d = n.woNo.replace(/\D/g, ''); return 'x' + (d.slice(-4) || n.woNo.slice(-4)); }
+  if (n.woNo) { var d = n.woNo.replace(/\D/g, ''); return 'WO ' + (d.slice(-3) || n.woNo.slice(-3)); }
   return n.partNo || '(no part)';
 }
+// Leading token for a task row: same as nodeIdent, but a WO-less placeholder reads "Placeholder"
+// (its part number still follows on the line). Keeps the first column consistent across row types.
+function identToken(n) { return n.isPlaceholder ? 'Placeholder' : nodeIdent(n); }
 
 function setProgramLabel(prog, val) { programLabels[prog] = (val || '').slice(0, 20); }
 function setFamilyComment(rootId, val) { familyComments[rootId] = val || ''; }
@@ -2043,25 +2048,24 @@ function render() {
         var canAddParent = isRoot && th < 9;
         html += '<div class="gantt-row' + (isOnHold(n) ? ' on-hold' : '') + '"' +
           ' ondragover="onRowDragOver(event,\'' + n.id + '\')" ondragleave="onRowDragLeave(event)" ondrop="onRowDrop(event,\'' + n.id + '\')">';
-        // task col
+        // task col — fixed two-line layout (line 1: identity + chips/buttons; line 2: hold + dates)
         html += '<div class="task-col" style="padding-left:' + (8 + lvl*14) + 'px">';
+        // ----- Line 1: drag + caret + identity (left), chips + buttons (right) -----
+        html += '<div class="tc-line1">';
         // Drag grip — reorder this family (root) or sibling (child). Only the handle is draggable so
         // row inputs/buttons stay usable.
         html += '<span class="drag-handle" draggable="true" title="Drag to reorder"' +
           ' ondragstart="onRowDragStart(event,\'' + n.id + '\')" ondragend="onRowDragEnd(event)">&#9776;</span>';
-        // Fixed-width status gutter — reserved on EVERY row so the presence of a HOLD pill never
-        // shifts the S/N identifier or the %/remaining/velocity chips out of alignment.
-        var hr = isOnHold(n) ? holdReason(n) : '';
-        html += '<span class="hold-gutter">' + (isOnHold(n)
-          ? '<span class="hold-label" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">HOLD</span>' : '') + '</span>';
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
-        var ident = nodeIdent(n);
+        var ident = identToken(n);
         var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
         // Show part # inline in BOTH edit and review modes so the row identifier is always self-explanatory.
         var partInline = (n.partNo && ident !== n.partNo) ? ' <span class="pn-inline">· ' + esc(n.partNo) + '</span>' : '';
         html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
           '<span class="ident">' + esc(ident) + '</span>' + partInline +
           (n.partDesc ? ' <span class="pd">' + esc(n.partDesc) + '</span>' : '') + '</span>';
+        // Right cluster on line 1: progress / velocity / join-gate / action buttons — always top-right.
+        html += '<div class="tc-right">';
         var woProg = computeWOProgress(n);
         if (woProg) {
           var pcls = n.isPlaceholder ? 'pct-plan' : (woProg.woPct >= 99.5 ? 'pct-done' : '');
@@ -2093,13 +2097,19 @@ function render() {
           jgSel += '</select>';
           html += jgSel;
         }
-        // (Hold warning moved: HOLD label on far left of the row when on hold, and a no-progress
-        //  exclamation near the milestone diamond when velocity is zero — see renderMilestone.)
-        // Date controls clustered so the right-alignment (margin-left:auto) applies to the group,
-        // not to each input individually (which would split two adjacent date inputs apart).
-        html += '<span class="date-cluster">';
-        // Planned start date — only for non-WO placeholder rows. Moves the bar's left edge and draws
-        // a hollow start diamond.
+        // Action buttons — right end of line 1, consistent position regardless of which chips show.
+        html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
+        if (isRoot) html += '<button class="row-btn" title="Add a parent above this assembly"' + (canAddParent ? '' : ' disabled') + ' onclick="openSearch(\'parent\',\'' + n.id + '\')">&#8593;</button>';
+        if (n.isPlaceholder) html += '<button class="row-btn link" title="Link this placeholder to a work order" onclick="openSearch(\'link\',\'' + n.id + '\')">WO</button>';
+        html += '<button class="row-btn del" title="Delete this node and its branch" onclick="deleteNode(\'' + n.id + '\')">&times;</button>';
+        html += '</div>';   // .tc-right
+        html += '</div>';   // .tc-line1
+        // ----- Line 2: WO HOLD (far left) + date inputs (right-aligned, under the line-1 cluster) -----
+        html += '<div class="tc-line2">';
+        var hr = isOnHold(n) ? holdReason(n) : '';
+        if (isOnHold(n)) html += '<span class="wo-hold" title="' + esc('On hold' + (hr ? ': ' + hr : '')) + '">WO HOLD</span>';
+        html += '<span class="date-cluster tc-right">';
+        // Planned start date — only for non-WO placeholder rows. Moves the bar's left edge and draws a hollow start diamond.
         if (n.isPlaceholder) {
           html += '<span class="date-cap" title="Planned start date">start</span>' +
             '<input type="date" class="node-date start" value="' + esc(n.startDate || '') +
@@ -2107,12 +2117,9 @@ function render() {
         }
         html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
           '" value="' + esc(n.completion || '') + '" title="Milestone date (your target)" onchange="setCompletion(\'' + n.id + '\', this.value)">';
-        html += '</span>';
-        html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
-        if (isRoot) html += '<button class="row-btn" title="Add a parent above this assembly"' + (canAddParent ? '' : ' disabled') + ' onclick="openSearch(\'parent\',\'' + n.id + '\')">&#8593;</button>';
-        if (n.isPlaceholder) html += '<button class="row-btn link" title="Link this placeholder to a work order" onclick="openSearch(\'link\',\'' + n.id + '\')">WO</button>';
-        html += '<button class="row-btn del" title="Delete this node and its branch" onclick="deleteNode(\'' + n.id + '\')">&times;</button>';
-        html += '</div>';
+        html += '</span>';   // .date-cluster
+        html += '</div>';   // .tc-line2
+        html += '</div>';   // .task-col
         // time col
         html += '<div class="time-col">' + renderMilestone(n) + renderBar(n) + '</div>';
         html += '</div>';
@@ -2681,7 +2688,7 @@ function saveSnapshot() {
     reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
-    nodeIdent, setProgramLabel, setFamilyComment, computeWOProgress, _computeWOProgress, setZoom, setCompactMode, onGanttWheel,
+    nodeIdent, identToken, setProgramLabel, setFamilyComment, computeWOProgress, _computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast,
     computeGateDates, computeCascade, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
     setLookback, promptVelocity, resetVelocity, setJoinGate, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, drawConnectors,
