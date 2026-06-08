@@ -111,6 +111,12 @@
   .gv-gate-header { background: #334155; color: #fff; padding: 8px 14px; border-radius: 4px 4px 0 0; font-size: 1rem; font-weight: bold; }
   .gv-gate-header.hold-gate { background: #991b1b; }
   .gv-cards-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #fff; border: 1px solid #ccc; border-top: none; border-radius: 0 0 4px 4px; }
+  .gv-subgroup { flex-basis: 100%; width: 100%; }
+  .gv-subgroup + .gv-subgroup { margin-top: 8px; }
+  .gv-subgroup-label { display: inline-block; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 6px; padding: 2px 8px; border-radius: 3px; }
+  .gv-subgroup-label-wip { color: #166534; background: #dcfce7; border: 1px solid #16a34a; }
+  .gv-subgroup-label-queue { color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; }
+  .gv-subgroup-cards { display: flex; flex-wrap: wrap; gap: 8px; }
   .gv-order-card { min-width: 130px; max-width: 180px; padding: 8px 10px; border-radius: 4px; border: 2px solid transparent; cursor: default; font-size: 0.82rem; }
   .gv-order-no { font-weight: bold; font-size: 0.85rem; }
   .gv-part-no { font-size: 0.78rem; color: rgba(0,0,0,0.7); }
@@ -273,7 +279,8 @@
   </div>
   <div class="file-group">
     <h3>3. Master Gates <span style="font-size:0.8em;color:#888;font-weight:normal;">(optional)</span></h3>
-    <p>Columns: Gate Number, Gate Name, Technician 1, Technician 2, ... Technician 10</p>
+    <p>Columns: Gate Number, Gate Name, Scanned Location, Location Type (WIP or QUEUE), Technician 1, Technician 2, ... Technician 10</p>
+    <p style="font-size:0.85em;color:#666;">A gate may span multiple rows &mdash; one per scanned location (the rack = <b>QUEUE</b>, each bench = <b>WIP</b>). On a WIP row, <b>Technician 1</b> names the person at that bench (shown as &ldquo;with [name]&rdquo; on the card). The gate header lists every technician across its rows. Location Type blank/absent &rarr; QUEUE.</p>
     <input type="file" id="master-input" accept=".csv">
     <div id="master-status" class="status"></div>
   </div>
@@ -1481,13 +1488,16 @@ function parseMasterGates(rows) {
   var techsByGateMap = {};  // gateNumber -> Set of tech names
   var headers = rows[0];
   var scannedLocToGate = {};   // scanned location string → gate number
-  var gateToScannedLoc = {};   // gate number → scanned location string
+  var gateToScannedLoc = {};   // gate number → scanned location string (gate→many: last write wins; diagnostics only)
+  var scannedLocType = {};     // scanned location (lower) → 'WIP' | 'QUEUE'
+  var scannedLocTech = {};     // scanned location (lower) → technician(s) at that location (joined)
   var gateNumIdx = colIndex(headers, 'Gate Number');
   var gateNameIdx = colIndex(headers, 'Gate Name');
   var scannedLocIdx = colIndex(headers, 'Scanned Location');
+  var locTypeIdx = colIndex(headers, 'Location Type');
   if (gateNumIdx < 0 || gateNameIdx < 0) {
     errors.push({ file: 'Master Gates', row: null, message: 'Missing required column(s): ' + (gateNumIdx < 0 ? '"Gate Number" ' : '') + (gateNameIdx < 0 ? '"Gate Name"' : '') });
-    return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, errors: errors, warnings: warnings };
+    return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, scannedLocType: scannedLocType, scannedLocTech: scannedLocTech, errors: errors, warnings: warnings };
   }
   // Detect Technician 1-10 columns
   var techColIdxs = [];
@@ -1519,35 +1529,52 @@ function parseMasterGates(rows) {
       errors.push({ file: 'Master Gates', row: csvRow, message: 'Gate number "' + esc(rawGateNum) + '" has no gate name' });
       continue;
     }
-    // Duplicate gate number
-    if (seenGates[rawGateNum] !== undefined) {
-      errors.push({ file: 'Master Gates', row: csvRow, message: 'Duplicate gate number "' + esc(rawGateNum) + '" (first seen on row ' + seenGates[rawGateNum] + ')' });
-      continue;
+    // A gate may now span multiple rows \u2014 one per scanned location (rack = QUEUE, each
+    // bench = WIP). The FIRST row for a gate number initializes its shared state; later
+    // rows for the same gate accumulate (no duplicate-gate error, no reset).
+    var isFirstSeen = (seenGates[rawGateNum] === undefined);
+    if (isFirstSeen) {
+      seenGates[rawGateNum] = csvRow;
+      // Gate number "0" warning (once per gate)
+      if (rawGateNum === '0') {
+        warnings.push({ file: 'Master Gates', row: csvRow, message: 'Gate number "0" \u2014 is this intentional?' });
+      }
+      gateNames[rawGateNum] = rawGateName;
+      gateOrder.push(rawGateNum);
+      masterGateSet.add(rawGateNum);
+      techsByGate[rawGateNum] = [];
+      techsByGateMap[rawGateNum] = new Set();
+    } else if (rawGateName && gateNames[rawGateNum] && rawGateName !== gateNames[rawGateNum]) {
+      warnings.push({ file: 'Master Gates', row: csvRow, message: 'Gate number "' + esc(rawGateNum) + '" has conflicting names "' + esc(gateNames[rawGateNum]) + '" (first) and "' + esc(rawGateName) + '" (row ' + csvRow + '); using first' });
     }
-    seenGates[rawGateNum] = csvRow;
 
-    // Gate number "0" warning
-    if (rawGateNum === '0') {
-      warnings.push({ file: 'Master Gates', row: csvRow, message: 'Gate number "0" \u2014 is this intentional?' });
-    }
-
-    gateNames[rawGateNum] = rawGateName;
-    gateOrder.push(rawGateNum);
-    masterGateSet.add(rawGateNum);
-    techsByGate[rawGateNum] = [];
-    techsByGateMap[rawGateNum] = new Set();
-
-    // Parse Scanned Location (optional column)
+    // Parse Scanned Location (optional column) + its Location Type (WIP/QUEUE; blank/absent \u2192 QUEUE)
+    var rowLocKey = null;
+    var rowLocType = 'QUEUE';
     if (scannedLocIdx >= 0) {
       var scannedLoc = cleanLocation((row[scannedLocIdx] || ''));
       if (scannedLoc) {
-        scannedLocToGate[scannedLoc.toLowerCase()] = rawGateNum;
-        gateToScannedLoc[rawGateNum] = scannedLoc;
+        rowLocKey = scannedLoc.toLowerCase();
+        scannedLocToGate[rowLocKey] = rawGateNum;
+        gateToScannedLoc[rawGateNum] = scannedLoc;  // gate\u2192many: last write wins (diagnostics only)
+        if (locTypeIdx >= 0) {
+          var ltRaw = (row[locTypeIdx] || '').trim().toUpperCase();
+          if (ltRaw === 'WIP') rowLocType = 'WIP';
+          else if (ltRaw === '' || ltRaw === 'QUEUE') rowLocType = 'QUEUE';
+          else {
+            rowLocType = 'QUEUE';
+            warnings.push({ file: 'Master Gates', row: csvRow, message: 'Unknown Location Type "' + esc(row[locTypeIdx]) + '" for location "' + esc(scannedLoc) + '" \u2014 defaulting to QUEUE' });
+          }
+        }
+        scannedLocType[rowLocKey] = rowLocType;
       }
     }
 
-    // Parse technician columns
+    // Parse technician columns. Runs on EVERY row; accumulates into the gate roster
+    // (Set-deduped union across rows). Technician 1 on a WIP row = the person at that
+    // bench (recorded per-location for the card "with [name]" line).
     var techsInRow = {};  // lower name -> column label (for dup detection)
+    var rowTechNames = [];
     for (var tc = 0; tc < techColIdxs.length; tc++) {
       var techName = (row[techColIdxs[tc]] || '').trim();
       if (!techName) continue;
@@ -1557,17 +1584,26 @@ function parseMasterGates(rows) {
         warnings.push({ file: 'Master Gates', row: csvRow, message: 'Duplicate technician "' + esc(techName) + '" in gate "' + esc(rawGateNum) + '" (appears in both ' + techsInRow[techLower] + ' and Technician ' + (tc + 1) + ')' });
       }
       techsInRow[techLower] = 'Technician ' + (tc + 1);
-      techsByGate[rawGateNum].push({ name: techName, priority: tc + 1 });
-      techsByGateMap[rawGateNum].add(techLower);
+      rowTechNames.push(techName);
+      // Union into the gate roster (dedupe across rows via the Set)
+      if (!techsByGateMap[rawGateNum].has(techLower)) {
+        techsByGate[rawGateNum].push({ name: techName, priority: tc + 1 });
+        techsByGateMap[rawGateNum].add(techLower);
+      }
       allTechNames.add(techLower);
-      // Track Tech 1 for cross-gate duplicate check
-      if (tc === 0) {
-        if (tech1ByName[techLower]) {
+      // Track Tech 1 for cross-gate duplicate check \u2014 only for rack/QUEUE rows.
+      // A bench (WIP) tech is not a gate "primary" and legitimately spans gates.
+      if (tc === 0 && rowLocType !== 'WIP') {
+        if (tech1ByName[techLower] && tech1ByName[techLower][0] !== rawGateNum) {
           warnings.push({ file: 'Master Gates', row: csvRow, message: 'Technician "' + esc(techName) + '" is Technician 1 (primary) on both gate "' + esc(tech1ByName[techLower][0]) + '" (row ' + tech1ByName[techLower][1] + ') and gate "' + esc(rawGateNum) + '"' });
-        } else {
+        } else if (!tech1ByName[techLower]) {
           tech1ByName[techLower] = [rawGateNum, csvRow];
         }
       }
+    }
+    // Record per-location technician(s) for the WIP card "with [name]" line
+    if (rowLocKey && rowTechNames.length) {
+      scannedLocTech[rowLocKey] = rowTechNames.join(', ');
     }
   }
   // Diagnostic: report Scanned Location parsing results
@@ -1585,7 +1621,7 @@ function parseMasterGates(rows) {
   } else {
     warnings.push({ file: 'Master Gates', row: null, message: 'DIAGNOSTIC: No "Scanned Location" column found in headers. Columns found: ' + headers.map(function(h, i) { return i + '="' + h.trim() + '"'; }).join(', ') });
   }
-  return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, errors: errors, warnings: warnings };
+  return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, scannedLocType: scannedLocType, scannedLocTech: scannedLocTech, errors: errors, warnings: warnings };
 }
 
 function validateDecoderVsMaster(gatesByPart, masterGateSet) {
@@ -1962,6 +1998,8 @@ function process() {
   let masterGateOrder = [];
   let masterGateSet = new Set();
   let scannedLocToGate = {};
+  let scannedLocType = {};
+  let scannedLocTech = {};
   let allMasterTechNames = new Set();
   let techsByGateMap = {};
   let techFileLoaded = false;
@@ -1977,6 +2015,8 @@ function process() {
     allMasterTechNames = mgResult.allTechNames;
     techsByGateMap = mgResult.techsByGateMap;
     scannedLocToGate = mgResult.scannedLocToGate || {};
+    scannedLocType = mgResult.scannedLocType || {};
+    scannedLocTech = mgResult.scannedLocTech || {};
     techFileLoaded = mgResult.errors.length === 0 && mgResult.gateOrder.length > 0;
     for (var vi = 0; vi < mgResult.errors.length; vi++) allValidationIssues.push({ severity: 'error', file: mgResult.errors[vi].file, row: mgResult.errors[vi].row, message: mgResult.errors[vi].message });
     for (var wi = 0; wi < mgResult.warnings.length; wi++) allValidationIssues.push({ severity: 'warning', file: mgResult.warnings[wi].file, row: mgResult.warnings[wi].row, message: mgResult.warnings[wi].message });
@@ -3358,7 +3398,8 @@ function process() {
               hasDrOps: daily ? daily.hasDrOps : false,
               hasQaOps: daily ? daily.hasQaOps : false,
               missing: isMissing,
-              techName: '',
+              techName: scannedLocTech[entry.location.toLowerCase()] || '',
+              locationType: scannedLocType[entry.location.toLowerCase()] || 'QUEUE',
               scanLocation: entry.location
             };
             if (useFileDaysInGate) {
@@ -3366,10 +3407,13 @@ function process() {
               if (!isNaN(dgParsed)) mappedOrder.daysAtGate = dgParsed;
             }
             scanGateBuckets[mappedGate].orders.push(mappedOrder);
-            // Track for multi-gate detection
+            // Track for multi-gate detection — dedupe by gateKey so a WO scanned at both a
+            // WIP bench and the QUEUE rack of the SAME gate isn't flagged as a split location.
             var gateLabel = isHold ? (techFileGateNames[mappedGate] || mappedGate) : 'Gate ' + mappedGate;
             if (!scanMultiGateInfo[woId]) scanMultiGateInfo[woId] = [];
-            scanMultiGateInfo[woId].push({ gateKey: mappedGate, label: gateLabel });
+            if (!scanMultiGateInfo[woId].some(function(g) { return g.gateKey === mappedGate; })) {
+              scanMultiGateInfo[woId].push({ gateKey: mappedGate, label: gateLabel });
+            }
           } else {
             // Unmapped location
             var dailyU = dailyLookup[woId];
@@ -3577,20 +3621,63 @@ function process() {
             cardHtml += '<div class="gv-multi-gate">\u26a0 Also at ' + esc(otherGates.join(', ')) + '</div>';
           }
         }
+        if (order.locationType === 'WIP' && order.techName) {
+          cardHtml += '<div class="gv-tech-label">with ' + esc(order.techName) + '</div>';
+        }
         if (order.daysAtGate !== undefined && order.daysAtGate !== null) {
-          cardHtml += '<div class="gv-gate-age">' + order.daysAtGate + ' days at gate</div>';
+          var ageWhere = order.locationType === 'WIP' ? ' days at bench'
+                       : (order.locationType === 'QUEUE' ? ' days on rack' : ' days at gate');
+          cardHtml += '<div class="gv-gate-age">' + order.daysAtGate + ageWhere + '</div>';
         }
         cardHtml += '</div>';
         return cardHtml;
+      }
+
+      // Partition a gate's orders into WIP (benches — "in the field", shown first) and
+      // IN QUEUE (on the rack). Dedupe by order: if a WO is scanned at both a bench and
+      // the rack of the same gate, WIP wins (the rack scan is treated as stale).
+      function renderGateBody(orders, gKey, suppressLabels) {
+        var byWo = {};
+        for (var i = 0; i < orders.length; i++) {
+          var o = orders[i], k = o.orderNo;
+          if (!byWo[k] || (o.locationType === 'WIP' && byWo[k].locationType !== 'WIP')) byWo[k] = o;
+        }
+        var wip = [], queue = [];
+        for (var k in byWo) (byWo[k].locationType === 'WIP' ? wip : queue).push(byWo[k]);
+        wip.sort(gvCardSort);
+        queue.sort(gvCardSort);
+        // Labels appear only when the gate actually has WIP items. A pure-rack gate (or any
+        // file without a Location Type column) renders flat — visually identical to before.
+        var showLabels = !suppressLabels && wip.length > 0;
+        var html = '';
+        if (wip.length) {
+          html += '<div class="gv-subgroup">';
+          if (showLabels) html += '<div class="gv-subgroup-label gv-subgroup-label-wip">WIP — in the field (' + wip.length + ')</div>';
+          html += '<div class="gv-subgroup-cards">';
+          for (var w = 0; w < wip.length; w++) html += renderScanGvCard(wip[w], gKey);
+          html += '</div></div>';
+        }
+        if (queue.length) {
+          html += '<div class="gv-subgroup">';
+          if (showLabels) html += '<div class="gv-subgroup-label gv-subgroup-label-queue">IN QUEUE — on the rack (' + queue.length + ')</div>';
+          html += '<div class="gv-subgroup-cards">';
+          for (var q = 0; q < queue.length; q++) html += renderScanGvCard(queue[q], gKey);
+          html += '</div></div>';
+        }
+        return html;
       }
 
       // Render mapped gates
       for (var sgk = 0; sgk < scanGateOrder.length; sgk++) {
         var sGKey = scanGateOrder[sgk];
         var sBucket = scanGateBuckets[sGKey];
+        // Distinct WO count (a WO scanned at both a bench and the rack of this gate counts once)
+        var sDistinct = {};
+        for (var sdi = 0; sdi < sBucket.orders.length; sdi++) sDistinct[sBucket.orders[sdi].orderNo] = 1;
+        var sCount = Object.keys(sDistinct).length;
         var sHeaderText = sBucket.isHold
-          ? (sBucket.gateName || sBucket.gateNumber) + ' (' + sBucket.orders.length + ' orders)'
-          : sBucket.gateNumber + '. ' + sBucket.gateName + ' (' + sBucket.orders.length + ' orders)';
+          ? (sBucket.gateName || sBucket.gateNumber) + ' (' + sCount + ' orders)'
+          : sBucket.gateNumber + '. ' + sBucket.gateName + ' (' + sCount + ' orders)';
         var sTechLabel = '';
         var sTechs = techsByGate[sBucket.gateNumber];
         if (sTechs && sTechs.length > 0) {
@@ -3605,9 +3692,7 @@ function process() {
           gvHtml += '<div class="gv-gate-header">' + esc(sHeaderText) + sTechLabel + '</div>';
           gvHtml += '<div class="gv-cards-row">';
         }
-        for (var soi = 0; soi < sBucket.orders.length; soi++) {
-          gvHtml += renderScanGvCard(sBucket.orders[soi], sGKey);
-        }
+        gvHtml += renderGateBody(sBucket.orders, sGKey, sBucket.isHold);
         gvHtml += '</div></div>';
       }
 
