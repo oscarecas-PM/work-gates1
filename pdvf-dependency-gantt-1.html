@@ -62,8 +62,13 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 #add-emp-input { width: 44px; text-align: center; }
 .vel-reset { display: inline-block; padding: 0 4px; font-size: 0.85rem; font-weight: bold; color: #7c3aed; cursor: pointer; vertical-align: middle; user-select: none; }
 .vel-reset:hover { color: #5b21b6; }
-/* Join-gate selector — feeder declares the parent gate it must be ready for. */
-.join-gate-sel { font-size: 0.66rem; margin-left: 4px; vertical-align: middle; max-width: 120px; border: 1px solid #cbd5e1; border-radius: 3px; background: #f8fafc; color: #475569; padding: 0 2px; cursor: pointer; }
+/* Join-gate selector — feeder declares the parent gate it must be ready for. Fixed narrow width
+   (independent of gate-name length); a chain icon shows linked state; the title carries the mapping;
+   the open dropdown still lists full gate names. */
+.jg-wrap { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; vertical-align: middle; }
+.jg-ico { font-size: 0.7rem; color: #94a3b8; }
+.jg-ico.linked { color: #2563eb; }
+.join-gate-sel { font-size: 0.66rem; width: 3.4em; vertical-align: middle; border: 1px solid #cbd5e1; border-radius: 3px; background: #f8fafc; color: #475569; padding: 0 2px; cursor: pointer; }
 .join-gate-sel.linked { background: #dbeafe; border-color: #2563eb; color: #1e3a5f; font-weight: bold; }
 .hold-warn { display: inline-block; padding: 0 4px; font-size: 0.85rem; color: #b45309; cursor: help; vertical-align: middle; }
 /* WO HOLD pill — far left of line 2 on any row with an op on hold. ~25% smaller than the old label. */
@@ -311,7 +316,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.9</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.10</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -2068,7 +2073,7 @@ function render() {
           ' ondragstart="onRowDragStart(event,\'' + n.id + '\')" ondragend="onRowDragEnd(event)">&#9776;</span>';
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
         var ident = identToken(n);
-        var tip = n.woNo ? (n.woNo + ' · ' + n.partNo + ' · ' + n.partDesc) : (n.partNo + (n.partDesc ? ' · ' + n.partDesc : ''));
+        var tip = [ (n.serial ? 'SN ' + String(n.serial).trim().replace(/^S\/?N[\s-]?/i, '') : ''), n.woNo, n.partNo, n.partDesc ].filter(Boolean).join(' · ');
         // Show part # inline in BOTH edit and review modes so the row identifier is always self-explanatory.
         var partInline = (n.partNo && ident !== n.partNo) ? ' <span class="pn-inline">· ' + esc(n.partNo) + '</span>' : '';
         html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
@@ -2097,14 +2102,23 @@ function render() {
         var par = n.parentId ? nodes[n.parentId] : null;
         var parRd = par ? resolveOps(par) : null;
         if (par && parRd && parRd.hasRing) {
-          var jgSel = '<select class="join-gate-sel' + (n.joinGate != null ? ' linked' : '') +
-            '" title="Join the parent at gate… (feeder must be ready before that gate)" onchange="setJoinGate(\'' + n.id + '\', this.value)">' +
+          var linked = n.joinGate != null;
+          // Tooltip describes the current mapping (the narrow control can't show the full gate name).
+          var jgTip;
+          if (linked) {
+            var jgGate = null; parRd.gates.forEach(function(g){ if (String(g.num) === String(n.joinGate)) jgGate = g; });
+            jgTip = 'Linked to parent Gate ' + n.joinGate + (jgGate && jgGate.name ? ': ' + jgGate.name : '');
+          } else { jgTip = 'Not linked — pick a parent gate this feeder must be ready for'; }
+          var jgSel = '<span class="jg-wrap" title="' + esc(jgTip) + '">' +
+            '<span class="jg-ico' + (linked ? ' linked' : '') + '">&#128279;</span>' +
+            '<select class="join-gate-sel' + (linked ? ' linked' : '') +
+            '" onchange="setJoinGate(\'' + n.id + '\', this.value)">' +
             '<option value=""' + (n.joinGate == null ? ' selected' : '') + '>no link</option>';
           parRd.gates.forEach(function(g) {
             if (g.num === '') return;
-            jgSel += '<option value="' + esc(g.num) + '"' + (String(n.joinGate) === String(g.num) ? ' selected' : '') + '>&#128279; G' + esc(g.num) + (g.name ? ': ' + esc(g.name) : '') + '</option>';
+            jgSel += '<option value="' + esc(g.num) + '"' + (String(n.joinGate) === String(g.num) ? ' selected' : '') + '>G' + esc(g.num) + (g.name ? ': ' + esc(g.name) : '') + '</option>';
           });
-          jgSel += '</select>';
+          jgSel += '</select></span>';
           html += jgSel;
         }
         html += '</div>';   // .tc-right  (line 1 right cluster: progress / velocity / join-gate only)
@@ -2166,7 +2180,23 @@ function syncFloatingAxis() {
   if (!wraps.length || !rootIds.length) { fa.classList.remove('live'); return; }
   fa.classList.add('live');
   if (track) {
-    track.style.width = (100 * zoomFactor).toFixed(1) + '%';
+    // Match the axis scale + origin to the BARS' coordinate space, not 100*zoom% of the clip.
+    // The bars live in .time-col (width = zoom*board − taskCol) inset 6px each side (.bar-wrap);
+    // sizing the track to 100*zoom% of the clip (= zoom*(viewport−taskCol)) drifts increasingly
+    // from the bars as zoom rises. Measure the real time-col instead so a date's tick lands at the
+    // same x as a bar ending on that date.
+    var tc = document.querySelector('.gantt-row .time-col');
+    var spacer = fa.querySelector('.fa-spacer');
+    var padL = parseFloat(getComputedStyle(document.body).paddingLeft) || 0;
+    var timeW = tc ? tc.getBoundingClientRect().width : 0;
+    if (timeW > 0) {
+      track.style.width = (timeW - 12) + 'px';   // .bar-wrap is inset left:6px right:6px
+      track.style.marginLeft = '6px';
+      if (spacer) spacer.style.width = (taskColPx() + padL) + 'px';   // origin = body padding + task col
+    } else {
+      track.style.width = (100 * zoomFactor).toFixed(1) + '%';   // fallback when rects are 0 (e.g. hidden tab)
+      track.style.marginLeft = '0px';
+    }
     track.innerHTML = axisTicksHTML();
     track.style.transform = 'translateX(' + (-_savedScroll) + 'px)';
   }
