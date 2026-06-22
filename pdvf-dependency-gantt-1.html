@@ -316,7 +316,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.10</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.11</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -413,7 +413,8 @@ var woMeta = {};         // woNo -> { partNo, partDesc, program, serial }
 var ringByPart = {};     // partNo -> { gateOrder: [gateNum...], gateName: {num:name}, operToGate: {operNo:num}, laborByOper: {operNo:hrs} }
 var programLabels = {};  // program -> short label (<=20 chars)
 var familyComments = {}; // root node id -> takeaway comment
-var zoomFactor = 1.0;    // 0.25 .. 5 — stretches timeline width in #4
+var zoomFactor = 1.0;    // 0.25 .. maxZoom (derived per-span; floor 15) — stretches timeline width in #4
+var maxZoom = 15;        // dynamic zoom ceiling, recomputed each render so the near-term stays day-tier readable regardless of span
 var compactMode = false; // hides date + row buttons, reveals part number inline
 var weeklyEarned = {};   // woNo -> { isoWeek: hrs }  — built from EHA upload
 var lookbackWeeks = 4;   // trailing weeks averaged to derive per-WO velocity
@@ -1140,7 +1141,7 @@ function setFamilyComment(rootId, val) { familyComments[rootId] = val || ''; }
 
 function setZoom(v) {
   var z = parseFloat(v); if (!(z > 0)) z = 1;
-  if (z < 0.25) z = 0.25; if (z > 15) z = 15;
+  if (z < 0.25) z = 0.25; if (z > maxZoom) z = maxZoom;
   zoomFactor = z; var sl = document.getElementById('zoom-slider'); if (sl) sl.value = z;
   var lbl = document.getElementById('zoom-label'); if (lbl) lbl.textContent = z.toFixed(2) + '×';
   render();
@@ -1152,8 +1153,9 @@ function onGanttWheel(e) {
   if (!e || typeof e.deltaY !== 'number') return;
   if (!e.target || !e.target.closest || !e.target.closest('.time-col')) return;
   e.preventDefault();
-  var step = 0.15;
-  var z = zoomFactor + (e.deltaY < 0 ? -step : step);
+  // Multiplicative step so the (now span-dependent) range is traversable in a few gestures.
+  var factor = 1.15;
+  var z = (e.deltaY < 0) ? zoomFactor / factor : zoomFactor * factor;
   setZoom(z);
 }
 function setCompactMode(on) {
@@ -1979,7 +1981,7 @@ function axisTicksHTML() {
   }
 
   var html = '', d = startOf(tier, gStart), guard = 0;
-  while (iso(d) <= gMax && guard++ < 600) {
+  while (iso(d) <= gMax && guard++ < 2200) {   // ~6yrs of daily ticks: day-tier across a long span at high zoom must not truncate
     var pos = daysBetween(gStart, iso(d)) / total * 100;
     if (pos >= -1 && pos <= 101) {
       html += '<div class="axis-tick" style="left:' + pos + '%"></div>';
@@ -2035,6 +2037,16 @@ function render() {
     if (ce && ce > gMax) gMax = ce;
   });
   if (gMax === gStart) gMax = addDays(gStart, 30);
+
+  // Dynamic zoom ceiling: scale max zoom with the span so the near-term (~2 weeks) stays day-tier
+  // readable (TARGET_PXPERDAY > the 24 px/day "day" cutoff) no matter how far a forecast pushes gMax.
+  // Derived per render (not user state) — floor of 15 keeps short-span behavior unchanged.
+  var TARGET_PXPERDAY = 30;
+  var _basePx = ((document.getElementById('board') && document.getElementById('board').clientWidth) || 1100) - taskColPx();
+  if (_basePx < 200) _basePx = 200;
+  var _total = daysBetween(gStart, gMax); if (_total <= 0) _total = 1;
+  maxZoom = Math.max(15, Math.ceil(TARGET_PXPERDAY * _total / _basePx));
+  var _zsl = document.getElementById('zoom-slider'); if (_zsl) _zsl.max = maxZoom;
 
   // group roots by program
   var progOrder = [], byProg = {};
@@ -2721,7 +2733,7 @@ function saveSnapshot() {
   html += 'var hrsPerEmployee = (snapshotState.hrsPerEmployee == null ? null : snapshotState.hrsPerEmployee);\n';
   html += 'var addEmployees = snapshotState.addEmployees || 0;\n';
   html += 'var fleetCache = null;\n';
-  html += 'var pendingSearch = null; var gStart = "", gMax = "";\n';
+  html += 'var pendingSearch = null; var gStart = "", gMax = "", maxZoom = 15;\n';
   html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
   html += 'var _opsCache = {}, _progCache = {}; var _childIndex = null; var _savedScroll = 0;\n';
   // Module-scope constants used by serialized functions (velocity/forecast math, CSV parsing) —
