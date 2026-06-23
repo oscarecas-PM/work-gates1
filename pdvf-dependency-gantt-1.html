@@ -75,8 +75,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .wo-hold { display: inline-block; padding: 1px 4px; font-size: 0.47rem; font-weight: 900; letter-spacing: 0.04em; color: #fff; background: #dc2626; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); cursor: help; flex-shrink: 0; }
 .gantt-row.on-hold .task-col { background: linear-gradient(to right, rgba(220,38,38,0.10), transparent 200px); }
 
-/* Edit mode: two-line rows need a bit more height + horizontal room than review mode. */
-#board:not(.compact) .task-col { min-height: 52px; padding-top: 6px; padding-bottom: 6px; }
+/* Edit mode: three-line rows (identity / chips / hold+buttons+dates) need more height than review mode. */
+#board:not(.compact) .task-col { min-height: 66px; padding-top: 6px; padding-bottom: 6px; }
 .node-label { flex: 1 1 auto; min-width: 0; }
 .date-cluster { display: inline-flex; align-items: center; gap: 4px; }
 .date-cap { font-size: 0.6rem; font-weight: bold; letter-spacing: 0.03em; color: #64748b; text-transform: uppercase; }
@@ -84,6 +84,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 
 /* Compact / Review mode: hide editing controls, reveal part number inline */
 .compact .date-cluster, .compact .row-btn { display: none !important; }
+/* In Review mode line 3 only ever shows the HOLD pill (buttons/dates hidden); collapse it on non-hold rows so normal rows read as a tidy two lines (name / chips). */
+.compact .gantt-row:not(.on-hold) .tc-line3 { display: none; }
 .node-label .pn-inline { color: #475569; margin-left: 4px; }
 
 .snapshot-notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 6px 12px; border-radius: 4px; font-size: 0.85rem; color: #1e40af; margin-bottom: 1rem; display: none; }
@@ -95,9 +97,9 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .gantt-row, .gantt-head { display: flex; align-items: stretch; border-bottom: 1px solid #eef2f7; }
 .gantt-head { background: #f8fafc; border-bottom: 2px solid #cbd5e1; }
 .task-col { width: 360px; flex-shrink: 0; padding: 4px 8px; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; justify-content: center; gap: 2px; font-size: 0.8rem; }
-/* Fixed two-line task row: line 1 = identity + chips/buttons, line 2 = WO HOLD + dates. */
-.tc-line1, .tc-line2 { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; }
-.tc-line2 { min-height: 18px; }
+/* Fixed three-line task row: line 1 = identity, line 2 = chips, line 3 = WO HOLD + buttons + dates. */
+.tc-line1, .tc-line2, .tc-line3 { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.tc-line2, .tc-line3 { min-height: 18px; }
 .tc-right { margin-left: auto; display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 /* Line-2 lead: invisible copies of line 1's drag+caret+token reserve the same width so the action
    buttons start exactly under the part number. The WO HOLD pill overlays at the far left of the lead. */
@@ -316,7 +318,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.11</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.12</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -2075,9 +2077,9 @@ function render() {
         var canAddParent = isRoot && th < 9;
         html += '<div class="gantt-row' + (isOnHold(n) ? ' on-hold' : '') + '"' +
           ' ondragover="onRowDragOver(event,\'' + n.id + '\')" ondragleave="onRowDragLeave(event)" ondrop="onRowDrop(event,\'' + n.id + '\')">';
-        // task col — fixed two-line layout (line 1: identity + chips/buttons; line 2: hold + dates)
+        // task col — fixed three-line layout (line 1: identity; line 2: chips; line 3: hold + buttons + dates)
         html += '<div class="task-col" style="padding-left:' + (8 + lvl*14) + 'px">';
-        // ----- Line 1: drag + caret + identity (left), chips + buttons (right) -----
+        // ----- Line 1: drag + caret + identity (the product name — kept readable on its own line) -----
         html += '<div class="tc-line1">';
         // Drag grip — reorder this family (root) or sibling (child). Only the handle is draggable so
         // row inputs/buttons stay usable.
@@ -2091,12 +2093,13 @@ function render() {
         html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
           '<span class="ident">' + esc(ident) + '</span>' + partInline +
           (n.partDesc ? ' <span class="pd">' + esc(n.partDesc) + '</span>' : '') + '</span>';
-        // Right cluster on line 1: progress / velocity / join-gate / action buttons — always top-right.
-        html += '<div class="tc-right">';
+        html += '</div>';   // .tc-line1  (identity only — keeps the product name readable)
+        // ----- Line 2 (own line, both modes): progress / velocity / join-gate, right-aligned -----
+        var chipsHTML = '';
         var woProg = computeWOProgress(n);
         if (woProg) {
           var pcls = n.isPlaceholder ? 'pct-plan' : (woProg.woPct >= 99.5 ? 'pct-done' : '');
-          html += '<span class="wo-pct ' + pcls + '" title="Hours-based: (planned − remaining) / planned">' + woProg.woPct.toFixed(0) + '%</span>' +
+          chipsHTML += '<span class="wo-pct ' + pcls + '" title="Hours-based: (planned − remaining) / planned">' + woProg.woPct.toFixed(0) + '%</span>' +
                   '<span class="wo-rem" title="Sum of planned hours for ops currently open in the daily upload">' + woProg.remainHrs.toFixed(1) + 'h rem</span>';
         }
         // Velocity chip (from EHA trailing-N-week avg, with any overrides applied).
@@ -2104,9 +2107,9 @@ function render() {
           var v = fleetCache.fleet.eff[n.id];
           var isOver = n.overrideVelocity != null;
           var vTip = 'Velocity: ' + v.toFixed(1) + ' h/mo — click to override' + (isOver ? ' (currently overridden — ↺ to reset)' : ' (from last ' + lookbackWeeks + ' weeks of EHA actuals)');
-          html += '<span class="vel-chip' + (isOver ? ' overridden' : '') + '" title="' + esc(vTip) +
+          chipsHTML += '<span class="vel-chip' + (isOver ? ' overridden' : '') + '" title="' + esc(vTip) +
             '" onclick="event.stopPropagation();promptVelocity(\'' + n.id + '\')">' + v.toFixed(1) + ' h/mo <span class="vel-edit">&#9998;</span></span>';
-          if (isOver) html += '<span class="vel-reset" title="Reset to calculated velocity" onclick="event.stopPropagation();resetVelocity(\'' + n.id + '\')">&#8634;</span>';
+          if (isOver) chipsHTML += '<span class="vel-reset" title="Reset to calculated velocity" onclick="event.stopPropagation();resetVelocity(\'' + n.id + '\')">&#8634;</span>';
         }
         // Join-gate selector — feeder declares which gate on its PARENT it must be ready for. Only for
         // non-root nodes whose parent has a decoder ring (so there are gates to pick). Option B: default
@@ -2131,12 +2134,11 @@ function render() {
             jgSel += '<option value="' + esc(g.num) + '"' + (String(n.joinGate) === String(g.num) ? ' selected' : '') + '>G' + esc(g.num) + (g.name ? ': ' + esc(g.name) : '') + '</option>';
           });
           jgSel += '</select></span>';
-          html += jgSel;
+          chipsHTML += jgSel;
         }
-        html += '</div>';   // .tc-right  (line 1 right cluster: progress / velocity / join-gate only)
-        html += '</div>';   // .tc-line1
-        // ----- Line 2: WO HOLD (far left) + action buttons (under the part #) + dates (right) -----
-        html += '<div class="tc-line2">';
+        html += '<div class="tc-line2"><div class="tc-right">' + chipsHTML + '</div></div>';
+        // ----- Line 3: WO HOLD (far left) + action buttons (under the part #) + dates (right) -----
+        html += '<div class="tc-line3">';
         var hr = isOnHold(n) ? holdReason(n) : '';
         // Lead reproduces line 1's drag+caret+token width (hidden copies) so the buttons start exactly
         // under the part number; the WO HOLD pill overlays at the far left of that lead.
@@ -2159,7 +2161,7 @@ function render() {
         html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
           '" value="' + esc(n.completion || '') + '" title="Milestone date (your target)" onchange="setCompletion(\'' + n.id + '\', this.value)">';
         html += '</span>';   // .date-cluster
-        html += '</div>';   // .tc-line2
+        html += '</div>';   // .tc-line3
         html += '</div>';   // .task-col
         // time col
         html += '<div class="time-col">' + renderMilestone(n) + renderBar(n) + '</div>';
