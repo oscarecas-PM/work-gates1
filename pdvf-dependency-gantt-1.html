@@ -158,6 +158,8 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .bar.chips .chip-stack .oper-chip { padding: 1px 4px; font-size: 0.64rem; line-height: 1.2; }
 .bar.chips .more-ellipsis { padding: 1px 4px; font-size: 0.7rem; font-weight: bold; color: #475569; align-self: center; }
 .slip-flag { position: absolute; right: -4px; top: -2px; font-size: 0.7rem; color: #dc2626; }
+/* Completed + past-due rows get this marker instead of a bar/diamond/connector. */
+.done-marker { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; background: #dcfce7; color: #166534; border: 1px solid #16a34a; }
 /* "Won't finish" treatment: a WO with no computable forecast gets a near-full-width bar so the gate
    detail stays usable. The dashed outline + low-opacity stripes keep gate colors/names legible; the
    message pill is left-anchored and click-through so it stays put at any zoom. */
@@ -318,7 +320,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.12</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.13</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -402,6 +404,18 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
   </div>
 </div>
 
+<!-- Rename placeholder modal -->
+<div class="modal-overlay" id="rename-modal">
+  <div class="modal" style="width:420px">
+    <div class="modal-head"><h3>Rename placeholder</h3><button class="modal-x" onclick="closeRename()">&times;</button></div>
+    <div class="modal-search">
+      <input type="text" id="rn-part" placeholder="Part number" onkeydown="if(event.key==='Enter')saveRename()">
+      <input type="text" id="rn-desc" placeholder="Description (optional)" style="margin-top:8px" onkeydown="if(event.key==='Enter')saveRename()">
+    </div>
+    <div class="modal-foot"><span class="hint"></span><button class="btn btn-primary" onclick="saveRename()">Save</button></div>
+  </div>
+</div>
+
 <script>
 // ============================== State ==============================
 var nodes = {};          // id -> { id, woNo, partNo, partDesc, program, serial, parentId, completion, manualDate, collapsed, opsExpanded, expandedGates }
@@ -425,6 +439,7 @@ var hrsPerEmployee = null;   // typical earned hrs/mo per employee; drives Gate 
 var addEmployees = 0;        // staffing delta (whole techs, +/-); back-calculated to a lab-capacity delta via hrsPerEmployee
 var fleetCache = null;   // memoized fleet velocity for this render pass
 var pendingSearch = null;// { mode:'root'|'child'|'parent'|'link', nodeId, selected:{woNo:true} }
+var renameId = null;     // node id currently open in the rename-placeholder modal
 var isSnapshot = false;
 
 var gStart = '', gMax = '';  // computed axis domain per render
@@ -503,6 +518,20 @@ function todayISO() { return iso(new Date()); }
 function parseISO(s) { var p = String(s).split('-'); return new Date(+p[0], (+p[1])-1, +p[2]); }
 function addDays(s, n) { var d = parseISO(s); d.setDate(d.getDate()+n); return iso(d); }
 function daysBetween(a, b) { return Math.round((parseISO(b) - parseISO(a)) / 86400000); }
+// Normalize a date cell to ISO yyyy-mm-dd. Accepts ISO (passthrough), US m/d/yyyy, and yyyy/m/d —
+// the formats a spreadsheet re-save commonly produces. Returns '' for empty, null if unparseable.
+// (parseISO and <input type="date"> accept ONLY yyyy-mm-dd, so non-ISO dates would silently blank.)
+function toISODate(s) {
+  s = String(s == null ? '' : s).trim(); if (!s) return '';
+  var m;
+  if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))) {}                      // ISO (allow unpadded)
+  else if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s))) { m = [m[0], m[3], m[1], m[2]]; }  // m/d/yyyy (US)
+  else if ((m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(s))) {}              // yyyy/m/d
+  else return null;
+  var y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return y + '-' + pad(mo) + '-' + pad(d);
+}
 
 // status -> color
 function operColorClass(status, dept) {
@@ -990,6 +1019,25 @@ function openSearch(mode, nodeId) {
   document.getElementById('search-input').focus();
 }
 function closeSearch() { document.getElementById('search-modal').classList.remove('open'); pendingSearch = null; }
+
+// Rename a placeholder's part number + description in-app (so a family never has to be deleted/
+// recreated, and users never hand-edit the exported CSV). The new part re-matches its decoder ring
+// on the next render (caches clear at render() top); dates/linkage are untouched.
+function openRename(id) {
+  var n = nodes[id]; if (!n) return; renameId = id;
+  document.getElementById('rn-part').value = n.partNo || '';
+  document.getElementById('rn-desc').value = n.partDesc || '';
+  document.getElementById('rename-modal').classList.add('open');
+  document.getElementById('rn-part').focus();
+}
+function closeRename() { document.getElementById('rename-modal').classList.remove('open'); renameId = null; }
+function saveRename() {
+  var n = nodes[renameId]; if (!n) return;
+  var p = (document.getElementById('rn-part').value || '').trim();
+  if (!p) { alert('Enter a part number.'); return; }
+  n.partNo = p; n.partDesc = (document.getElementById('rn-desc').value || '').trim();
+  closeRename(); render();
+}
 
 function searchProgram() {
   if (!pendingSearch || pendingSearch.mode === 'root') return null;
@@ -1662,6 +1710,12 @@ function noForecast(node) {
   return (node.id in fe) && fe[node.id] === null;
 }
 
+// A WO is "complete" at the same threshold the green 100% chip uses (woPct >= 99.5).
+function isComplete(node) { var p = computeWOProgress(node); return !!(p && p.woPct >= 99.5); }
+// A finished WO whose need date has already passed: it needs no timeline bar/diamond/connector, and
+// its milestone date must not read as "overdue" (it's done, not late).
+function isDonePastDue(node) { return isComplete(node) && node.completion && daysBetween(scheduleStart, node.completion) < 0; }
+
 // Left edge of the bar as a percent of [gStart, gMax]. 0 (gStart) unless the row has a
 // user-set planned start date (non-WO placeholder rows). Clamped to the timeline.
 function barStartPct(node) {
@@ -1807,7 +1861,7 @@ function renderBar(node) {
   var isChipsView = chipsLayout;
   var wrapClass = 'bar-wrap' + (isChipsView ? ' chips' : '');
   var barClass = 'bar' + (isChipsView ? ' chips' : '') + (nf ? ' no-forecast' : '');
-  var past = (node.completion && scheduleStart && daysBetween(scheduleStart, node.completion) < 0) ? '<span class="slip-flag" title="Completion is before the schedule start">&#9888;</span>' : '';
+  var past = (node.completion && scheduleStart && daysBetween(scheduleStart, node.completion) < 0 && !isComplete(node)) ? '<span class="slip-flag" title="Completion is before the schedule start">&#9888;</span>' : '';
   var posStyle = isChipsView ? 'width:' + widthPct + '%' : 'left:' + startPct + '%;width:' + widthPct + '%';
   // "Won't-finish" overlay: explicit message + the rate needed to hit the milestone. Overlaid on the
   // full-width bar (pointer-events:none) so gate segments / chips underneath stay visible and clickable.
@@ -2151,6 +2205,7 @@ function render() {
         html += '<button class="row-btn" title="Add child work order(s)"' + (atMaxChild ? ' disabled' : '') + ' onclick="openSearch(\'child\',\'' + n.id + '\')">+</button>';
         if (isRoot) html += '<button class="row-btn" title="Add a parent above this assembly"' + (canAddParent ? '' : ' disabled') + ' onclick="openSearch(\'parent\',\'' + n.id + '\')">&#8593;</button>';
         if (n.isPlaceholder) html += '<button class="row-btn link" title="Link this placeholder to a work order" onclick="openSearch(\'link\',\'' + n.id + '\')">WO</button>';
+        if (n.isPlaceholder) html += '<button class="row-btn" title="Rename part number / description" onclick="openRename(\'' + n.id + '\')">&#9998;</button>';
         html += '<button class="row-btn del" title="Delete this node and its branch" onclick="deleteNode(\'' + n.id + '\')">&times;</button>';
         html += '<span class="date-cluster tc-right">';
         // Planned start date — placeholders only (moves the bar's left edge + draws the hollow start diamond).
@@ -2158,13 +2213,15 @@ function render() {
           html += '<input type="date" class="node-date start" value="' + esc(n.startDate || '') +
             '" title="Planned start date (bar begins here)" onchange="setStartDate(\'' + n.id + '\', this.value)">';
         }
-        html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 ? ' past' : '') +
+        html += '<input type="date" class="node-date' + (n.completion && daysBetween(scheduleStart, n.completion) < 0 && !isComplete(n) ? ' past' : '') +
           '" value="' + esc(n.completion || '') + '" title="Milestone date (your target)" onchange="setCompletion(\'' + n.id + '\', this.value)">';
         html += '</span>';   // .date-cluster
         html += '</div>';   // .tc-line3
         html += '</div>';   // .task-col
-        // time col
-        html += '<div class="time-col">' + renderMilestone(n) + renderBar(n) + '</div>';
+        // time col — a finished, past-due WO needs no timeline (no bar/diamond/connector): show a marker.
+        html += '<div class="time-col">' +
+          (isDonePastDue(n) ? '<span class="done-marker" title="Complete — finished on or before its need date">&#10003; Complete</span>'
+                            : (renderMilestone(n) + renderBar(n))) + '</div>';
         html += '</div>';
         // reveal strip
         if (n.opsExpanded || Object.keys(n.expandedGates).length) html += renderRevealStrip(n);
@@ -2618,7 +2675,7 @@ function importHierarchy(rows) {
 
   nodes = {}; rootIds = []; nextNodeId = 0; programLabels = {}; familyComments = {};
   overrideLabTotal = null; addEmployees = 0;   // refresh: import will pick up the first non-empty value below
-  var byWO = {}, maxNum = -1, pending = [];
+  var byWO = {}, maxNum = -1, pending = [], badDates = 0;
   for (var r = 1; r < rows.length; r++) {
     var row = rows[r];
     var wo = iWO >= 0 ? (row[iWO] || '').trim() : '';
@@ -2636,6 +2693,10 @@ function importHierarchy(rows) {
     var ovRaw = iOV >= 0 ? (row[iOV] || '').trim() : '';
     var ordRaw = iOrder >= 0 ? (row[iOrder] || '').trim() : '';
     var idNum = (function(){ var mmn = /^n(\d+)$/.exec(id); return mmn ? +mmn[1] : 0; })();
+    // Normalize dates to ISO so a spreadsheet-reformatted CSV (e.g. 6/1/2026) survives re-import
+    // instead of rendering blank. Truly unparseable, non-empty values are blanked and counted.
+    var rawC = iComp >= 0 ? (row[iComp] || '').trim() : ''; var compISO = rawC ? toISODate(rawC) : ''; if (rawC && compISO === null) { badDates++; compISO = ''; }
+    var rawS = iStart >= 0 ? (row[iStart] || '').trim() : ''; var startISO = rawS ? toISODate(rawS) : ''; if (rawS && startISO === null) { badDates++; startISO = ''; }
     var n = { id: id, woNo: wo,
       partNo: iPart>=0 ? (row[iPart]||'').trim() : '',
       partDesc: iDesc>=0 ? (row[iDesc]||'').trim() : '',
@@ -2643,9 +2704,9 @@ function importHierarchy(rows) {
       serial: iSerial>=0 ? (row[iSerial]||'').trim() : '',
       isPlaceholder: isPlace,
       parentId: null,
-      completion: iComp>=0 ? (row[iComp]||'').trim() : '',
+      completion: compISO,
       manualDate: iMan>=0 ? /^y/i.test((row[iMan]||'').trim()) : false,
-      startDate: iStart>=0 ? (row[iStart]||'').trim() : '',
+      startDate: startISO,
       order: (ordRaw !== '' && !isNaN(parseInt(ordRaw, 10))) ? parseInt(ordRaw, 10) : idNum,
       overrideVelocity: ovRaw === '' ? null : (parseFloat(ovRaw) >= 0 ? parseFloat(ovRaw) : null),
       joinGate: jgRaw === '' ? null : (parseInt(jgRaw, 10) || null),
@@ -2680,7 +2741,9 @@ function importHierarchy(rows) {
   if (byId) nextNodeId = maxNum + 1;
   if (!scheduleStart) scheduleStart = todayISO();
   normalizeDates();
-  showStatus('hier-status', 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)). Re-upload a Daily Upload to refresh status.', 'loaded');
+  var okMsg = 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)). Re-upload a Daily Upload to refresh status.';
+  if (badDates > 0) showStatus('hier-status', okMsg + ' ⚠ ' + badDates + ' date(s) were unreadable and left blank — expected yyyy-mm-dd.', 'warning');
+  else showStatus('hier-status', okMsg, 'loaded');
   render();
 }
 
@@ -2722,6 +2785,7 @@ function saveSnapshot() {
   html += '<div id="board"></div>\n';
   html += '<div id="loading"></div>\n';
   html += document.getElementById('search-modal').outerHTML + '\n';
+  html += document.getElementById('rename-modal').outerHTML + '\n';
 
   html += '<script>\n';
   html += 'var isSnapshot = true;\n';
@@ -2735,13 +2799,14 @@ function saveSnapshot() {
   html += 'var hrsPerEmployee = (snapshotState.hrsPerEmployee == null ? null : snapshotState.hrsPerEmployee);\n';
   html += 'var addEmployees = snapshotState.addEmployees || 0;\n';
   html += 'var fleetCache = null;\n';
-  html += 'var pendingSearch = null; var gStart = "", gMax = "", maxZoom = 15;\n';
+  html += 'var pendingSearch = null; var renameId = null; var gStart = "", gMax = "", maxZoom = 15;\n';
   html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
   html += 'var _opsCache = {}, _progCache = {}; var _childIndex = null; var _savedScroll = 0;\n';
   // Module-scope constants used by serialized functions (velocity/forecast math, CSV parsing) —
   // not functions, so they must be re-declared here or the snapshot would ReferenceError at runtime.
   html += 'var WEEKS_PER_MONTH = ' + WEEKS_PER_MONTH + ', DAYS_PER_MONTH = ' + DAYS_PER_MONTH + ', CSV_MAX_FIELD_LEN = ' + CSV_MAX_FIELD_LEN + ', CASCADE_MAX_ITERS = ' + CASCADE_MAX_ITERS + ';\n';
-  var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween,
+  var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween, toISODate,
+    isComplete, isDonePastDue, openRename, closeRename, saveRename,
     operColorClass, statusRank, legendHTML, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
     getChildren, nodeLevel, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
     reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
