@@ -105,6 +105,14 @@
   .merge-table { font-size: 0.86rem; border-collapse: collapse; margin: 0.2rem 0; }
   .merge-table th, .merge-table td { border: 1px solid var(--gray-line); padding: 3px 8px; text-align: left; }
   .merge-undo { color: var(--red); font-size: 0.8rem; }
+  /* v1.13 — roster save/restore */
+  .roster-box { width: 100%; }
+  .roster-box > summary { cursor: pointer; font-size: 0.85rem; color: var(--blue); font-weight: 600; }
+  .roster-body { margin-top: 0.4rem; }
+  .roster-help { font-size: 0.8rem; color: var(--slate); margin: 0.2rem 0 0.4rem; }
+  #roster-text { width: 100%; box-sizing: border-box; font-size: 0.82rem; font-family: inherit; padding: 5px 7px; border: 1px solid var(--gray-line); border-radius: 4px; resize: vertical; }
+  .roster-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.4rem; }
+  .roster-status { font-size: 0.8rem; color: var(--slate); }
   .validation { background: var(--amber-bg); border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 0.6rem 0; font-size: 0.88rem; border-radius: 0 4px 4px 0; }
   .validation summary { cursor: pointer; font-weight: 600; color: var(--amber); }
   .validation .v-list { margin: 0.5rem 0; padding-left: 1.2rem; }
@@ -213,7 +221,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.11 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.13 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -286,6 +294,20 @@
     <span id="badge-chips" class="badge-multi badge-multi-wide"></span>
     <button id="badges-all" class="secondary small" style="padding: 3px 8px;">All</button>
     <button id="badges-none" class="secondary small" style="padding: 3px 8px;">None</button>
+  </div>
+  <div class="filter-row filter-row-wide">
+    <details class="roster-box">
+      <summary>Save / restore selection (roster)</summary>
+      <div class="roster-body">
+        <p class="roster-help">Click <b>Copy current selection</b> to get a comma-separated list of the selected names you can paste somewhere to keep. Later, paste a list back in and click <b>Select from list</b> to re-select exactly those people (matches by name or badge; everyone else is turned off). You can edit the list freely.</p>
+        <textarea id="roster-text" rows="3" placeholder="Selected names appear here, or paste your own comma/line separated list…"></textarea>
+        <div class="roster-controls">
+          <button id="roster-copy" class="secondary small">Copy current selection &rarr; list</button>
+          <button id="roster-apply" class="secondary small">Select from list</button>
+          <span id="roster-status" class="roster-status"></span>
+        </div>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -1556,6 +1578,56 @@ function buildFilterControls() {
     renderAll();
   };
 
+  // Roster save / restore (v1.13) — copy the current selection as a comma list to
+  // store, and re-select from a pasted list. Uses REAL names (not anonymized) so
+  // the saved list survives across sessions / the per-session Tech-N remapping.
+  const rosterText = document.getElementById('roster-text');
+  const rosterStatus = document.getElementById('roster-status');
+  const realName = b => { const m = State.badgeMeta.get(b); return (m && m.names.size) ? Array.from(m.names)[0] : b; };
+  document.getElementById('roster-copy').onclick = () => {
+    const sel = badges.filter(b => effectiveOn(b)).map(realName);
+    const csv = sel.join(', ');
+    rosterText.value = csv;
+    let copied = false;
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(csv); copied = true; } } catch (e) { /* fall through */ }
+    if (!copied) { rosterText.focus(); rosterText.select(); try { copied = document.execCommand('copy'); } catch (e) { /* ignore */ } }
+    rosterStatus.textContent = sel.length + ' name(s) ' + (copied ? 'copied to clipboard.' : 'listed below — select & copy.');
+  };
+  document.getElementById('roster-apply').onclick = () => {
+    const tokens = (rosterText.value || '').split(/[,\n;]+/).map(s => s.trim()).filter(Boolean);
+    if (!tokens.length) { rosterStatus.textContent = 'Paste a comma- or line-separated list first.'; return; }
+    // Build the set of match keys each token can hit (handles "Name (badge)").
+    const tokenCands = tokens.map(t => {
+      const set = new Set([t.toLowerCase(), identityKey(t).toLowerCase()]);
+      const m = t.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+      if (m) {
+        set.add(m[1].trim().toLowerCase());
+        set.add(m[2].trim().toLowerCase());
+        set.add(identityKey(m[2].trim()).toLowerCase()); // zero-pad badge inside "Name (badge)"
+      }
+      return { t, set };
+    });
+    const allKeys = new Set();
+    tokenCands.forEach(tc => tc.set.forEach(k => allKeys.add(k)));
+    const matchedTokens = new Set();
+    let selCount = 0;
+    State.filters.manualOverride = new Map();
+    for (const b of badges) {
+      const keys = new Set([String(b).toLowerCase(), identityKey(b).toLowerCase()]);
+      const m = State.badgeMeta.get(b);
+      if (m) for (const nm of m.names) keys.add(nm.toLowerCase());
+      let match = false;
+      for (const k of keys) if (allKeys.has(k)) { match = true; break; }
+      State.filters.manualOverride.set(b, match);
+      if (match) { selCount++; tokenCands.forEach(tc => { for (const k of keys) if (tc.set.has(k)) { matchedTokens.add(tc.t); break; } }); }
+    }
+    refreshEmployeeChipStates();
+    renderAll();
+    const unmatched = tokens.filter(t => !matchedTokens.has(t));
+    rosterStatus.textContent = 'Selected ' + selCount + ' of ' + badges.length + ' employees.' +
+      (unmatched.length ? ' ' + unmatched.length + ' item(s) matched nobody: ' + unmatched.slice(0, 5).join(', ') + (unmatched.length > 5 ? '…' : '') : '');
+  };
+
   // Anonymize
   const anonChip = document.getElementById('anonymize-chip');
   anonChip.onclick = () => {
@@ -2409,7 +2481,7 @@ function buildChartForTab(tabId, totals, activeMonths) {
       cap += '</div>';
       const ew = d.evalWk ? fmtWeekLabel(d.evalWk) : '—';
       const rm = d.refMo ? monthKeyLabel(d.refMo) : '—';
-      cap += '<div class="pw-note">Per employee, 4 bars left&rarr;right: <b>Charged (wk ' + esc(ew) + ')</b>, <b>Earned (wk ' + esc(ew) + ')</b>, <b>Charged (avg/wk ' + esc(rm) + ')</b>, <b>Earned (avg/wk ' + esc(rm) + ')</b>. The two CPI values under each employee are evaluated-week | reference.</div>';
+      cap += '<div class="pw-note">Per employee: a <b>Reference</b> group (left, avg/wk ' + esc(rm) + ') and an <b>Evaluated</b> group (right, wk ' + esc(ew) + '). Each group has a <b>CHG</b> (charged) and an <b>ERN</b> (earned) bar, stacked by program. The date and <b>CPI</b> are labelled under each group; the employee name is on the bottom line.</div>';
       if (!State._earnedHasWeek) cap += '<div class="pw-note" style="color:var(--amber);">Hours Earned has no <b>Actual End Date</b> column &mdash; evaluated-week earned bars are unavailable; only the monthly reference is exact.</div>';
       cpiEl.innerHTML = cap;
     }
@@ -2431,12 +2503,15 @@ function buildChartForTab(tabId, totals, activeMonths) {
 
     if (emps.length === 0) { const inner = document.getElementById('pw-inner'); if (inner) inner.style.minWidth = ''; return; }
 
-    // x = employees; 4 side-by-side stacks per employee (stack groups), each
-    // internally stacked by program. barType order defines left->right bars.
+    // x = employees. Per employee, 4 side-by-side stacks (each internally stacked
+    // by program), grouped Reference (left) then Evaluated (right) to match the
+    // sketched layout. Native x ticks are off; a plugin draws the labelled
+    // hierarchy below the axis: per-bar metric -> date + CPI per group ->
+    // employee name, on separate lines so nothing overlaps.
     const labels = emps.map(e => shortLabelFor(e.badge));
     const barTypes = [
-      { key: 'cw', src: 'evalCharged' }, { key: 'ew', src: 'evalEarned' },
       { key: 'cm', src: 'refCharged' }, { key: 'em', src: 'refEarned' },
+      { key: 'cw', src: 'evalCharged' }, { key: 'ew', src: 'evalEarned' },
     ];
     const datasets = [];
     for (const bt of barTypes) {
@@ -2450,18 +2525,19 @@ function buildChartForTab(tabId, totals, activeMonths) {
       }
     }
     const stride = d.programs.length; // datasets per barType
-    // CPI per employee per period for the under-axis plugin
     const cpis = emps.map(e => ({ ev: periodCpi(e.evalEarned, e.evalCharged), rf: periodCpi(e.refEarned, e.refCharged) }));
+    const refLabel = 'Ref: ' + (d.refMo ? monthKeyLabel(d.refMo) : '—');
+    const evalLabel = 'Eval: ' + (d.evalWk ? fmtWeekLabel(d.evalWk) : '—');
 
     const inner = document.getElementById('pw-inner');
-    if (inner) inner.style.minWidth = Math.max(emps.length * 150, 320) + 'px';
+    if (inner) inner.style.minWidth = Math.max(emps.length * 210, 420) + 'px';
 
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
       type: 'bar',
       data: { labels, datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
-        layout: { padding: { bottom: 40 } },
+        layout: { padding: { bottom: 66 } },
         plugins: {
           title: { display: true, text: 'Earned vs Charged by Program — per employee', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
           legend: { display: false }, // programs shown in the HTML legend strip (4 stacks would duplicate)
@@ -2470,43 +2546,64 @@ function buildChartForTab(tabId, totals, activeMonths) {
               title: items => (items && items.length ? labels[items[0].dataIndex] : ''),
               label: ctx => {
                 const bt = barTypes[Math.floor(ctx.datasetIndex / stride)];
-                const ttl = { cw: 'Charged wk', ew: 'Earned wk', cm: 'Charged avg/wk', em: 'Earned avg/wk' }[bt.key];
+                const ttl = { cm: 'Charged avg/wk', em: 'Earned avg/wk', cw: 'Charged wk', ew: 'Earned wk' }[bt.key];
                 return ttl + ' · ' + ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 1) + ' h';
               }
             }
           }
         },
         scales: {
-          x: { stacked: true },
+          x: { stacked: true, ticks: { display: false }, grid: { display: false } },
           y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Hours (per week)' } }
         }
       },
       plugins: [{
-        id: 'pwEmployeeCpi',
+        id: 'pwLayout',
+        beforeDatasetsDraw(chart) {
+          // Alternating background band per employee so the 4-bar groups read clearly.
+          const { ctx, chartArea: ca } = chart;
+          const m0 = chart.getDatasetMeta(0).data, mL = chart.getDatasetMeta(3 * stride).data;
+          ctx.save();
+          for (let i = 1; i < labels.length; i += 2) {
+            if (!m0[i] || !mL[i]) continue;
+            const left = m0[i].x - (m0[i].width || 10) / 2 - 6;
+            const right = mL[i].x + (mL[i].width || 10) / 2 + 6;
+            ctx.fillStyle = 'rgba(30,58,95,0.05)';
+            ctx.fillRect(left, ca.top, right - left, ca.bottom - ca.top);
+          }
+          ctx.restore();
+        },
         afterDatasetsDraw(chart) {
           const { ctx, chartArea: ca } = chart;
-          // representative dataset index for each barType stack = bt*stride
-          const metaFor = btIdx => chart.getDatasetMeta(btIdx * stride);
-          const mCW = metaFor(0), mEW = metaFor(1), mCM = metaFor(2), mEM = metaFor(3);
+          const md = k => chart.getDatasetMeta(k * stride).data;
+          const mRC = md(0), mRE = md(1), mEC = md(2), mEE = md(3);
           ctx.save();
-          ctx.font = 'bold 10px Arial';
           ctx.textAlign = 'center';
           for (let i = 0; i < labels.length; i++) {
-            const y = ca.bottom + 26;
-            // evaluated CPI centered under the cw/ew pair
-            if (mCW.data[i] && mEW.data[i]) {
-              const x = (mCW.data[i].x + mEW.data[i].x) / 2;
-              const c = cpis[i].ev;
-              ctx.fillStyle = cpiColor(c);
-              ctx.fillText(fmtCpi(c), x, y);
-            }
-            // reference CPI centered under the cm/em pair
-            if (mCM.data[i] && mEM.data[i]) {
-              const x = (mCM.data[i].x + mEM.data[i].x) / 2;
-              const c = cpis[i].rf;
-              ctx.fillStyle = cpiColor(c);
-              ctx.fillText(fmtCpi(c), x, y);
-            }
+            if (!mRC[i] || !mEE[i]) continue;
+            const xRC = mRC[i].x, xRE = mRE[i].x, xEC = mEC[i].x, xEE = mEE[i].x;
+            // line 1 — per-bar metric. Uppercase + letter-spacing so "ERN" can't
+            // be misread as "EM" (the rn/m ambiguity) at this small size.
+            ctx.font = '9px Arial'; ctx.fillStyle = '#64748b';
+            ctx.letterSpacing = '0.7px';
+            ctx.fillText('CHG', xRC, ca.bottom + 11); ctx.fillText('ERN', xRE, ca.bottom + 11);
+            ctx.fillText('CHG', xEC, ca.bottom + 11); ctx.fillText('ERN', xEE, ca.bottom + 11);
+            ctx.letterSpacing = '0px';
+            const refMid = (xRC + xRE) / 2, evalMid = (xEC + xEE) / 2;
+            // underline bracket per date group
+            ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(xRC - 6, ca.bottom + 16); ctx.lineTo(xRE + 6, ca.bottom + 16); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(xEC - 6, ca.bottom + 16); ctx.lineTo(xEE + 6, ca.bottom + 16); ctx.stroke();
+            // line 2 — date label per group
+            ctx.font = 'bold 9px Arial'; ctx.fillStyle = '#475569';
+            ctx.fillText(refLabel, refMid, ca.bottom + 27); ctx.fillText(evalLabel, evalMid, ca.bottom + 27);
+            // line 3 — CPI per group (color-coded)
+            ctx.font = 'bold 11px Arial';
+            ctx.fillStyle = cpiColor(cpis[i].rf); ctx.fillText('CPI ' + fmtCpi(cpis[i].rf), refMid, ca.bottom + 41);
+            ctx.fillStyle = cpiColor(cpis[i].ev); ctx.fillText('CPI ' + fmtCpi(cpis[i].ev), evalMid, ca.bottom + 41);
+            // line 4 — employee name centered under all 4 bars (its own line)
+            ctx.font = 'bold 11px Arial'; ctx.fillStyle = '#1e3a5f';
+            ctx.fillText(labels[i], (xRC + xEE) / 2, ca.bottom + 59);
           }
           ctx.restore();
         }
