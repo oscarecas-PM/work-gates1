@@ -95,6 +95,12 @@
   .pw-cpi-tbl { font-size: 0.85rem; border-collapse: collapse; margin: 0.5rem 0; }
   .pw-cpi-tbl th, .pw-cpi-tbl td { border: 1px solid var(--gray-line); padding: 3px 10px; }
   .pw-cpi-tbl th { background: var(--navy); color: #fff; }
+  .pw-cpi-tbl th.pw-grp { text-align: center; }
+  /* Conditional CPI formatting must beat the global zebra rule (tr:nth-child(even) td),
+     which has higher specificity than the bare .cpi-* classes — scope + extra class wins. */
+  .pw-cpi-tbl td.cpi-good { background: #dcfce7; }
+  .pw-cpi-tbl td.cpi-mid { background: #fef3c7; }
+  .pw-cpi-tbl td.cpi-bad { background: #fee2e2; }
   /* v1.11 — employee identity merge panel */
   .merge-section { background: #fff; border: 1px solid var(--gray-line); border-left: 4px solid var(--blue); border-radius: 6px; padding: 0.6rem 1rem 0.9rem; margin: 0.6rem 0; }
   .merge-section > summary { cursor: pointer; }
@@ -221,7 +227,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.13 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.14 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -2069,10 +2075,10 @@ function renderDistribution(totals, activeMonths) {
       // stacked by program) with two CPIs drawn under each employee, plus a
       // snapshot-safe per-employee CPI table.
       html += '<div class="pw-controls">';
-      html += '<label>Week ending (evaluated): <select id="pw-eval-week"></select></label>';
       html += '<label>Reference month (avg/wk): <select id="pw-ref-month"></select></label>';
+      html += '<label>Week ending (evaluated): <select id="pw-eval-week"></select></label>';
       html += '</div>';
-      html += '<div class="boxplot-explainer"><b>4 bars per selected employee</b>, each stacked/colored by program: Charged &amp; Earned for the evaluated week, then for the reference month (shown as its <b>average week</b> = month total &divide; weeks observed). The two numbers under each employee are CPI (evaluated week | reference). Scrolls horizontally when there are many employees.</div>';
+      html += '<div class="boxplot-explainer"><b>4 bars per selected employee</b>, each stacked/colored by program, grouped <b>Reference</b> (left, the reference month shown as its <b>average week</b> = month total &divide; weeks observed) then <b>Evaluated</b> (right, the chosen week). Each group has a Charged and an Earned bar; the date and CPI are labelled under each group. Scrolls horizontally when there are many employees.</div>';
       html += '<div id="pw-cpi" class="pw-cpi"></div>';
       html += '<div class="chart-wrap pw-scroll"><div class="pw-inner" id="pw-inner"><canvas id="chart-programWeek"></canvas></div></div>';
       html += '<div id="pw-cpi-table"></div>';
@@ -2491,10 +2497,18 @@ function buildChartForTab(tabId, totals, activeMonths) {
     if (tableEl) {
       if (emps.length === 0) { tableEl.innerHTML = ''; }
       else {
-        let t = '<table class="pw-cpi-tbl"><thead><tr><th>Employee</th><th>Eval CPI (wk)</th><th>Ref CPI (avg/wk)</th></tr></thead><tbody>';
+        const rmLbl = d.refMo ? monthKeyLabel(d.refMo) : '—';
+        const ewLbl = d.evalWk ? fmtWeekLabel(d.evalWk) : '—';
+        let t = '<table class="pw-cpi-tbl"><thead>';
+        t += '<tr><th rowspan="2">Employee</th><th colspan="3" class="pw-grp">Reference — avg/wk ' + esc(rmLbl) + '</th><th colspan="3" class="pw-grp">Evaluated — wk ' + esc(ewLbl) + '</th></tr>';
+        t += '<tr><th>Chg</th><th>Ern</th><th>CPI</th><th>Chg</th><th>Ern</th><th>CPI</th></tr>';
+        t += '</thead><tbody>';
         for (const e of emps) {
-          const ec = periodCpi(e.evalEarned, e.evalCharged), rc = periodCpi(e.refEarned, e.refCharged);
-          t += '<tr><td class="pii">' + esc(shortLabelFor(e.badge)) + '</td><td class="num ' + cpiClass(ec) + '">' + fmtCpi(ec) + '</td><td class="num ' + cpiClass(rc) + '">' + fmtCpi(rc) + '</td></tr>';
+          const rChg = sumMap(e.refCharged), rErn = sumMap(e.refEarned), rc = periodCpi(e.refEarned, e.refCharged);
+          const eChg = sumMap(e.evalCharged), eErn = sumMap(e.evalEarned), ec = periodCpi(e.evalEarned, e.evalCharged);
+          t += '<tr><td class="pii">' + esc(shortLabelFor(e.badge)) + '</td>'
+            + '<td class="num">' + fmtNum(rChg, 1) + '</td><td class="num">' + fmtNum(rErn, 1) + '</td><td class="num ' + cpiClass(rc) + '">' + fmtCpi(rc) + '</td>'
+            + '<td class="num">' + fmtNum(eChg, 1) + '</td><td class="num">' + fmtNum(eErn, 1) + '</td><td class="num ' + cpiClass(ec) + '">' + fmtCpi(ec) + '</td></tr>';
         }
         t += '</tbody></table>';
         tableEl.innerHTML = t;
