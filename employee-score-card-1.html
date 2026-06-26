@@ -72,6 +72,23 @@
   .chip.anonymize { background: var(--orange); color: #fff; padding: 5px 12px; font-weight: 600; }
   .chip.anonymize.off { background: #e2e8f0; color: var(--slate); text-decoration: none; font-weight: 500; }
   .chip-group { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
+  /* v1.10 — Work Center color coding + per-chip hours */
+  .wc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; box-shadow: 0 0 0 1px rgba(0,0,0,0.15); }
+  .chip .chip-name { vertical-align: middle; }
+  .chip .chip-hrs { margin-left: 6px; font-size: 0.72rem; opacity: 0.8; vertical-align: middle; }
+  .chip.off .chip-hrs { opacity: 0.6; }
+  .chip.wc-highlight { box-shadow: 0 0 0 2px var(--navy); }
+  /* v1.10 — chart-local Ranked Bar omission toggles */
+  .rb-omit-row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin: 0 0 0.5rem; font-size: 0.82rem; }
+  .rb-omit-row .rb-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e2e8f0; color: var(--slate); cursor: pointer; user-select: none; font-size: 0.78rem; border: 1px solid transparent; }
+  .rb-omit-row .rb-chip.hidden-bar { color: #94a3b8; text-decoration: line-through; background: #f1f5f9; }
+  /* v1.10 — Program Weekly chart controls + scroll */
+  .pw-controls { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; margin-bottom: 0.6rem; font-size: 0.88rem; }
+  .pw-controls select { font-size: 0.85rem; padding: 2px 4px; }
+  .pw-scroll { overflow-x: auto; }
+  .pw-inner { height: 100%; }
+  .pw-cpi { margin-top: 0.5rem; font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 1.2rem; }
+  .pw-cpi b { color: var(--navy); }
   .validation { background: var(--amber-bg); border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 0.6rem 0; font-size: 0.88rem; border-radius: 0 4px 4px 0; }
   .validation summary { cursor: pointer; font-weight: 600; color: var(--amber); }
   .validation .v-list { margin: 0.5rem 0; padding-left: 1.2rem; }
@@ -180,7 +197,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.9 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.10 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -200,7 +217,7 @@
   </div>
   <div class="file-section">
     <h3>2. Hours Earned CSV (required)</h3>
-    <p class="desc">Same export used by Earned Hour Analysis. Columns: Order No, Year of Actual End Date, Month of Actual End Date, Oper No, Hours Earned.</p>
+    <p class="desc">Same export used by Earned Hour Analysis. Columns: Order No, Year of Actual End Date, Month of Actual End Date, Oper No, Hours Earned. Include the optional <b>Actual End Date</b> (day-level) column to enable the weekly "Earned vs Charged by Program" chart.</p>
     <input type="file" id="earned-input" accept=".csv,.txt">
     <div id="earned-status" class="muted"></div>
   </div>
@@ -231,6 +248,7 @@
       <select id="start-year"></select>
     </label>
     <label><input type="checkbox" id="hide-current-month" checked> Hide current month</label>
+    <label title="Hide employees whose charged hours over the active range (from Start month) are below this. Manually re-selecting a name overrides this.">Min charged hrs: <input type="number" id="min-charged" min="0" step="1" value="0" style="width:64px;"></label>
     <label title="Treat unmatched (still-open) operations as if they closed at CPI 1.0"><input type="checkbox" id="hypothetical-close"> Hypothetical close (open ops &rarr; CPI 1.0)</label>
     <span class="chip anonymize off" id="anonymize-chip" title="Replace names/badges with Tech 1, Tech 2, ...">Anonymize: OFF</span>
   </div>
@@ -387,15 +405,34 @@ const State = {
     anonymize: false,
     hypotheticalClose: false,     // treat unmatched ops as if they closed at CPI 1.0 (v1.7)
     ignoreBoxOutliers: false,     // hide red dots in box plot, rescale Y axis (v1.7)
+    minChargedHours: 0,           // min charged hours over active range to keep an employee (v1.10)
+    rankedBarHidden: new Set(),   // badges hidden from the Ranked Bar chart only (chart-local, v1.10)
+    chart5: { evalWeekISO: null, refMonthKey: null }, // selections for the Program Weekly chart (v1.10)
   },
 
   // anonymize mapping
   anonMap: new Map(),       // badge -> "Tech N"
 
+  // per-badge active-range hours cache (v1.10): badge -> {charged, earned}, over
+  // getActiveMonthKeys() + program filter. Recomputed at the top of renderAll().
+  _activeHours: new Map(),
+  // color maps (v1.10) — assigned in buildFilterControls
+  wcColorMap: new Map(),      // workCenter -> css color
+  programColorMap: new Map(), // program -> css color
+  _weekEndingDow: 6,          // weekday (0-6) of the charge week-ending grid (v1.10)
+  _earnedHasWeek: false,      // true when Hours Earned carried an Actual End Date column (v1.10)
+
   // chart instances
   charts: {},
   activeTab: 'rankedBar',
 };
+
+// Distinct palette for Work Center / Program color-coding (v1.10). Chosen for
+// reasonable separation on a light background.
+const COLOR_PALETTE = [
+  '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
+  '#e377c2', '#17becf', '#bcbd22', '#7f7f7f', '#393b79', '#637939'
+];
 
 // ---------- Helpers ----------
 function esc(s) {
@@ -516,6 +553,31 @@ function parseChargeDate(v) {
   const d = new Date(s);
   if (!isNaN(d.getTime())) return { date: d, month: d.getMonth() + 1, year: d.getFullYear() };
   return null;
+}
+
+// v1.10 — snap an arbitrary day to the charge week-ending grid (next occurrence
+// of the grid weekday on/after the date). Built the same way charge weekEndingISO
+// is (local Date -> toISOString slice) so earned weeks align with charged weeks.
+function weekEndingFor(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return null;
+  const dow = (State._weekEndingDow == null) ? 6 : State._weekEndingDow;
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diff = (dow - d.getDay() + 7) % 7;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().substring(0, 10);
+}
+
+// "YYYY-MM-DD" -> "M/D/YYYY" for the week-ending dropdown / labels (v1.10)
+function fmtWeekLabel(iso) {
+  if (!iso) return '';
+  const p = iso.split('-');
+  return parseInt(p[1], 10) + '/' + parseInt(p[2], 10) + '/' + p[0];
+}
+
+// Program name for a work order, with a stable fallback bucket (v1.10)
+function programOf(orderNo) {
+  const e = State.evMap.get(orderNo);
+  return (e && e.program) ? e.program : '(no program)';
 }
 
 function setStatus(id, msg, isErr) {
@@ -660,6 +722,11 @@ function parseEarnedFile(file) {
           const iOperType = colIndex(headers, 'Oper Type');
           const operTypeColPresent = iOperType >= 0;
           let nonMfgSkipped = 0;
+          // v1.10: optional day-level completion date. When present, the Program
+          // Weekly chart can bucket earned hours by week (snapped to the charge
+          // week-ending grid). When absent, earned stays month-only.
+          const iActualEnd = colIndex(headers, 'Actual End Date');
+          const actualEndColPresent = iActualEnd >= 0;
 
           const rows = [];
           let badHours = 0;
@@ -677,14 +744,20 @@ function parseEarnedFile(file) {
             }
             let hours = parseFloat(String(r[idx['Hours Earned']]).replace(/,/g, ''));
             if (isNaN(hours)) { hours = 0; badHours++; }
+            let actualEndDate = null;
+            if (actualEndColPresent) {
+              const pd = parseChargeDate(r[iActualEnd]);
+              if (pd) actualEndDate = pd.date;
+            }
             rows.push({
               orderNo, operNo,
               year: yr, month: mo,
               monthKey: monthKey(yr, mo),
-              hoursEarned: hours
+              hoursEarned: hours,
+              actualEndDate
             });
           }
-          resolve({ rows, badHours, nonMfgSkipped, operTypeColPresent });
+          resolve({ rows, badHours, nonMfgSkipped, operTypeColPresent, actualEndColPresent });
         } catch (err) {
           reject(err);
         }
@@ -892,9 +965,25 @@ function runAnalyze() {
   State.validation.negativeDiffs = 0; // retained for validation-shape stability; no longer computed
   State.chargeRows = deduped;
 
+  // v1.10: derive the charge week-ending weekday (most common) so earned-hour
+  // completion dates can be snapped onto the same weekly grid for the Program
+  // Weekly chart.
+  {
+    const dowCounts = {};
+    for (const r of deduped) {
+      if (!(r.weekEnding instanceof Date)) continue;
+      const dow = r.weekEnding.getDay();
+      dowCounts[dow] = (dowCounts[dow] || 0) + 1;
+    }
+    let bestDow = 6, bestN = -1;
+    for (const k in dowCounts) if (dowCounts[k] > bestN) { bestN = dowCounts[k]; bestDow = parseInt(k, 10); }
+    State._weekEndingDow = bestDow;
+  }
+
   // 4. Earned rows
   State.earnedRows = earnedParsed.rows;
   State.validation.earnedRowsTotal = earnedParsed.rows.length;
+  State._earnedHasWeek = !!earnedParsed.actualEndColPresent;
 
   // EV map
   State.evMap = new Map();
@@ -943,6 +1032,9 @@ function runAnalyze() {
       orderNo: er.orderNo, operNo: er.operNo,
       partNo: slot.partNo, partDesc: slot.partDesc,
       year: er.year, month: er.month, monthKey: er.monthKey,
+      // v1.10: week-ending bucket for this op's earned hours (null if the source
+      // had no Actual End Date column).
+      earnedWeekEndingISO: er.actualEndDate ? weekEndingFor(er.actualEndDate) : null,
       hoursEarned: er.hoursEarned, totalCharged,
       parts, split
     };
@@ -1125,6 +1217,16 @@ function buildFilterControls() {
     renderAll();
   };
 
+  // Min charged hours (v1.10)
+  const minEl = document.getElementById('min-charged');
+  minEl.value = State.filters.minChargedHours || 0;
+  minEl.onchange = function () {
+    const n = parseFloat(this.value);
+    State.filters.minChargedHours = (isNaN(n) || n < 0) ? 0 : n;
+    // _activeHours is refreshed at the top of renderAll, which the gate reads.
+    renderAll();
+  };
+
   // Hypothetical close
   const hypoEl = document.getElementById('hypothetical-close');
   hypoEl.checked = !!State.filters.hypotheticalClose;
@@ -1136,6 +1238,9 @@ function buildFilterControls() {
   // Programs
   const programs = new Set();
   for (const e of State.evMap.values()) if (e.program) programs.add(e.program);
+  // Program colors (v1.10) — used by the Program Weekly chart. Stable by sorted name.
+  State.programColorMap = new Map();
+  Array.from(programs).sort().forEach((p, i) => State.programColorMap.set(p, COLOR_PALETTE[i % COLOR_PALETTE.length]));
   const wrap = document.getElementById('program-filter-wrap');
   const chips = document.getElementById('program-chips');
   if (programs.size === 0) {
@@ -1147,7 +1252,8 @@ function buildFilterControls() {
     for (const p of Array.from(programs).sort()) {
       const c = document.createElement('span');
       c.className = 'chip on';
-      c.textContent = p;
+      // color swatch so the program chip matches its bars in the weekly chart
+      c.innerHTML = '<span class="wc-dot" style="background:' + (State.programColorMap.get(p) || '#888') + '"></span>' + esc(p);
       c.onclick = () => {
         if (State.filters.selectedPrograms.has(p)) {
           State.filters.selectedPrograms.delete(p);
@@ -1162,16 +1268,11 @@ function buildFilterControls() {
     }
   }
 
-  // Helper: refresh every employee chip's class to reflect current effective state.
-  // Called after CCC/WC chip toggles (auto-exclusion can change for many badges
-  // at once) and from the All/None buttons.
   const badgeChips = document.getElementById('badge-chips');
-  function refreshEmployeeChipStates() {
-    badgeChips.querySelectorAll('.chip').forEach(c => {
-      const b = c.dataset.badge;
-      c.className = effectiveOn(b) ? 'chip on' : 'chip off';
-    });
-  }
+
+  // Work Center colors (v1.10) — stable assignment by sorted WC list.
+  State.wcColorMap = new Map();
+  State.allWorkCenters.forEach((w, i) => State.wcColorMap.set(w, COLOR_PALETTE[i % COLOR_PALETTE.length]));
 
   // CCC exclude chips (v1.7) — visible only when at least one CCC is known
   const cccWrap = document.getElementById('ccc-filter-wrap');
@@ -1210,10 +1311,13 @@ function buildFilterControls() {
   } else {
     wcWrap.style.display = 'flex';
     for (const v of State.allWorkCenters) {
+      const col = State.wcColorMap.get(v) || '#888';
       const c = document.createElement('span');
       c.className = 'chip on';
-      c.textContent = v;
-      c.title = 'Click to exclude all employees in Work Center ' + v;
+      // Color swatch (v1.10) lets the user match a Work Center to the colored
+      // dots on the employee chips below.
+      c.innerHTML = '<span class="wc-dot" style="background:' + col + '"></span>' + esc(v);
+      c.title = 'Click to exclude all employees in Work Center ' + v + '. Hover to highlight its employees.';
       c.onclick = () => {
         if (State.filters.excludedWorkCenters.has(v)) {
           State.filters.excludedWorkCenters.delete(v);
@@ -1225,6 +1329,8 @@ function buildFilterControls() {
         refreshEmployeeChipStates();
         renderAll();
       };
+      c.onmouseenter = () => highlightWcEmployees(v, true);
+      c.onmouseleave = () => highlightWcEmployees(v, false);
       wcChips.appendChild(c);
     }
   }
@@ -1239,7 +1345,7 @@ function buildFilterControls() {
     const c = document.createElement('span');
     c.dataset.badge = b;
     c.className = effectiveOn(b) ? 'chip on' : 'chip off';
-    c.textContent = labelFor(b);
+    c.innerHTML = employeeChipInner(b);
     c.onclick = () => {
       // Two-state toggle: clicking always flips effective on/off, recording an
       // override in State.filters.manualOverride so it sticks across CCC/WC
@@ -1279,12 +1385,60 @@ function buildFilterControls() {
     anonChip.className = 'chip anonymize ' + (State.filters.anonymize ? 'on' : 'off');
     anonChip.textContent = 'Anonymize: ' + (State.filters.anonymize ? 'ON' : 'OFF');
     document.body.classList.toggle('anonymize-on', State.filters.anonymize);
-    // Refresh badge chip labels
-    badgeChips.querySelectorAll('.chip').forEach(c => {
-      c.textContent = labelFor(c.dataset.badge);
-    });
+    // Refresh badge chip labels (rebuilds dots + name + hours; name respects anon)
+    refreshEmployeeChipLabels();
     renderAll();
   };
+}
+
+// v1.10 — inner markup for an employee chip: Work Center color dot(s) + the
+// (optionally anonymized) name + the active-range hours (E earned / C charged).
+function employeeChipInner(badge) {
+  let html = '';
+  const wcs = State.workCenterByBadge.get(badge);
+  if (wcs) {
+    for (const w of wcs) {
+      const col = State.wcColorMap.get(w) || '#888';
+      html += '<span class="wc-dot" style="background:' + col + '" title="' + esc(w) + '"></span>';
+    }
+  }
+  html += '<span class="chip-name">' + esc(labelFor(badge)) + '</span>';
+  const h = State._activeHours.get(badge);
+  if (h) {
+    html += '<span class="chip-hrs">E ' + fmtNum(h.earned, 0) + ' / C ' + fmtNum(h.charged, 0) + '</span>';
+  }
+  return html;
+}
+
+// Re-apply on/off class to every employee chip from current effective state.
+function refreshEmployeeChipStates() {
+  const wrap = document.getElementById('badge-chips');
+  if (!wrap) return;
+  wrap.querySelectorAll('.chip').forEach(c => {
+    c.className = effectiveOn(c.dataset.badge) ? 'chip on' : 'chip off';
+  });
+}
+
+// Rebuild every employee chip's inner markup (dots + name + hours). Called from
+// renderAll so the hours track the Start-month / program filters, and from the
+// anonymize toggle.
+function refreshEmployeeChipLabels() {
+  const wrap = document.getElementById('badge-chips');
+  if (!wrap) return;
+  wrap.querySelectorAll('.chip').forEach(c => {
+    c.innerHTML = employeeChipInner(c.dataset.badge);
+  });
+}
+
+// Highlight (outline) the employee chips that belong to a Work Center, used on
+// WC-chip hover so the user can see which names a filter governs.
+function highlightWcEmployees(wc, on) {
+  const wrap = document.getElementById('badge-chips');
+  if (!wrap) return;
+  wrap.querySelectorAll('.chip').forEach(c => {
+    const wcs = State.workCenterByBadge.get(c.dataset.badge);
+    if (wcs && wcs.has(wc)) c.classList.toggle('wc-highlight', on);
+  });
 }
 
 function labelFor(badge) {
@@ -1324,6 +1478,13 @@ function autoExcluded(badge) {
   if (State.filters.excludedWorkCenters.size) {
     const wcs = State.workCenterByBadge.get(badge);
     if (wcs) for (const w of wcs) if (State.filters.excludedWorkCenters.has(w)) return true;
+  }
+  // Min-charged-hours gate (v1.10): drop low contributors. Uses the active-range
+  // cache (Start-month + program filters already applied), so it honors "ignore
+  // hours before the start date". Manual override in effectiveOn still wins.
+  if (State.filters.minChargedHours > 0) {
+    const h = State._activeHours.get(badge);
+    if (!h || h.charged < State.filters.minChargedHours) return true;
   }
   return false;
 }
@@ -1375,6 +1536,33 @@ function avgEarnedPerActiveMonth(r) {
 }
 
 // Compute filtered totals: returns Map<badge, {earned, actual, splitOps, monthCells:Map<mk,cell>}>
+// Per-badge charged & earned over the active month range + program filter, for
+// EVERY badge regardless of selection (v1.10). Used for the hours shown on the
+// employee chips (feature 2) and the min-charged-hours gate (feature 3). Must NOT
+// consult effectiveOn/autoExcluded or the min-hours gate would be circular.
+function computeActiveHoursPerBadge() {
+  const activeMonths = new Set(getActiveMonthKeys());
+  const out = new Map();
+  const ensure = (b) => { if (!out.has(b)) out.set(b, { charged: 0, earned: 0 }); return out.get(b); };
+  for (const badge of State.badgeMeta.keys()) ensure(badge);
+  // Charged: walk charge rows in the active range, applying the program filter.
+  for (const r of State.chargeRows) {
+    if (!activeMonths.has(r.monthKey)) continue;
+    if (!r.incremental) continue;
+    if (!programOk(r.orderNo)) continue;
+    ensure(r.badge).charged += r.incremental;
+  }
+  // Earned: from the per-badge-month cells (myShare already program-agnostic at the
+  // op level, so re-apply the program filter per op).
+  for (const cell of State.perBadgeMonth.values()) {
+    if (!activeMonths.has(cell.monthKey)) continue;
+    let e = 0;
+    for (const op of cell.ops) if (programOk(op.orderNo)) e += op.myShare;
+    if (e) ensure(cell.badge).earned += e;
+  }
+  return out;
+}
+
 function computeFilteredTotals() {
   const activeMonths = new Set(getActiveMonthKeys());
   const hypo = State.filters.hypotheticalClose;
@@ -1440,6 +1628,11 @@ function computeFilteredTotals() {
 // ---------- Render orchestration ----------
 function renderAll() {
   if (!State.haveAnalyzed) return;
+  // v1.10: refresh the active-range hours cache BEFORE computeFilteredTotals so
+  // the min-charged-hours gate (autoExcluded) and the chip hour labels see it.
+  State._activeHours = computeActiveHoursPerBadge();
+  refreshEmployeeChipStates();
+  refreshEmployeeChipLabels();
   const totals = computeFilteredTotals();
   const activeMonths = getActiveMonthKeys();
 
@@ -1491,13 +1684,26 @@ function renderAll() {
       buildChartForTab('boxPlot', totals, activeMonths);
     };
   }
+  // Wire Ranked Bar chart-local omission chips (v1.10) — toggles only this chart
+  document.querySelectorAll('.rb-chip[data-rbbadge]').forEach(el => {
+    el.addEventListener('click', () => {
+      const b = el.dataset.rbbadge;
+      if (State.filters.rankedBarHidden.has(b)) State.filters.rankedBarHidden.delete(b);
+      else State.filters.rankedBarHidden.add(b);
+      el.classList.toggle('hidden-bar');
+      buildChartForTab('rankedBar', totals, activeMonths);
+    });
+  });
+  // Wire Program Weekly chart controls (v1.10)
+  wireProgramWeekControls(totals, activeMonths);
 
-  // Build charts for active + the rest after small delay (so all 4 are export-ready)
+  // Build charts for active + the rest after small delay (so all are export-ready)
   setTimeout(() => {
     buildChartForTab('rankedBar', totals, activeMonths);
     buildChartForTab('histogram', totals, activeMonths);
     buildChartForTab('boxPlot', totals, activeMonths);
     buildChartForTab('scatter', totals, activeMonths);
+    buildChartForTab('programWeek', totals, activeMonths);
   }, 0);
 }
 
@@ -1575,6 +1781,7 @@ function renderDistribution(totals, activeMonths) {
     { id: 'histogram', label: 'Histogram' },
     { id: 'boxPlot', label: 'Box Plot per Month' },
     { id: 'scatter', label: 'Actual vs Earned' },
+    { id: 'programWeek', label: 'Earned vs Charged by Program' },
   ];
   let html = '<div class="dist-section"><h2>Distribution Across Employees</h2>';
   html += '<div class="tabs">';
@@ -1584,6 +1791,18 @@ function renderDistribution(totals, activeMonths) {
   html += '</div>';
   for (const t of tabs) {
     html += '<div class="tab-panel' + (t.id === State.activeTab ? ' active' : '') + '" data-tab="' + t.id + '">';
+    if (t.id === 'rankedBar') {
+      // v1.10 — chart-local toggles to omit individual names from THIS plot only
+      const rbBadges = Array.from(totals.keys()).sort((a, b) => nameSortKey(a).localeCompare(nameSortKey(b)));
+      if (rbBadges.length) {
+        html += '<div class="rb-omit-row"><span style="opacity:0.7;">Show in plot (click to hide):</span>';
+        for (const b of rbBadges) {
+          const hidden = State.filters.rankedBarHidden.has(b);
+          html += '<span class="rb-chip' + (hidden ? ' hidden-bar' : '') + '" data-rbbadge="' + esc(b) + '">' + esc(shortLabelFor(b)) + '</span>';
+        }
+        html += '</div>';
+      }
+    }
     if (t.id === 'boxPlot') {
       html += '<div class="boxplot-toggle-row"><label><input type="checkbox" id="boxplot-ignore-outliers"' + (State.filters.ignoreBoxOutliers ? ' checked' : '') + '> Ignore outliers (rescale Y axis)</label></div>';
       html += '<div class="boxplot-explainer">Each box shows how spread-out tech productivity was that month. A <b>wide</b> box means techs varied a lot &mdash; your future production rate is uncertain. A <b>narrow</b> box means techs converged &mdash; a single rate estimate is more reliable. Use these distributions to set realistic low/high production-rate bounds when forecasting completion dates.</div>';
@@ -1595,7 +1814,19 @@ function renderDistribution(totals, activeMonths) {
       html += '<span><b>n</b> = number of techs that month</span>';
       html += '</div>';
     }
-    html += '<div class="chart-wrap' + (t.id === 'scatter' ? ' tall' : '') + '"><canvas id="chart-' + t.id + '"></canvas></div>';
+    if (t.id === 'programWeek') {
+      // v1.10 — controls + per-period CPI caption, then a horizontally
+      // scrollable canvas so wide category sets keep their bar width.
+      html += '<div class="pw-controls">';
+      html += '<label>Week ending (evaluated): <select id="pw-eval-week"></select></label>';
+      html += '<label>Reference month (avg/wk): <select id="pw-ref-month"></select></label>';
+      html += '</div>';
+      html += '<div class="boxplot-explainer">Bars aggregate all <b>selected</b> employees, colored by program. The <b>evaluated</b> period is the chosen week; the <b>reference</b> period is a past month shown as its <b>average week</b> (month total &divide; weeks observed). CPI = &Sigma;earned &divide; &Sigma;charged for each period.</div>';
+      html += '<div id="pw-cpi" class="pw-cpi"></div>';
+      html += '<div class="chart-wrap pw-scroll"><div class="pw-inner" id="pw-inner"><canvas id="chart-programWeek"></canvas></div></div>';
+    } else {
+      html += '<div class="chart-wrap' + (t.id === 'scatter' ? ' tall' : '') + '"><canvas id="chart-' + t.id + '"></canvas></div>';
+    }
     html += '</div>';
   }
   html += '</div>';
@@ -1611,7 +1842,11 @@ function buildChartForTab(tabId, totals, activeMonths) {
   if (rows.length === 0) return;
 
   if (tabId === 'rankedBar') {
-    const sorted = rows.slice().sort((a, b) => b.earned - a.earned);
+    // v1.10: chart-local omission — drop names the user toggled off under this chart
+    const sorted = rows.slice()
+      .filter(r => !State.filters.rankedBarHidden.has(r.badge))
+      .sort((a, b) => b.earned - a.earned);
+    if (sorted.length === 0) return;
     const labels = sorted.map(r => labelFor(r.badge));
     const data = sorted.map(r => round1(r.earned));
     const avgData = sorted.map(r => round1(avgEarnedPerActiveMonth(r)));
@@ -1978,7 +2213,151 @@ function buildChartForTab(tabId, totals, activeMonths) {
         }
       }]
     });
+  } else if (tabId === 'programWeek') {
+    const d = computeProgramWeekData(totals);
+
+    // Per-period CPI caption + optional week-availability note
+    const cpiEl = document.getElementById('pw-cpi');
+    if (cpiEl) {
+      let cap = '';
+      if (d.evalWk) {
+        const ec = sumMap(d.evalCharged), ee = sumMap(d.evalEarned);
+        cap += '<span>Evaluated (wk ending ' + esc(fmtWeekLabel(d.evalWk)) + '): <b>CPI ' + fmtCpi(ec ? ee / ec : null) + '</b> &middot; ' + fmtNum(ee, 1) + ' earned / ' + fmtNum(ec, 1) + ' charged</span>';
+      }
+      if (d.refMo) {
+        const rc = sumMap(d.refCharged), re = sumMap(d.refEarned);
+        cap += '<span>Reference (avg/wk ' + esc(monthKeyLabel(d.refMo)) + ', ' + d.weeksInMonth + ' wks): <b>CPI ' + fmtCpi(rc ? re / rc : null) + '</b> &middot; ' + fmtNum(re, 1) + ' earned / ' + fmtNum(rc, 1) + ' charged</span>';
+      }
+      if (!State._earnedHasWeek) {
+        cap += '<span style="color:var(--amber);">Hours Earned has no <b>Actual End Date</b> column &mdash; the evaluated-week earned bar is unavailable; only the monthly reference is exact.</span>';
+      }
+      cpiEl.innerHTML = cap;
+    }
+
+    // Categories: Charged / Earned for the evaluated week, then for the reference month
+    const cats = [];
+    if (d.evalWk) {
+      cats.push({ label: 'Charged — wk ' + fmtWeekLabel(d.evalWk), map: d.evalCharged });
+      cats.push({ label: 'Earned — wk ' + fmtWeekLabel(d.evalWk), map: d.evalEarned });
+    }
+    if (d.refMo) {
+      cats.push({ label: 'Charged — avg/wk ' + monthKeyLabel(d.refMo), map: d.refCharged });
+      cats.push({ label: 'Earned — avg/wk ' + monthKeyLabel(d.refMo), map: d.refEarned });
+    }
+    if (cats.length === 0) return;
+    const catLabels = cats.map(c => c.label);
+    const datasets = d.programs.map(prog => ({
+      label: prog,
+      data: cats.map(c => round1(c.map.get(prog) || 0)),
+      backgroundColor: State.programColorMap.get(prog) || '#94a3b8',
+      stack: 'stack0',
+    }));
+
+    // Size the inner wrapper so bars keep a usable width; the .pw-scroll parent
+    // adds a horizontal slider instead of shrinking when categories overflow.
+    const inner = document.getElementById('pw-inner');
+    if (inner) inner.style.minWidth = Math.max(catLabels.length * 150, 320) + 'px';
+
+    State.charts[tabId] = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: { labels: catLabels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          title: { display: true, text: 'Earned vs Charged Hours by Program (per week)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
+          legend: { display: true, position: 'top' },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 1) + ' h',
+              footer: items => {
+                if (!items || !items.length) return '';
+                let s = 0; items.forEach(i => s += i.parsed.y);
+                return 'Total: ' + fmtNum(s, 1) + ' h';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true },
+          y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Hours (per week)' } }
+        }
+      }
+    });
   }
+}
+
+// Sum a Map<string,number> of program -> hours (v1.10)
+function sumMap(m) { let s = 0; for (const v of m.values()) s += v; return s; }
+
+// Aggregate earned & charged hours by program for the Program Weekly chart
+// (v1.10). Covers the selected employees (badges present in `totals`), honoring
+// the program filter. Evaluated period = one week (exact); reference period = a
+// past month expressed as its average week (month total / weeks observed).
+function computeProgramWeekData(totals) {
+  const selBadges = new Set(totals.keys());
+  const evalWk = State.filters.chart5.evalWeekISO;
+  const refMo = State.filters.chart5.refMonthKey;
+  const progSet = new Set();
+  const add = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
+
+  const evalCharged = new Map(), evalEarned = new Map();
+  const refCharged = new Map(), refEarned = new Map();
+  let weeksInMonth = 0;
+
+  // Charged hours from charge rows
+  const refWeeks = new Set();
+  for (const r of State.chargeRows) {
+    if (!r.incremental) continue;
+    if (!programOk(r.orderNo)) continue;
+    const inEval = evalWk && r.weekEndingISO === evalWk;
+    const inRef = refMo && r.monthKey === refMo;
+    if (inRef) refWeeks.add(r.weekEndingISO); // count weeks before the selection filter
+    if (!selBadges.has(r.badge)) continue;
+    const prog = programOf(r.orderNo);
+    if (inEval) { progSet.add(prog); add(evalCharged, prog, r.incremental); }
+    if (inRef) { progSet.add(prog); add(refCharged, prog, r.incremental); }
+  }
+  weeksInMonth = refWeeks.size || 1;
+
+  // Earned hours from per-op earned records (split across the badges who charged)
+  for (const rec of State.earnedKeyToShare.values()) {
+    if (!programOk(rec.orderNo)) continue;
+    let share = 0;
+    for (const p of rec.parts) if (selBadges.has(p.badge)) share += p.share;
+    if (!share) continue;
+    const prog = programOf(rec.orderNo);
+    if (evalWk && rec.earnedWeekEndingISO === evalWk) { progSet.add(prog); add(evalEarned, prog, share); }
+    if (refMo && rec.monthKey === refMo) { progSet.add(prog); add(refEarned, prog, share); }
+  }
+
+  // Convert the reference month to an average week
+  for (const m of [refCharged, refEarned]) for (const k of m.keys()) m.set(k, m.get(k) / weeksInMonth);
+
+  return {
+    evalWk, refMo, weeksInMonth,
+    programs: Array.from(progSet).sort(),
+    evalCharged, evalEarned, refCharged, refEarned,
+  };
+}
+
+// Populate + wire the Program Weekly chart's two dropdowns (v1.10).
+function wireProgramWeekControls(totals, activeMonths) {
+  const evalSel = document.getElementById('pw-eval-week');
+  const refSel = document.getElementById('pw-ref-month');
+  if (!evalSel || !refSel) return;
+  const weeks = Array.from(new Set(State.chargeRows.filter(r => r.incremental).map(r => r.weekEndingISO))).sort().reverse();
+  const months = State.monthKeys.slice().sort().reverse();
+  // Defaults / validate stored selection
+  if (!State.filters.chart5.evalWeekISO || !weeks.includes(State.filters.chart5.evalWeekISO)) {
+    State.filters.chart5.evalWeekISO = weeks[0] || null;
+  }
+  if (!State.filters.chart5.refMonthKey || !months.includes(State.filters.chart5.refMonthKey)) {
+    State.filters.chart5.refMonthKey = months[1] || months[0] || null;
+  }
+  evalSel.innerHTML = weeks.map(w => '<option value="' + w + '"' + (w === State.filters.chart5.evalWeekISO ? ' selected' : '') + '>' + fmtWeekLabel(w) + '</option>').join('');
+  refSel.innerHTML = months.map(m => '<option value="' + m + '"' + (m === State.filters.chart5.refMonthKey ? ' selected' : '') + '>' + monthKeyLabel(m) + '</option>').join('');
+  evalSel.onchange = function () { State.filters.chart5.evalWeekISO = this.value; buildChartForTab('programWeek', totals, activeMonths); };
+  refSel.onchange = function () { State.filters.chart5.refMonthKey = this.value; buildChartForTab('programWeek', totals, activeMonths); };
 }
 
 function quantile(sorted, q) {
@@ -2364,7 +2743,7 @@ function buildSnapshot() {
   // Force-build all 4 charts before serializing
   const totals = computeFilteredTotals();
   const activeMonths = getActiveMonthKeys();
-  ['rankedBar', 'histogram', 'boxPlot', 'scatter'].forEach(t => buildChartForTab(t, totals, activeMonths));
+  ['rankedBar', 'histogram', 'boxPlot', 'scatter', 'programWeek'].forEach(t => buildChartForTab(t, totals, activeMonths));
 
   // Capture rendered HTML from results / validation / filter values
   let resultsHtml = document.getElementById('results').innerHTML;
