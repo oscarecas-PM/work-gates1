@@ -198,3 +198,44 @@ print("Exclude WC=WC-CLEAN:             Diana hidden   -> 3 techs visible")
 print("Exclude CCC=QA AND WC=WC-CLEAN:  only Alice + Bob remain")
 print("Manual click on Charlie's chip   -> Charlie back to ON regardless of CCC=QA filter")
 print("  while CCC=QA is excluded:")
+
+# ============================================================================
+# v1.11 — Employee identity merge test (separate fixture trio, numeric badges)
+#   Sam Carter:  00100200 (wk 6/6, older) + 100200 (wk 6/13, newer) -> zero-pad
+#                auto-merge, canonical = 100200 (most recent). Program N.
+#   Pat Lee:     300100 "Pat Lee" (contractor, wk 6/6) + 405000 "Pat A Lee"
+#                (FTE, wk 6/13). Name-match candidate -> approve -> canonical
+#                405000. CCC dots {CONTR, TECH}. Program P.
+#   Jane Doe:    500500 (distinct baseline). Program N.
+# ============================================================================
+merge_rows = [
+    ["WO-900", "6/6/2026 12:00:00 AM",  "Sam Carter", "00100200", "900-01", "Spar Assembly", "0010", 8.0,  "ACTIVE", "TECH",  "WC-MFG-1"],
+    ["WO-900", "6/13/2026 12:00:00 AM", "Sam Carter", "100200",   "900-01", "Spar Assembly", "0010", 10.0, "CLOSE",  "TECH",  "WC-MFG-1"],
+    ["WO-901", "6/6/2026 12:00:00 AM",  "Pat Lee",    "300100",   "901-01", "Panel Fit",     "0010", 12.0, "ACTIVE", "CONTR", "WC-MFG-2"],
+    ["WO-901", "6/13/2026 12:00:00 AM", "Pat A Lee",  "405000",   "901-01", "Panel Fit",     "0010", 9.0,  "CLOSE",  "TECH",  "WC-MFG-2"],
+    ["WO-902", "6/13/2026 12:00:00 AM", "Jane Doe",   "500500",   "902-01", "Final Assy",    "0010", 20.0, "CLOSE",  "TECH",  "WC-MFG-1"],
+]
+make_xlsx("merge-charges.xlsx", merge_rows, "identity-merge test")
+
+merge_earned = [
+    "Order No,Year of Actual End Date,Month of Actual End Date,Oper No,Oper Type,Actual End Date,Hours Earned",
+    "WO-900,2026,June,0010,MFG,6/13/2026,15",
+    "WO-901,2026,June,0010,MFG,6/13/2026,18",
+    "WO-902,2026,June,0010,MFG,6/13/2026,16",
+]
+(OUT / "merge-hours-earned.csv").write_text("\n".join(merge_earned), encoding="utf-8")
+print("Wrote merge-hours-earned.csv")
+
+merge_ev = [
+    "Network,Order No,Part No,Plan Title,Program",
+    "NET-A,WO-900,900-01,Spar Assembly,N",
+    "NET-A,WO-901,901-01,Panel Fit,P",
+    "NET-A,WO-902,902-01,Final Assy,N",
+]
+(OUT / "merge-ev-details.csv").write_text("\n".join(merge_ev), encoding="utf-8")
+print("Wrote merge-ev-details.csv")
+
+print("\n=== v1.11 merge test expectations (eval wk 6/13/2026, ref month June=2 wks) ===")
+print("Zero-pad auto: 00100200 + 100200 -> Sam Carter, canonical 100200; actual 18, earned 15")
+print("Name match (approve): Pat Lee 300100 + Pat A Lee 405000 -> canonical 405000; actual 21, earned 18")
+print("Jane Doe 500500 distinct (no merge). Programs: Sam=N, Pat=P, Jane=N")

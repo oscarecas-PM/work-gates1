@@ -87,8 +87,24 @@
   .pw-controls select { font-size: 0.85rem; padding: 2px 4px; }
   .pw-scroll { overflow-x: auto; }
   .pw-inner { height: 100%; }
-  .pw-cpi { margin-top: 0.5rem; font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 1.2rem; }
+  .pw-cpi { margin-top: 0.5rem; font-size: 0.9rem; }
   .pw-cpi b { color: var(--navy); }
+  .pw-legend { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.84rem; margin-bottom: 0.3rem; }
+  .pw-legend span { display: inline-flex; align-items: center; }
+  .pw-note { font-size: 0.82rem; color: var(--slate); margin: 0.15rem 0; }
+  .pw-cpi-tbl { font-size: 0.85rem; border-collapse: collapse; margin: 0.5rem 0; }
+  .pw-cpi-tbl th, .pw-cpi-tbl td { border: 1px solid var(--gray-line); padding: 3px 10px; }
+  .pw-cpi-tbl th { background: var(--navy); color: #fff; }
+  /* v1.11 — employee identity merge panel */
+  .merge-section { background: #fff; border: 1px solid var(--gray-line); border-left: 4px solid var(--blue); border-radius: 6px; padding: 0.6rem 1rem 0.9rem; margin: 0.6rem 0; }
+  .merge-section > summary { cursor: pointer; }
+  .merge-section h2 { display: inline; font-size: 1rem; color: var(--navy); }
+  .merge-h { font-size: 0.9rem; margin: 0.7rem 0 0.3rem; color: var(--slate); }
+  .merge-list { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; font-size: 0.86rem; }
+  .merge-list li { margin: 0.15rem 0; }
+  .merge-table { font-size: 0.86rem; border-collapse: collapse; margin: 0.2rem 0; }
+  .merge-table th, .merge-table td { border: 1px solid var(--gray-line); padding: 3px 8px; text-align: left; }
+  .merge-undo { color: var(--red); font-size: 0.8rem; }
   .validation { background: var(--amber-bg); border-left: 4px solid #f59e0b; padding: 0.5rem 1rem; margin: 0.6rem 0; font-size: 0.88rem; border-radius: 0 4px 4px 0; }
   .validation summary { cursor: pointer; font-weight: 600; color: var(--amber); }
   .validation .v-list { margin: 0.5rem 0; padding-left: 1.2rem; }
@@ -197,7 +213,7 @@
 <body>
 
 <div class="banner">
-  <span><b>Employee Score Card</b> &middot; v1.10 &middot; client-side only &middot; no data leaves your browser</span>
+  <span><b>Employee Score Card</b> &middot; v1.11 &middot; client-side only &middot; no data leaves your browser</span>
   <span id="timestamp" class="timestamp"></span>
 </div>
 
@@ -240,6 +256,7 @@
 </div>
 
 <div id="validation-zone"></div>
+<div id="merge-zone"></div>
 
 <div id="filters" style="display:none;" class="filter-bar filter-bar-stack">
   <div class="filter-row">
@@ -416,11 +433,15 @@ const State = {
   // per-badge active-range hours cache (v1.10): badge -> {charged, earned}, over
   // getActiveMonthKeys() + program filter. Recomputed at the top of renderAll().
   _activeHours: new Map(),
-  // color maps (v1.10) — assigned in buildFilterControls
-  wcColorMap: new Map(),      // workCenter -> css color
+  // color maps — assigned in buildFilterControls
+  cccColorMap: new Map(),     // CCC -> css color (v1.11; drives employee chip dots)
   programColorMap: new Map(), // program -> css color
   _weekEndingDow: 6,          // weekday (0-6) of the charge week-ending grid (v1.10)
   _earnedHasWeek: false,      // true when Hours Earned carried an Actual End Date column (v1.10)
+
+  // employee-identity merging (v1.11)
+  approvedNameMerges: [],     // array of arrays of identityKeys the user approved to merge
+  mergeInfo: { autoMerges: [], nameCandidates: [], applied: [] },
 
   // chart instances
   charts: {},
@@ -920,14 +941,163 @@ document.getElementById('analyze-btn').addEventListener('click', () => {
   }
 });
 
-function runAnalyze() {
+// ---------- Employee identity merging (v1.11) ----------
+// identityKey collapses zero-padded numeric badge variants: two badges that are
+// all digits and share the same last 6 digits are the same person.
+function identityKey(badge) {
+  const b = String(badge);
+  return (/^\d+$/.test(b) && b.length >= 6) ? b.slice(-6) : b;
+}
+// First/last name from "First [Middle] Last" (middle ignored, single-token tolerated).
+function parseName(name) {
+  const toks = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (toks.length === 0) return { first: '', last: '' };
+  if (toks.length === 1) return { first: toks[0].toLowerCase(), last: '' };
+  return { first: toks[0].toLowerCase(), last: toks[toks.length - 1].toLowerCase() };
+}
+// Build the raw-badge -> canonical-badge alias map. Zero-pad variants merge
+// automatically (by identityKey); name-based merges apply from
+// State.approvedNameMerges. Canonical badge = the variant with the most recent
+// charge activity. Reads the untouched chargeFilesParsed so it is safe to re-run.
+function buildBadgeAliases() {
+  // 1. Identities keyed by last-6 (zero-pad auto-merge). Track most-recent row.
+  const identities = new Map(); // key -> {key, badges:Set, name, canonicalRaw, maxDate}
+  for (const f of chargeFilesParsed) {
+    for (const r of f.rows) {
+      if (!r.badge) continue;
+      const ik = identityKey(r.badge);
+      let id = identities.get(ik);
+      if (!id) { id = { key: ik, badges: new Set(), name: r.empName || '', canonicalRaw: r.badge, maxDate: null }; identities.set(ik, id); }
+      id.badges.add(r.badge);
+      const d = (r.weekEnding instanceof Date) ? r.weekEnding : null;
+      if (d && (!id.maxDate || d > id.maxDate)) { id.maxDate = d; id.canonicalRaw = r.badge; if (r.empName) id.name = r.empName; }
+      if (!id.name && r.empName) id.name = r.empName;
+    }
+  }
+  // 2. Union-find across identities; apply approved name-merge groups.
+  const parent = new Map();
+  for (const k of identities.keys()) parent.set(k, k);
+  const find = x => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  for (const grp of State.approvedNameMerges) {
+    const present = grp.filter(k => identities.has(k));
+    for (let i = 1; i < present.length; i++) union(present[0], present[i]);
+  }
+  // pick the most-recent identity within a list (ties -> larger badge string)
+  const winner = ids => ids.reduce((w, id) => {
+    if (!w) return id;
+    const a = id.maxDate ? +id.maxDate : -1, b = w.maxDate ? +w.maxDate : -1;
+    return (a > b || (a === b && String(id.canonicalRaw) > String(w.canonicalRaw))) ? id : w;
+  }, null);
+  // 3. Resolve canonical per super-group and build the alias map.
+  const groups = new Map();
+  for (const k of identities.keys()) { const r = find(k); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(k); }
+  const alias = new Map();
+  for (const keys of groups.values()) {
+    const win = winner(keys.map(k => identities.get(k)));
+    for (const k of keys) for (const raw of identities.get(k).badges) alias.set(raw, win.canonicalRaw);
+  }
+  // 4. Auto-merge listing (zero-pad: an identity with >1 raw badge).
+  const autoMerges = [];
+  for (const id of identities.values()) {
+    if (id.badges.size > 1) autoMerges.push({ name: id.name, canonicalRaw: id.canonicalRaw, members: Array.from(id.badges).sort() });
+  }
+  // 5. Name candidates: identities sharing first+last but in different groups.
+  const byName = new Map();
+  for (const id of identities.values()) {
+    const pn = parseName(id.name);
+    if (!pn.first && !pn.last) continue;
+    const nk = pn.first + '|' + pn.last;
+    if (!byName.has(nk)) byName.set(nk, []);
+    byName.get(nk).push(id);
+  }
+  const nameCandidates = [];
+  for (const ids of byName.values()) {
+    if (ids.length < 2) continue;
+    if (new Set(ids.map(id => find(id.key))).size < 2) continue; // already merged
+    nameCandidates.push({
+      displayName: ids[0].name,
+      identityKeys: ids.map(id => id.key),
+      members: ids.map(id => ({ canonicalRaw: id.canonicalRaw, maxDate: id.maxDate ? id.maxDate.toISOString().slice(0, 10) : '' })),
+    });
+  }
+  // 6. Applied name-merge listing (groups that actually merge >1 identity).
+  const applied = [];
+  State.approvedNameMerges.forEach((grp, i) => {
+    const present = grp.filter(k => identities.has(k)).map(k => identities.get(k));
+    if (present.length < 2) return;
+    const win = winner(present);
+    applied.push({ index: i, displayName: win.name, canonicalRaw: win.canonicalRaw, members: present.map(id => ({ canonicalRaw: id.canonicalRaw, name: id.name })) });
+  });
+  return { alias, autoMerges, nameCandidates, applied };
+}
+
+// Render the merge-review panel (auto-combined list + approval table + applied list).
+function renderMergePanel() {
+  const zone = document.getElementById('merge-zone');
+  if (!zone) return;
+  const mi = State.mergeInfo || { autoMerges: [], nameCandidates: [], applied: [] };
+  if (!mi.autoMerges.length && !mi.nameCandidates.length && !mi.applied.length) { zone.innerHTML = ''; return; }
+  let html = '<details class="merge-section section-collapsible" open><summary><span class="sec-arrow">&#9654;</span><h2>Employee Identity Merges</h2></summary><div class="sec-body">';
+  if (mi.autoMerges.length) {
+    html += '<h3 class="merge-h">Auto-combined (same last 6 digits)</h3><ul class="merge-list">';
+    for (const m of mi.autoMerges) {
+      html += '<li>' + esc(m.name) + ' &mdash; ' + m.members.map(esc).join(' + ') + ' &rarr; using <b>' + esc(m.canonicalRaw) + '</b> (most recent)</li>';
+    }
+    html += '</ul>';
+  }
+  if (mi.nameCandidates.length) {
+    html += '<h3 class="merge-h">Possible matches &mdash; same first &amp; last name, different badge</h3>';
+    html += '<table class="merge-table"><thead><tr><th>Approve</th><th>Name</th><th>Badges (date of last activity)</th></tr></thead><tbody>';
+    mi.nameCandidates.forEach((cand, i) => {
+      const memberStr = cand.members.map(mm => esc(mm.canonicalRaw + (mm.maxDate ? ' (' + mm.maxDate + ')' : ''))).join(' + ');
+      html += '<tr><td style="text-align:center;"><input type="checkbox" class="merge-cb" data-ci="' + i + '"></td><td>' + esc(cand.displayName) + '</td><td>' + memberStr + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<button id="merge-apply" class="secondary small" style="margin-top:6px;">Apply approved merges</button>';
+  }
+  if (mi.applied.length) {
+    html += '<h3 class="merge-h">Applied name merges</h3><ul class="merge-list">';
+    mi.applied.forEach(a => {
+      html += '<li>' + esc(a.displayName) + ' &mdash; ' + a.members.map(mm => esc(mm.canonicalRaw)).join(' + ') + ' &rarr; using <b>' + esc(a.canonicalRaw) + '</b> &nbsp;<a href="#" class="merge-undo" data-ai="' + a.index + '">Undo</a></li>';
+    });
+    html += '</ul>';
+  }
+  html += '</div></details>';
+  zone.innerHTML = html;
+  const applyBtn = document.getElementById('merge-apply');
+  if (applyBtn) applyBtn.onclick = () => {
+    const toAdd = [];
+    zone.querySelectorAll('.merge-cb').forEach(cb => {
+      if (cb.checked) { const cand = mi.nameCandidates[parseInt(cb.dataset.ci, 10)]; if (cand) toAdd.push(cand.identityKeys.slice()); }
+    });
+    if (!toAdd.length) return;
+    State.approvedNameMerges.push(...toAdd);
+    runAnalyze({ reaggregate: true });
+  };
+  zone.querySelectorAll('.merge-undo').forEach(a => {
+    a.onclick = (e) => { e.preventDefault(); State.approvedNameMerges.splice(parseInt(a.dataset.ai, 10), 1); runAnalyze({ reaggregate: true }); };
+  });
+}
+
+function runAnalyze(opts) {
+  const reaggregate = !!(opts && opts.reaggregate);
+  // Fresh analyze clears prior merge approvals; re-aggregation keeps them.
+  if (!reaggregate) State.approvedNameMerges = [];
+  // Resolve badge identities (zero-pad auto + approved name merges) before anything else.
+  const aliasInfo = buildBadgeAliases();
+  const badgeAlias = aliasInfo.alias;
+  State.mergeInfo = { autoMerges: aliasInfo.autoMerges, nameCandidates: aliasInfo.nameCandidates, applied: aliasInfo.applied };
+
   // Reset
   State.validation = { fileSummaries: [], chargeFileFailures: chargeFileFailures.slice(), dedupCount: 0, negativeDiffs: 0, missingNames: [], zeroChargeRows: 0, badEarnedHours: earnedParsed ? earnedParsed.badHours : 0, earnedRowsTotal: 0, evRowsTotal: 0, evDuplicates: 0,
     // v1.8: Oper Type filter telemetry surfaced in renderValidation()
     nonMfgSkipped: earnedParsed ? (earnedParsed.nonMfgSkipped || 0) : 0,
     operTypeColPresent: earnedParsed ? !!earnedParsed.operTypeColPresent : false };
 
-  // 1. Concat all charge rows
+  // 1. Concat all charge rows, applying the badge alias (identity merge). We copy
+  //    each row with its canonical badge so the parsed cache stays pristine for
+  //    re-aggregation; everything downstream then sees merged identities.
   const allCharges = [];
   for (const f of chargeFilesParsed) {
     State.validation.fileSummaries.push({ name: f.name, rows: f.rows.length });
@@ -935,7 +1105,8 @@ function runAnalyze() {
     for (const r of f.rows) {
       if (!r.empName) State.validation.missingNames.push(r.badge);
       if (r.totalHours === 0 && r.status === 'CLOSE') zeros++;
-      allCharges.push(r);
+      const canon = badgeAlias.get(r.badge) || r.badge;
+      allCharges.push(canon === r.badge ? r : { ...r, badge: canon });
     }
     State.validation.zeroChargeRows += zeros;
   }
@@ -1160,15 +1331,18 @@ function runAnalyze() {
   State.anonMap = new Map();
   sortedBadges.forEach((b, i) => State.anonMap.set(b, 'Tech ' + (i + 1)));
 
-  // 11. Filter defaults
-  if (State.monthKeys.length > 0) {
-    // Default start month = earliest month in data, but capped to current year start
-    State.filters.startMonthKey = State.monthKeys[0];
+  // 11. Filter defaults — skipped on re-aggregation so a merge approval/undo keeps
+  //     the user's current filter selections (v1.11).
+  if (!reaggregate) {
+    if (State.monthKeys.length > 0) {
+      // Default start month = earliest month in data, but capped to current year start
+      State.filters.startMonthKey = State.monthKeys[0];
+    }
+    State.filters.manualOverride = new Map();
+    State.filters.excludedCCCs = new Set();
+    State.filters.excludedWorkCenters = new Set();
+    State.filters.selectedPrograms = new Set();
   }
-  State.filters.manualOverride = new Map();
-  State.filters.excludedCCCs = new Set();
-  State.filters.excludedWorkCenters = new Set();
-  State.filters.selectedPrograms = new Set();
   State.haveAnalyzed = true;
 
   // 12. Render
@@ -1176,8 +1350,11 @@ function runAnalyze() {
   ['snapshot-btn', 'export-monthly-btn', 'export-split-btn', 'export-unmatched-btn', 'print-btn'].forEach(id => {
     document.getElementById(id).disabled = false;
   });
+  State._preserveFilters = reaggregate; // buildFilterControls reads this for program/CCC/WC chip state
   buildFilterControls();
+  State._preserveFilters = false;
   renderValidation();
+  renderMergePanel();
   renderAll();
   document.getElementById('timestamp').textContent = nowStr();
 }
@@ -1248,10 +1425,11 @@ function buildFilterControls() {
   } else {
     wrap.style.display = 'flex';
     chips.innerHTML = '';
-    State.filters.selectedPrograms = new Set(programs); // start all on
+    // Preserve the user's program selection across a merge re-aggregation; otherwise start all on.
+    if (!State._preserveFilters) State.filters.selectedPrograms = new Set(programs);
     for (const p of Array.from(programs).sort()) {
       const c = document.createElement('span');
-      c.className = 'chip on';
+      c.className = State.filters.selectedPrograms.has(p) ? 'chip on' : 'chip off';
       // color swatch so the program chip matches its bars in the weekly chart
       c.innerHTML = '<span class="wc-dot" style="background:' + (State.programColorMap.get(p) || '#888') + '"></span>' + esc(p);
       c.onclick = () => {
@@ -1270,11 +1448,12 @@ function buildFilterControls() {
 
   const badgeChips = document.getElementById('badge-chips');
 
-  // Work Center colors (v1.10) — stable assignment by sorted WC list.
-  State.wcColorMap = new Map();
-  State.allWorkCenters.forEach((w, i) => State.wcColorMap.set(w, COLOR_PALETTE[i % COLOR_PALETTE.length]));
+  // CCC colors (v1.11) — stable assignment by sorted CCC list; drives the
+  // employee-chip dots so the user can see which CCC governs which name.
+  State.cccColorMap = new Map();
+  State.allCCCs.forEach((v, i) => State.cccColorMap.set(v, COLOR_PALETTE[i % COLOR_PALETTE.length]));
 
-  // CCC exclude chips (v1.7) — visible only when at least one CCC is known
+  // CCC exclude chips (v1.7; colored v1.11) — visible only when a CCC is known
   const cccWrap = document.getElementById('ccc-filter-wrap');
   const cccChips = document.getElementById('ccc-chips');
   cccChips.innerHTML = '';
@@ -1283,10 +1462,12 @@ function buildFilterControls() {
   } else {
     cccWrap.style.display = 'flex';
     for (const v of State.allCCCs) {
+      const col = State.cccColorMap.get(v) || '#888';
       const c = document.createElement('span');
-      c.className = 'chip on';
-      c.textContent = v;
-      c.title = 'Click to exclude all employees with CCC ' + v;
+      c.className = State.filters.excludedCCCs.has(v) ? 'chip off' : 'chip on';
+      // Color swatch (v1.11) matches the colored dots on the employee chips below.
+      c.innerHTML = '<span class="wc-dot" style="background:' + col + '"></span>' + esc(v);
+      c.title = 'Click to exclude all employees with CCC ' + v + '. Hover to highlight its employees.';
       c.onclick = () => {
         if (State.filters.excludedCCCs.has(v)) {
           State.filters.excludedCCCs.delete(v);
@@ -1298,6 +1479,8 @@ function buildFilterControls() {
         refreshEmployeeChipStates();
         renderAll();
       };
+      c.onmouseenter = () => highlightCccEmployees(v, true);
+      c.onmouseleave = () => highlightCccEmployees(v, false);
       cccChips.appendChild(c);
     }
   }
@@ -1311,13 +1494,10 @@ function buildFilterControls() {
   } else {
     wcWrap.style.display = 'flex';
     for (const v of State.allWorkCenters) {
-      const col = State.wcColorMap.get(v) || '#888';
       const c = document.createElement('span');
-      c.className = 'chip on';
-      // Color swatch (v1.10) lets the user match a Work Center to the colored
-      // dots on the employee chips below.
-      c.innerHTML = '<span class="wc-dot" style="background:' + col + '"></span>' + esc(v);
-      c.title = 'Click to exclude all employees in Work Center ' + v + '. Hover to highlight its employees.';
+      c.className = State.filters.excludedWorkCenters.has(v) ? 'chip off' : 'chip on';
+      c.textContent = v;
+      c.title = 'Click to exclude all employees in Work Center ' + v;
       c.onclick = () => {
         if (State.filters.excludedWorkCenters.has(v)) {
           State.filters.excludedWorkCenters.delete(v);
@@ -1329,8 +1509,6 @@ function buildFilterControls() {
         refreshEmployeeChipStates();
         renderAll();
       };
-      c.onmouseenter = () => highlightWcEmployees(v, true);
-      c.onmouseleave = () => highlightWcEmployees(v, false);
       wcChips.appendChild(c);
     }
   }
@@ -1391,15 +1569,15 @@ function buildFilterControls() {
   };
 }
 
-// v1.10 — inner markup for an employee chip: Work Center color dot(s) + the
+// v1.11 — inner markup for an employee chip: CCC color dot(s) + the
 // (optionally anonymized) name + the active-range hours (E earned / C charged).
 function employeeChipInner(badge) {
   let html = '';
-  const wcs = State.workCenterByBadge.get(badge);
-  if (wcs) {
-    for (const w of wcs) {
-      const col = State.wcColorMap.get(w) || '#888';
-      html += '<span class="wc-dot" style="background:' + col + '" title="' + esc(w) + '"></span>';
+  const cccs = State.cccByBadge.get(badge);
+  if (cccs) {
+    for (const v of cccs) {
+      const col = State.cccColorMap.get(v) || '#888';
+      html += '<span class="wc-dot" style="background:' + col + '" title="' + esc(v) + '"></span>';
     }
   }
   html += '<span class="chip-name">' + esc(labelFor(badge)) + '</span>';
@@ -1430,14 +1608,14 @@ function refreshEmployeeChipLabels() {
   });
 }
 
-// Highlight (outline) the employee chips that belong to a Work Center, used on
-// WC-chip hover so the user can see which names a filter governs.
-function highlightWcEmployees(wc, on) {
+// Highlight (outline) the employee chips that belong to a CCC, used on CCC-chip
+// hover so the user can see which names a filter governs (v1.11).
+function highlightCccEmployees(ccc, on) {
   const wrap = document.getElementById('badge-chips');
   if (!wrap) return;
   wrap.querySelectorAll('.chip').forEach(c => {
-    const wcs = State.workCenterByBadge.get(c.dataset.badge);
-    if (wcs && wcs.has(wc)) c.classList.toggle('wc-highlight', on);
+    const cccs = State.cccByBadge.get(c.dataset.badge);
+    if (cccs && cccs.has(ccc)) c.classList.toggle('wc-highlight', on);
   });
 }
 
@@ -1815,15 +1993,17 @@ function renderDistribution(totals, activeMonths) {
       html += '</div>';
     }
     if (t.id === 'programWeek') {
-      // v1.10 — controls + per-period CPI caption, then a horizontally
-      // scrollable canvas so wide category sets keep their bar width.
+      // v1.11 — controls + program legend, a per-employee 4-bar chart (each bar
+      // stacked by program) with two CPIs drawn under each employee, plus a
+      // snapshot-safe per-employee CPI table.
       html += '<div class="pw-controls">';
       html += '<label>Week ending (evaluated): <select id="pw-eval-week"></select></label>';
       html += '<label>Reference month (avg/wk): <select id="pw-ref-month"></select></label>';
       html += '</div>';
-      html += '<div class="boxplot-explainer">Bars aggregate all <b>selected</b> employees, colored by program. The <b>evaluated</b> period is the chosen week; the <b>reference</b> period is a past month shown as its <b>average week</b> (month total &divide; weeks observed). CPI = &Sigma;earned &divide; &Sigma;charged for each period.</div>';
+      html += '<div class="boxplot-explainer"><b>4 bars per selected employee</b>, each stacked/colored by program: Charged &amp; Earned for the evaluated week, then for the reference month (shown as its <b>average week</b> = month total &divide; weeks observed). The two numbers under each employee are CPI (evaluated week | reference). Scrolls horizontally when there are many employees.</div>';
       html += '<div id="pw-cpi" class="pw-cpi"></div>';
       html += '<div class="chart-wrap pw-scroll"><div class="pw-inner" id="pw-inner"><canvas id="chart-programWeek"></canvas></div></div>';
+      html += '<div id="pw-cpi-table"></div>';
     } else {
       html += '<div class="chart-wrap' + (t.id === 'scatter' ? ' tall' : '') + '"><canvas id="chart-' + t.id + '"></canvas></div>';
     }
@@ -2214,65 +2394,84 @@ function buildChartForTab(tabId, totals, activeMonths) {
       }]
     });
   } else if (tabId === 'programWeek') {
-    const d = computeProgramWeekData(totals);
+    const d = computeProgramWeekPerEmployee(totals);
+    const emps = d.employees;
 
-    // Per-period CPI caption + optional week-availability note
+    // CPI color helper (canvas)
+    const cpiColor = c => (c == null ? '#64748b' : c >= 1 ? '#15803d' : c >= 0.7 ? '#b45309' : '#dc2626');
+    const periodCpi = (earnedMap, chargedMap) => { const e = sumMap(earnedMap), c = sumMap(chargedMap); return c ? e / c : null; };
+
+    // Legend strip + note + missing-week warning above the chart (snapshot-safe).
     const cpiEl = document.getElementById('pw-cpi');
     if (cpiEl) {
-      let cap = '';
-      if (d.evalWk) {
-        const ec = sumMap(d.evalCharged), ee = sumMap(d.evalEarned);
-        cap += '<span>Evaluated (wk ending ' + esc(fmtWeekLabel(d.evalWk)) + '): <b>CPI ' + fmtCpi(ec ? ee / ec : null) + '</b> &middot; ' + fmtNum(ee, 1) + ' earned / ' + fmtNum(ec, 1) + ' charged</span>';
-      }
-      if (d.refMo) {
-        const rc = sumMap(d.refCharged), re = sumMap(d.refEarned);
-        cap += '<span>Reference (avg/wk ' + esc(monthKeyLabel(d.refMo)) + ', ' + d.weeksInMonth + ' wks): <b>CPI ' + fmtCpi(rc ? re / rc : null) + '</b> &middot; ' + fmtNum(re, 1) + ' earned / ' + fmtNum(rc, 1) + ' charged</span>';
-      }
-      if (!State._earnedHasWeek) {
-        cap += '<span style="color:var(--amber);">Hours Earned has no <b>Actual End Date</b> column &mdash; the evaluated-week earned bar is unavailable; only the monthly reference is exact.</span>';
-      }
+      let cap = '<div class="pw-legend">';
+      for (const p of d.programs) cap += '<span><span class="wc-dot" style="background:' + (State.programColorMap.get(p) || '#94a3b8') + '"></span>' + esc(p) + '</span>';
+      cap += '</div>';
+      const ew = d.evalWk ? fmtWeekLabel(d.evalWk) : '—';
+      const rm = d.refMo ? monthKeyLabel(d.refMo) : '—';
+      cap += '<div class="pw-note">Per employee, 4 bars left&rarr;right: <b>Charged (wk ' + esc(ew) + ')</b>, <b>Earned (wk ' + esc(ew) + ')</b>, <b>Charged (avg/wk ' + esc(rm) + ')</b>, <b>Earned (avg/wk ' + esc(rm) + ')</b>. The two CPI values under each employee are evaluated-week | reference.</div>';
+      if (!State._earnedHasWeek) cap += '<div class="pw-note" style="color:var(--amber);">Hours Earned has no <b>Actual End Date</b> column &mdash; evaluated-week earned bars are unavailable; only the monthly reference is exact.</div>';
       cpiEl.innerHTML = cap;
     }
 
-    // Categories: Charged / Earned for the evaluated week, then for the reference month
-    const cats = [];
-    if (d.evalWk) {
-      cats.push({ label: 'Charged — wk ' + fmtWeekLabel(d.evalWk), map: d.evalCharged });
-      cats.push({ label: 'Earned — wk ' + fmtWeekLabel(d.evalWk), map: d.evalEarned });
+    // Snapshot-safe per-employee CPI table below the chart.
+    const tableEl = document.getElementById('pw-cpi-table');
+    if (tableEl) {
+      if (emps.length === 0) { tableEl.innerHTML = ''; }
+      else {
+        let t = '<table class="pw-cpi-tbl"><thead><tr><th>Employee</th><th>Eval CPI (wk)</th><th>Ref CPI (avg/wk)</th></tr></thead><tbody>';
+        for (const e of emps) {
+          const ec = periodCpi(e.evalEarned, e.evalCharged), rc = periodCpi(e.refEarned, e.refCharged);
+          t += '<tr><td class="pii">' + esc(shortLabelFor(e.badge)) + '</td><td class="num ' + cpiClass(ec) + '">' + fmtCpi(ec) + '</td><td class="num ' + cpiClass(rc) + '">' + fmtCpi(rc) + '</td></tr>';
+        }
+        t += '</tbody></table>';
+        tableEl.innerHTML = t;
+      }
     }
-    if (d.refMo) {
-      cats.push({ label: 'Charged — avg/wk ' + monthKeyLabel(d.refMo), map: d.refCharged });
-      cats.push({ label: 'Earned — avg/wk ' + monthKeyLabel(d.refMo), map: d.refEarned });
-    }
-    if (cats.length === 0) return;
-    const catLabels = cats.map(c => c.label);
-    const datasets = d.programs.map(prog => ({
-      label: prog,
-      data: cats.map(c => round1(c.map.get(prog) || 0)),
-      backgroundColor: State.programColorMap.get(prog) || '#94a3b8',
-      stack: 'stack0',
-    }));
 
-    // Size the inner wrapper so bars keep a usable width; the .pw-scroll parent
-    // adds a horizontal slider instead of shrinking when categories overflow.
+    if (emps.length === 0) { const inner = document.getElementById('pw-inner'); if (inner) inner.style.minWidth = ''; return; }
+
+    // x = employees; 4 side-by-side stacks per employee (stack groups), each
+    // internally stacked by program. barType order defines left->right bars.
+    const labels = emps.map(e => shortLabelFor(e.badge));
+    const barTypes = [
+      { key: 'cw', src: 'evalCharged' }, { key: 'ew', src: 'evalEarned' },
+      { key: 'cm', src: 'refCharged' }, { key: 'em', src: 'refEarned' },
+    ];
+    const datasets = [];
+    for (const bt of barTypes) {
+      for (const prog of d.programs) {
+        datasets.push({
+          label: prog,
+          data: emps.map(e => round1(e[bt.src].get(prog) || 0)),
+          backgroundColor: State.programColorMap.get(prog) || '#94a3b8',
+          stack: bt.key,
+        });
+      }
+    }
+    const stride = d.programs.length; // datasets per barType
+    // CPI per employee per period for the under-axis plugin
+    const cpis = emps.map(e => ({ ev: periodCpi(e.evalEarned, e.evalCharged), rf: periodCpi(e.refEarned, e.refCharged) }));
+
     const inner = document.getElementById('pw-inner');
-    if (inner) inner.style.minWidth = Math.max(catLabels.length * 150, 320) + 'px';
+    if (inner) inner.style.minWidth = Math.max(emps.length * 150, 320) + 'px';
 
     State.charts[tabId] = new Chart(canvas.getContext('2d'), {
       type: 'bar',
-      data: { labels: catLabels, datasets },
+      data: { labels, datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
+        layout: { padding: { bottom: 40 } },
         plugins: {
-          title: { display: true, text: 'Earned vs Charged Hours by Program (per week)', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
-          legend: { display: true, position: 'top' },
+          title: { display: true, text: 'Earned vs Charged by Program — per employee', font: { size: 14, weight: 'bold' }, color: '#1e3a5f' },
+          legend: { display: false }, // programs shown in the HTML legend strip (4 stacks would duplicate)
           tooltip: {
             callbacks: {
-              label: ctx => ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 1) + ' h',
-              footer: items => {
-                if (!items || !items.length) return '';
-                let s = 0; items.forEach(i => s += i.parsed.y);
-                return 'Total: ' + fmtNum(s, 1) + ' h';
+              title: items => (items && items.length ? labels[items[0].dataIndex] : ''),
+              label: ctx => {
+                const bt = barTypes[Math.floor(ctx.datasetIndex / stride)];
+                const ttl = { cw: 'Charged wk', ew: 'Earned wk', cm: 'Charged avg/wk', em: 'Earned avg/wk' }[bt.key];
+                return ttl + ' · ' + ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y, 1) + ' h';
               }
             }
           }
@@ -2281,7 +2480,37 @@ function buildChartForTab(tabId, totals, activeMonths) {
           x: { stacked: true },
           y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Hours (per week)' } }
         }
-      }
+      },
+      plugins: [{
+        id: 'pwEmployeeCpi',
+        afterDatasetsDraw(chart) {
+          const { ctx, chartArea: ca } = chart;
+          // representative dataset index for each barType stack = bt*stride
+          const metaFor = btIdx => chart.getDatasetMeta(btIdx * stride);
+          const mCW = metaFor(0), mEW = metaFor(1), mCM = metaFor(2), mEM = metaFor(3);
+          ctx.save();
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          for (let i = 0; i < labels.length; i++) {
+            const y = ca.bottom + 26;
+            // evaluated CPI centered under the cw/ew pair
+            if (mCW.data[i] && mEW.data[i]) {
+              const x = (mCW.data[i].x + mEW.data[i].x) / 2;
+              const c = cpis[i].ev;
+              ctx.fillStyle = cpiColor(c);
+              ctx.fillText(fmtCpi(c), x, y);
+            }
+            // reference CPI centered under the cm/em pair
+            if (mCM.data[i] && mEM.data[i]) {
+              const x = (mCM.data[i].x + mEM.data[i].x) / 2;
+              const c = cpis[i].rf;
+              ctx.fillStyle = cpiColor(c);
+              ctx.fillText(fmtCpi(c), x, y);
+            }
+          }
+          ctx.restore();
+        }
+      }]
     });
   }
 }
@@ -2289,55 +2518,58 @@ function buildChartForTab(tabId, totals, activeMonths) {
 // Sum a Map<string,number> of program -> hours (v1.10)
 function sumMap(m) { let s = 0; for (const v of m.values()) s += v; return s; }
 
-// Aggregate earned & charged hours by program for the Program Weekly chart
-// (v1.10). Covers the selected employees (badges present in `totals`), honoring
-// the program filter. Evaluated period = one week (exact); reference period = a
-// past month expressed as its average week (month total / weeks observed).
-function computeProgramWeekData(totals) {
-  const selBadges = new Set(totals.keys());
+// Per-employee earned & charged hours by program for the Program chart (v1.11).
+// For each selected badge: evaluated week (exact) + reference month as average
+// week (month total / weeks observed). Honors the program filter.
+function computeProgramWeekPerEmployee(totals) {
+  const selBadges = Array.from(totals.keys());
   const evalWk = State.filters.chart5.evalWeekISO;
   const refMo = State.filters.chart5.refMonthKey;
   const progSet = new Set();
   const add = (m, k, v) => m.set(k, (m.get(k) || 0) + v);
 
-  const evalCharged = new Map(), evalEarned = new Map();
-  const refCharged = new Map(), refEarned = new Map();
-  let weeksInMonth = 0;
+  // per badge -> {evalCharged, evalEarned, refCharged, refEarned} (program maps)
+  const byBadge = new Map();
+  for (const b of selBadges) byBadge.set(b, { badge: b, evalCharged: new Map(), evalEarned: new Map(), refCharged: new Map(), refEarned: new Map() });
 
-  // Charged hours from charge rows
+  // Charged from charge rows; count ref-month weeks across all rows first.
   const refWeeks = new Set();
   for (const r of State.chargeRows) {
     if (!r.incremental) continue;
     if (!programOk(r.orderNo)) continue;
-    const inEval = evalWk && r.weekEndingISO === evalWk;
-    const inRef = refMo && r.monthKey === refMo;
-    if (inRef) refWeeks.add(r.weekEndingISO); // count weeks before the selection filter
-    if (!selBadges.has(r.badge)) continue;
+    if (refMo && r.monthKey === refMo) refWeeks.add(r.weekEndingISO);
+    const e = byBadge.get(r.badge);
+    if (!e) continue;
     const prog = programOf(r.orderNo);
-    if (inEval) { progSet.add(prog); add(evalCharged, prog, r.incremental); }
-    if (inRef) { progSet.add(prog); add(refCharged, prog, r.incremental); }
+    if (evalWk && r.weekEndingISO === evalWk) { progSet.add(prog); add(e.evalCharged, prog, r.incremental); }
+    if (refMo && r.monthKey === refMo) { progSet.add(prog); add(e.refCharged, prog, r.incremental); }
   }
-  weeksInMonth = refWeeks.size || 1;
+  const weeksInMonth = refWeeks.size || 1;
 
-  // Earned hours from per-op earned records (split across the badges who charged)
+  // Earned from per-op records, split to each badge via parts[].share.
   for (const rec of State.earnedKeyToShare.values()) {
     if (!programOk(rec.orderNo)) continue;
-    let share = 0;
-    for (const p of rec.parts) if (selBadges.has(p.badge)) share += p.share;
-    if (!share) continue;
     const prog = programOf(rec.orderNo);
-    if (evalWk && rec.earnedWeekEndingISO === evalWk) { progSet.add(prog); add(evalEarned, prog, share); }
-    if (refMo && rec.monthKey === refMo) { progSet.add(prog); add(refEarned, prog, share); }
+    const inEval = evalWk && rec.earnedWeekEndingISO === evalWk;
+    const inRef = refMo && rec.monthKey === refMo;
+    if (!inEval && !inRef) continue;
+    for (const p of rec.parts) {
+      const e = byBadge.get(p.badge);
+      if (!e) continue;
+      if (inEval) { progSet.add(prog); add(e.evalEarned, prog, p.share); }
+      if (inRef) { progSet.add(prog); add(e.refEarned, prog, p.share); }
+    }
   }
 
-  // Convert the reference month to an average week
-  for (const m of [refCharged, refEarned]) for (const k of m.keys()) m.set(k, m.get(k) / weeksInMonth);
+  // Reference month -> average week
+  for (const e of byBadge.values()) for (const m of [e.refCharged, e.refEarned]) for (const k of m.keys()) m.set(k, m.get(k) / weeksInMonth);
 
-  return {
-    evalWk, refMo, weeksInMonth,
-    programs: Array.from(progSet).sort(),
-    evalCharged, evalEarned, refCharged, refEarned,
-  };
+  // Only keep employees with any data in either period; sort by total charged desc.
+  const employees = Array.from(byBadge.values())
+    .filter(e => e.evalCharged.size || e.evalEarned.size || e.refCharged.size || e.refEarned.size)
+    .sort((a, b) => (sumMap(b.evalCharged) + sumMap(b.refCharged)) - (sumMap(a.evalCharged) + sumMap(a.refCharged)));
+
+  return { employees, programs: Array.from(progSet).sort(), evalWk, refMo, weeksInMonth };
 }
 
 // Populate + wire the Program Weekly chart's two dropdowns (v1.10).
