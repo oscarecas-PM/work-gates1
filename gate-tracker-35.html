@@ -116,6 +116,7 @@
   .gv-subgroup-label { display: inline-block; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 6px; padding: 2px 8px; border-radius: 3px; }
   .gv-subgroup-label-wip { color: #166534; background: #dcfce7; border: 1px solid #16a34a; }
   .gv-subgroup-label-queue { color: #475569; background: #f1f5f9; border: 1px solid #cbd5e1; }
+  .gv-subgroup-label-unclear { color: #92400e; background: #fef3c7; border: 1px dashed #d97706; }
   .gv-subgroup-cards { display: flex; flex-wrap: wrap; gap: 8px; }
   .gv-order-card { min-width: 130px; max-width: 180px; padding: 8px 10px; border-radius: 4px; border: 2px solid transparent; cursor: default; font-size: 0.82rem; }
   .gv-order-no { font-weight: bold; font-size: 0.85rem; }
@@ -135,6 +136,9 @@
   .gv-missing { font-size: 0.72rem; color: #b45309; font-weight: bold; }
   .gv-multi-gate { font-size: 0.72rem; color: #c2410c; font-weight: bold; background: #fff7ed; border: 1px solid #fb923c; border-radius: 3px; padding: 1px 4px; margin-top: 2px; }
   .gv-tech-label { font-size: 0.72rem; color: rgba(0,0,0,0.55); font-style: italic; }
+  .gv-unclear-label { font-size: 0.72rem; color: #b45309; font-weight: bold; background: #fffbeb; border: 1px dashed #d97706; border-radius: 3px; padding: 1px 4px; margin-top: 2px; }
+  .gv-current-op-age { font-size: 0.72rem; color: rgba(0,0,0,0.5); font-style: italic; }
+  .gv-gate-header.dr-unclear-gate { background: #a16207; }
   .gv-gate-header.not-found-gate { background: #b45309; cursor: pointer; user-select: none; }
   .nf-collapse-icon { margin-left: 8px; font-size: 0.8rem; }
   .gv-cards-row.nf-collapsed { display: none; }
@@ -261,7 +265,7 @@
 </head>
 <body>
 
-<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v33</span></h1>
+<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v35</span></h1>
 <p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
 
 <div class="file-inputs">
@@ -3228,8 +3232,11 @@ function process() {
           let maxDays = 0;
           let hasDrOps = false;
           let hasQaOps = false;
+          let hasActiveDrOps = false;   // 7000-level op that is ACTIVE/IN QUEUE (not merely completed)
           for (const r of rows) {
             const st = (r.operStatus || '').toUpperCase().trim();
+            const opNum = parseFloat(normOper(r.operNo)) || 0;
+            const isDrNum = (opNum >= 7000 && opNum <= 7999);
             if (st === 'ACTIVE' || st === 'IN QUEUE') {
               const days = parseNum(r.totalDays);
               const mod = modifierByOper[pn + '|||' + normOper(r.operNo)] || '';
@@ -3239,9 +3246,9 @@ function process() {
               if (!isIgnored && days > maxDays) maxDays = days;
               const wdUpper = (r.workDept || '').toUpperCase().trim();
               if (wdUpper.endsWith('_QA')) hasQaOps = true;
+              if (isDrNum && !isIgnored) hasActiveDrOps = true;
             }
-            const opNum = parseFloat(normOper(r.operNo)) || 0;
-            if (opNum >= 7000 && opNum <= 7999) hasDrOps = true;
+            if (isDrNum) hasDrOps = true;
           }
           // Determine ORDER-level hold (ORDER STOP / ORDER_HOLD if any row has it)
           let orderHold = '';
@@ -3250,7 +3257,7 @@ function process() {
           }
           dailyLookup[on] = {
             program: prog, partNo: pn, serialNo: firstRow.serialNo,
-            holdStatus: orderHold, activeOps: activeOps, maxDays: maxDays, hasDrOps: hasDrOps, hasQaOps: hasQaOps
+            holdStatus: orderHold, activeOps: activeOps, maxDays: maxDays, hasDrOps: hasDrOps, hasQaOps: hasQaOps, hasActiveDrOps: hasActiveDrOps
           };
         }
       }
@@ -3469,6 +3476,53 @@ function process() {
         }
       }
 
+      // ==== Inferred "Location Unclear" placement (F-234) ====
+      // Roughly half the lab isn't scanned, but that hardware still needs working. For each
+      // UNSCANNED, WORKABLE work order we infer where it belongs from its active/in-queue ops
+      // and surface it at that gate, clearly marked "Location Unclear" (a guess, not a scan).
+      // Reuses the F-60 left-most-gate walk: first gate (in decoder-ring row order) that holds
+      // a non-ignored Active/In-Queue op.
+      function inferGateForOrder(partNo, activeOps) {
+        var gates = gatesByPart[partNo] || [];
+        var activeSet = {};
+        for (var ao = 0; ao < activeOps.length; ao++) {
+          if (!activeOps[ao].ignored) activeSet[normOper(activeOps[ao].operNo)] = true;
+        }
+        for (var gi3 = 0; gi3 < gates.length; gi3++) {
+          var opers = gates[gi3].opers;
+          for (var op3 = 0; op3 < opers.length; op3++) {
+            if (activeSet[normOper(opers[op3])]) return gates[gi3].gateNumber;
+          }
+        }
+        return null; // part/op not in decoder ring → can't infer
+      }
+      function buildInferredOrder(woId, d) {
+        return {
+          orderNo: woId, partNo: d.partNo, serialNo: d.serialNo,
+          holdStatus: d.holdStatus, program: d.program, maxDays: d.maxDays,
+          activeOps: d.activeOps, hasDrOps: d.hasDrOps, hasQaOps: d.hasQaOps,
+          missing: false, techName: '', scanLocation: '',
+          inferred: true, locationType: 'UNCLEAR', daysAtGate: null
+        };
+      }
+      var drUnclearOrders = [];   // unscanned + workable + ACTIVE 7000 op → synthetic DR gate
+      for (var infWo in dailyLookup) {
+        if (scanOrderSet.has(infWo)) continue;        // scanned WOs always win — never inferred
+        var dInf = dailyLookup[infWo];
+        if (!dInf.activeOps || dInf.activeOps.length === 0) continue; // nothing to work
+        if (isOrderHold(dInf.holdStatus)) continue;   // workable = not order-hold
+        if (dInf.hasActiveDrOps) {
+          // Active non-conformance recovery: pull out of normal flow entirely (rule #1)
+          drUnclearOrders.push(buildInferredOrder(infWo, dInf));
+          continue;
+        }
+        var infGate = inferGateForOrder(dInf.partNo, dInf.activeOps);
+        if (infGate && scanGateBuckets[infGate]) {
+          scanGateBuckets[infGate].orders.push(buildInferredOrder(infWo, dInf));
+        }
+        // else: can't infer (part/op not in decoder ring) → stays in "Not Scanned" only
+      }
+
       // F-227: sort each gate's cards oldest-first (days desc), tiebreak part# then WO#.
       // Sorting the bucket arrays here propagates to the snapshot (DOM clone) and signage PNG.
       for (var sgk2 in scanGateBuckets) scanGateBuckets[sgk2].orders.sort(gvCardSort);
@@ -3490,6 +3544,17 @@ function process() {
         if (aHold && bHold) return a.localeCompare(b);
         return (parseFloat(a) || 0) - (parseFloat(b) || 0);
       });
+
+      // Synthetic gate for unscanned + workable WOs with ACTIVE non-conformance (7000) work,
+      // whose recovery ops aren't sorted into the decoder ring. Appended AFTER all real gates.
+      if (drUnclearOrders.length > 0) {
+        drUnclearOrders.sort(gvCardSort);
+        scanGateBuckets['__DR_UNCLEAR__'] = {
+          gateNumber: '', gateName: 'Work Orders with DR operations - Location Unclear',
+          isHold: false, isDrUnclear: true, orders: drUnclearOrders
+        };
+        scanGateOrder.push('__DR_UNCLEAR__');
+      }
 
       // Sort unmapped locations alphabetically
       unmappedOrder.sort();
@@ -3587,6 +3652,7 @@ function process() {
           }
         }
         if (order.missing) tip += '\n\nNot found on daily upload';
+        if (order.inferred) tip += '\n\n⚠ LOCATION UNCLEAR — not scanned; gate inferred from active operations';
         if (order.daysAtGate !== undefined && order.daysAtGate !== null) {
           tip += '\nDays at Gate: ' + order.daysAtGate;
         }
@@ -3596,8 +3662,9 @@ function process() {
             .map(function(g) { return g.label; });
           if (otherTip.length > 0) tip += '\n\n\u26a0 SPLIT LOCATION: Also at ' + otherTip.join(', ');
         }
-        var borderColor = order.hasDrOps ? '#dc2626' : (order.hasQaOps ? '#3b82f6' : (order.missing ? '#f59e0b' : color.border));
-        var cardHtml = '<div class="gv-order-card' + drClass + '" data-orderno="' + esc(order.orderNo) + '" style="background:' + (order.missing ? '#fef3c7' : color.bg) + ';border-color:' + borderColor + ';" title="' + esc(tip) + '">';
+        var borderColor = order.hasDrOps ? '#dc2626' : (order.hasQaOps ? '#3b82f6' : (order.inferred ? '#d97706' : (order.missing ? '#f59e0b' : color.border)));
+        var inferredStyle = (order.inferred && !order.hasDrOps && !order.hasQaOps) ? 'border-style:dashed;' : '';
+        var cardHtml = '<div class="gv-order-card' + drClass + '" data-orderno="' + esc(order.orderNo) + '" style="background:' + (order.missing ? '#fef3c7' : color.bg) + ';border-color:' + borderColor + ';' + inferredStyle + '" title="' + esc(tip) + '">';
         cardHtml += '<div class="gv-order-no">' + esc(order.orderNo) + '</div>';
         const gvPartName = partNames[order.partNo] || '';
         cardHtml += '<div class="gv-part-no">' + esc(order.partNo) + (gvPartName ? ' (' + esc(gvPartName) + ')' : '') + '</div>';
@@ -3612,6 +3679,9 @@ function process() {
         }
         if (order.missing) {
           cardHtml += '<div class="gv-missing">Not found on daily upload</div>';
+        }
+        if (order.inferred) {
+          cardHtml += '<div class="gv-unclear-label">⚠ Location Unclear</div>';
         }
         if (scanSplitInfo[order.orderNo]) {
           var otherGates = scanSplitInfo[order.orderNo]
@@ -3628,6 +3698,8 @@ function process() {
           var ageWhere = order.locationType === 'WIP' ? ' days at bench'
                        : (order.locationType === 'QUEUE' ? ' days on rack' : ' days at gate');
           cardHtml += '<div class="gv-gate-age">' + order.daysAtGate + ageWhere + '</div>';
+        } else if (order.inferred && order.maxDays > 0) {
+          cardHtml += '<div class="gv-current-op-age">~' + order.maxDays + ' days at current op</div>';
         }
         cardHtml += '</div>';
         return cardHtml;
@@ -3642,13 +3714,18 @@ function process() {
           var o = orders[i], k = o.orderNo;
           if (!byWo[k] || (o.locationType === 'WIP' && byWo[k].locationType !== 'WIP')) byWo[k] = o;
         }
-        var wip = [], queue = [];
-        for (var k in byWo) (byWo[k].locationType === 'WIP' ? wip : queue).push(byWo[k]);
+        var wip = [], queue = [], unclear = [];
+        for (var k in byWo) {
+          var lt = byWo[k].locationType;
+          (lt === 'WIP' ? wip : (lt === 'UNCLEAR' ? unclear : queue)).push(byWo[k]);
+        }
         wip.sort(gvCardSort);
         queue.sort(gvCardSort);
-        // Labels appear only when the gate actually has WIP items. A pure-rack gate (or any
-        // file without a Location Type column) renders flat — visually identical to before.
-        var showLabels = !suppressLabels && wip.length > 0;
+        unclear.sort(gvCardSort);
+        // Labels appear when the gate has WIP items OR inferred (unclear) items — anything that
+        // makes a flat list ambiguous. A pure-rack gate with no inferred cards renders flat,
+        // visually identical to before.
+        var showLabels = !suppressLabels && (wip.length > 0 || unclear.length > 0);
         var html = '';
         if (wip.length) {
           html += '<div class="gv-subgroup">';
@@ -3664,6 +3741,14 @@ function process() {
           for (var q = 0; q < queue.length; q++) html += renderScanGvCard(queue[q], gKey);
           html += '</div></div>';
         }
+        if (unclear.length) {
+          // Always labeled — an inferred placement is meaningless without the caveat.
+          html += '<div class="gv-subgroup">';
+          html += '<div class="gv-subgroup-label gv-subgroup-label-unclear">LOCATION UNCLEAR — inferred from ops (' + unclear.length + ')</div>';
+          html += '<div class="gv-subgroup-cards">';
+          for (var u = 0; u < unclear.length; u++) html += renderScanGvCard(unclear[u], gKey);
+          html += '</div></div>';
+        }
         return html;
       }
 
@@ -3673,11 +3758,21 @@ function process() {
         var sBucket = scanGateBuckets[sGKey];
         // Distinct WO count (a WO scanned at both a bench and the rack of this gate counts once)
         var sDistinct = {};
-        for (var sdi = 0; sdi < sBucket.orders.length; sdi++) sDistinct[sBucket.orders[sdi].orderNo] = 1;
+        var sInferredSet = {};
+        for (var sdi = 0; sdi < sBucket.orders.length; sdi++) {
+          var sOrd = sBucket.orders[sdi];
+          sDistinct[sOrd.orderNo] = 1;
+          if (sOrd.inferred) sInferredSet[sOrd.orderNo] = 1;
+        }
         var sCount = Object.keys(sDistinct).length;
-        var sHeaderText = sBucket.isHold
-          ? (sBucket.gateName || sBucket.gateNumber) + ' (' + sCount + ' orders)'
-          : sBucket.gateNumber + '. ' + sBucket.gateName + ' (' + sCount + ' orders)';
+        var sInferredCount = Object.keys(sInferredSet).length;
+        // " · N unclear" breakdown on real gates only (the DR gate is entirely unclear).
+        var sUnclearNote = (!sBucket.isDrUnclear && sInferredCount > 0) ? ' · ' + sInferredCount + ' unclear' : '';
+        var sHeaderText = sBucket.isDrUnclear
+          ? sBucket.gateName + ' (' + sCount + ' orders)'
+          : (sBucket.isHold
+            ? (sBucket.gateName || sBucket.gateNumber) + ' (' + sCount + ' orders' + sUnclearNote + ')'
+            : (sBucket.gateNumber ? sBucket.gateNumber + '. ' + sBucket.gateName : sBucket.gateName) + ' (' + sCount + ' orders' + sUnclearNote + ')');
         var sTechLabel = '';
         var sTechs = techsByGate[sBucket.gateNumber];
         if (sTechs && sTechs.length > 0) {
@@ -3689,7 +3784,8 @@ function process() {
           gvHtml += '<div class="gv-gate-header hold-gate" onclick="toggleHoldRack(\'' + esc(sHoldId) + '\')" style="cursor:pointer;user-select:none;">' + esc(sHeaderText) + sTechLabel + '<span class="nf-collapse-icon" id="' + esc(sHoldId) + '-icon">&#9654;</span></div>';
           gvHtml += '<div class="gv-cards-row nf-collapsed" id="' + esc(sHoldId) + '-cards-row">';
         } else {
-          gvHtml += '<div class="gv-gate-header">' + esc(sHeaderText) + sTechLabel + '</div>';
+          var sHdrClass = sBucket.isDrUnclear ? 'gv-gate-header dr-unclear-gate' : 'gv-gate-header';
+          gvHtml += '<div class="' + sHdrClass + '">' + esc(sHeaderText) + sTechLabel + '</div>';
           gvHtml += '<div class="gv-cards-row">';
         }
         gvHtml += renderGateBody(sBucket.orders, sGKey, sBucket.isHold);
@@ -5028,13 +5124,13 @@ function drawSignageCanvas(payload) {
   function drawCard(cx, cy, order) {
     var color = data.programColorMap[order.program] || data.programColorFallbacks[0];
     var bgColor = order.missing ? '#fef3c7' : color.bg;
-    var borderColor = order.hasDrOps ? '#dc2626' : (order.hasQaOps ? '#3b82f6' : (order.missing ? '#f59e0b' : color.border));
+    var borderColor = order.hasDrOps ? '#dc2626' : (order.hasQaOps ? '#3b82f6' : (order.inferred ? '#d97706' : (order.missing ? '#f59e0b' : color.border)));
 
-    rrect(cx, cy, CARD_W, CARD_H, 4, bgColor, borderColor, 1.5);
+    rrect(cx, cy, CARD_W, CARD_H, 4, bgColor, borderColor, order.inferred ? 2 : 1.5);
 
-    // DR/QA thick left accent
-    if (order.hasDrOps || order.hasQaOps) {
-      ctx.fillStyle = order.hasDrOps ? '#dc2626' : '#3b82f6';
+    // DR/QA/inferred thick left accent
+    if (order.hasDrOps || order.hasQaOps || order.inferred) {
+      ctx.fillStyle = order.hasDrOps ? '#dc2626' : (order.hasQaOps ? '#3b82f6' : '#d97706');
       ctx.fillRect(cx + 1, cy + 4, 3, CARD_H - 8);
     }
 
@@ -5083,6 +5179,13 @@ function drawSignageCanvas(payload) {
       ty += FONT_LABEL + 2;
     }
 
+    if (order.inferred) {
+      ctx.font = 'bold ' + FONT_LABEL + 'px ' + FONT;
+      ctx.fillStyle = '#b45309';
+      ctx.fillText('Location Unclear', tx, ty);
+      ty += FONT_LABEL + 2;
+    }
+
     // Hold status
     if (order.holdStatus) {
       var hs = order.holdStatus.toUpperCase();
@@ -5110,7 +5213,7 @@ function drawSignageCanvas(payload) {
     }
 
     // Header bar
-    var hdrColor = bkt.isHold ? '#991b1b' : '#334155';
+    var hdrColor = bkt.isHold ? '#991b1b' : (bkt.isDrUnclear ? '#a16207' : '#334155');
     rrect(cx, cy, colW, HDR_H, 4, hdrColor, null, 0);
     ctx.font = 'bold ' + FONT_HDR + 'px ' + FONT;
     ctx.fillStyle = '#ffffff';
