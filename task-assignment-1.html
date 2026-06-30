@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline';">
+<title>Task Assignment Builder</title>
+<style>
+:root{
+  --blue:#2563eb; --blue-d:#1d4ed8; --green:#15803d; --slate:#475569; --slate-d:#334155;
+  --bg:#f1f5f9; --card:#ffffff; --line:#cbd5e1; --ink:#0f172a; --muted:#64748b;
+  --amber:#b45309; --amber-bg:#fef3c7; --amber-line:#f59e0b;
+}
+*{box-sizing:border-box}
+body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--ink);font-size:14px}
+h1{font-size:20px;margin:0;padding:14px 18px;background:var(--slate-d);color:#fff}
+h1 span{font-size:12px;opacity:.7;font-weight:normal;margin-left:6px}
+h2{font-size:15px;margin:0 0 8px}
+.banner{background:#fee2e2;color:#7f1d1d;font-size:12px;padding:6px 18px;border-bottom:1px solid #fecaca}
+.wrap{padding:14px 18px}
+.input-section{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px}
+.file-group{display:flex;flex-direction:column;gap:4px}
+.file-group label{font-size:12px;font-weight:600;color:var(--slate)}
+.status{font-size:11px;color:var(--muted);min-height:14px}
+.status.loaded{color:var(--green)}
+.status.error{color:#b91c1c;font-weight:600}
+.action-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.btn{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer}
+.btn:hover{background:#f8fafc}
+.btn-primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn-primary:hover{background:var(--blue-d)}
+.btn-green{background:var(--green);border-color:var(--green);color:#fff}
+.btn-green:hover{filter:brightness(.95)}
+.btn-slate{background:var(--slate);border-color:var(--slate);color:#fff}
+.btn-view{background:#0e7490;border-color:#0e7490;color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.filter-input{border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:13px;font-family:inherit;min-width:280px;flex:1;max-width:420px}
+.filter-input:focus{border-color:var(--blue);outline:none}
+.snapshot-notice{background:#ecfeff;border:1px solid #a5f3fc;color:#155e75;padding:6px 10px;border-radius:6px;font-size:12px;margin-bottom:10px}
+
+#board{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+#org-pane{flex:1;min-width:420px}
+#pool-pane{width:340px;min-width:300px}
+
+.loc{background:#e2e8f0;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:14px}
+.loc-head,.team-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.loc-name{font-size:16px;font-weight:700}
+.team{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0 0}
+.team-name{font-size:14px;font-weight:700;color:var(--slate-d)}
+.name-input{font-family:inherit;border:1px solid transparent;background:transparent;border-radius:5px;padding:3px 6px;min-width:160px}
+.name-input:hover{border-color:var(--line);background:#fff}
+.name-input:focus{border-color:var(--blue);background:#fff;outline:none}
+.spacer{flex:1}
+.mini{border:1px solid var(--line);background:#fff;border-radius:5px;padding:2px 7px;font-size:12px;cursor:pointer;line-height:1.3}
+.mini:hover{background:#f1f5f9}
+.mini.danger:hover{background:#fee2e2;border-color:#fca5a5}
+.members{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.mtag{display:inline-flex;align-items:center;gap:4px;background:#e2e8f0;border:1px solid var(--line);border-radius:12px;padding:2px 8px;font-size:12px}
+.mtag .x{cursor:pointer;color:var(--muted);font-weight:700}
+.mtag .x:hover{color:#b91c1c}
+.addmem{display:flex;gap:6px;margin:6px 0}
+.addmem input{border:1px solid var(--line);border-radius:5px;padding:4px 7px;font-size:12px;flex:1;min-width:120px}
+.empty-hint{color:var(--muted);font-style:italic;font-size:12px;padding:6px 0}
+
+.droptarget{min-height:46px;border:1px dashed var(--line);border-radius:6px;padding:8px;margin-top:8px;background:#f8fafc;transition:background .1s,border-color .1s}
+.droptarget.dragover{background:#dbeafe;border-color:var(--blue)}
+#pool-zone{min-height:120px}
+
+.wo-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:6px;padding:8px 10px;margin:6px 0;cursor:grab}
+.wo-card:active{cursor:grabbing}
+.wo-card.stale{border-left-color:var(--amber-line);background:var(--amber-bg)}
+.wo-head{font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.wo-sub{color:var(--slate-d);margin:2px 0}
+.wo-sub .pn{color:var(--muted);font-size:12px}
+.wo-meta{font-size:12px;color:var(--slate);margin-top:2px}
+.badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
+.badge.stale{background:var(--amber-line);color:#fff}
+.badge.dr{background:var(--amber);color:#fff}
+.badge.pct{background:#e0f2fe;color:#075985}
+.tagrow{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--line)}
+.tagrow .lab{font-size:11px;color:var(--muted);align-self:center}
+.mchip{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--slate)}
+.mchip.tagged{background:var(--blue);border-color:var(--blue);color:#fff}
+
+.op-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}
+.op-table th{text-align:left;background:#f1f5f9;border:1px solid var(--line);padding:3px 6px;font-size:11px;color:var(--slate-d)}
+.op-table td{border:1px solid var(--line);padding:3px 6px}
+.op-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.op-table tr.dr td{background:var(--amber-bg)}
+.op-none{font-size:12px;color:var(--muted);font-style:italic;margin-top:6px}
+
+@media print{
+  .no-print{display:none!important}
+  body{background:#fff}
+  h1{background:#fff;color:#000;border-bottom:2px solid #000}
+  #board{display:block}
+  #pool-pane,#org-pane{width:auto}
+  .wo-card,.team,.loc{break-inside:avoid;cursor:auto}
+  .droptarget{border:none;background:#fff;padding:0}
+  .name-input{border:none;background:transparent;padding-left:0}
+  #pool-pane{display:none!important}
+}
+</style>
+</head>
+<body>
+<h1>Task Assignment Builder <span id="ver">v1</span></h1>
+<div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
+
+<div class="wrap">
+  <div id="snapshot-notice" class="snapshot-notice" style="display:none">Loaded from a saved plan. Continue editing; re-upload a WO Assignment Feed to refresh live status, or export.</div>
+
+  <div class="input-section no-print">
+    <div class="file-group">
+      <label>WO Assignment Feed (from PDVF)</label>
+      <input type="file" id="feed-file" accept=".csv,.txt" onchange="onFeedFile(this)">
+      <div class="status" id="feed-status"></div>
+    </div>
+    <div class="file-group">
+      <label>Import Saved Plan (CSV)</label>
+      <input type="file" id="state-file" accept=".csv,.txt" onchange="onStateFile(this)">
+      <div class="status" id="state-status"></div>
+    </div>
+  </div>
+
+  <div class="action-bar no-print">
+    <button class="btn btn-primary" onclick="addLocation()">+ Add Location</button>
+    <button class="btn btn-view" id="view-btn" onclick="toggleView()">View: Gate names</button>
+    <button class="btn btn-green" id="export-state-btn" onclick="exportStateCSV()" disabled>Export Plan CSV</button>
+    <button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()" disabled>Save for Editing</button>
+    <button class="btn" onclick="window.print()">Print</button>
+    <input type="text" id="wo-filter" class="filter-input" oninput="setFilter(this.value)" placeholder="Filter unassigned by WO #, part name, or part #">
+  </div>
+
+  <div id="board"></div>
+</div>
+
+<!-- empty datalist now; a future Score Card roster CSV can populate it to validate / autocomplete member names -->
+<datalist id="member-roster"></datalist>
+
+<script>
+// ============================== State ==============================
+var locations = {};   // locId  -> { id, name, order }
+var locOrder  = [];   // locId display order
+var teams     = {};   // teamId -> { id, locId, name, order }
+var members   = {};   // memberId -> { id, teamId, name, badge, order }
+var wos       = {};   // woNo -> { woNo, partNo, partName, program, currentGate, opsRemInGate,
+                      //   hrsRemInGate, hrsInGate, etc, percentComplete, plannedFinish, activeDrOps,
+                      //   asOf, ops:[{operNo,name,gate,plannedHrs,status,isDr}],
+                      //   teamId, taggedMembers:[memberId], stale }
+var woOrder   = [];   // woNo display/insertion order
+var nextLocId = 0, nextTeamId = 0, nextMemberId = 0;
+var viewMode  = 'gate';   // 'gate' | 'operation'
+var dragWo    = null;     // woNo being dragged
+var filterText = '';      // transient: filters the Unassigned pool only (not persisted)
+var isSnapshot = false;
+
+// ============================== Utilities (from PDVF / decoder-ring) ==============================
+var CSV_MAX_FIELD_LEN = 500;
+function csvField(s){ var v = String(s == null ? '' : s).trim(); return v.length > CSV_MAX_FIELD_LEN ? v.substring(0, CSV_MAX_FIELD_LEN) : v; }
+function csvQuote(s){ s = String(s == null ? '' : s); return (s.indexOf(',')>=0||s.indexOf('"')>=0||s.indexOf('\n')>=0) ? '"' + s.replace(/"/g,'""') + '"' : s; }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function dateStr(){ var d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function isDrOp(op){ var n=parseInt(op,10); return n>=7000 && n<=7999; }
+
+function parseCSV(text){
+  var firstLine = text.split(/\r?\n/)[0] || '';
+  var tabCount = (firstLine.match(/\t/g)||[]).length, commaCount = (firstLine.match(/,/g)||[]).length;
+  var delim = (tabCount > commaCount) ? '\t' : ',';
+  var result=[], current='', inQuotes=false, row=[];
+  for (var i=0;i<text.length;i++){
+    var ch=text[i];
+    if (inQuotes){
+      if (ch==='"' && text[i+1]==='"'){ current+='"'; i++; }
+      else if (ch==='"'){ inQuotes=false; }
+      else { current+=ch; }
+    } else {
+      if (ch==='"'){ inQuotes=true; }
+      else if (ch===delim){ row.push(csvField(current)); current=''; }
+      else if (ch==='\n'){ row.push(csvField(current)); result.push(row); row=[]; current=''; }
+      else if (ch==='\r'){ /* skip */ }
+      else { current+=ch; }
+    }
+  }
+  if (current!=='' || row.length){ row.push(csvField(current)); result.push(row); }
+  return result;
+}
+function colIndex(headers, name){
+  function norm(s){ return String(s||'').replace(/^﻿/,'').replace(/\s+/g,' ').toLowerCase().trim(); }
+  var n = norm(name);
+  for (var i=0;i<headers.length;i++) if (norm(headers[i])===n) return i;
+  return -1;
+}
+function toISODate(s){
+  s = String(s==null?'':s).trim(); if (!s) return ''; var m;
+  if ((m=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))){}
+  else if ((m=/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s))){ m=[m[0],m[3],m[1],m[2]]; }
+  else if ((m=/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(s))){}
+  else return null;
+  var y=+m[1],mo=+m[2],d=+m[3]; if (mo<1||mo>12||d<1||d>31) return null;
+  return y+'-'+pad(mo)+'-'+pad(d);
+}
+function downloadFile(content, filename, type){
+  var blob=new Blob([content],{type:type}), url=URL.createObjectURL(blob);
+  var a=document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function showStatus(id,msg,cls){ var el=document.getElementById(id); if(!el) return; el.textContent=msg; el.className='status '+(cls||'loaded'); }
+function loadCSV(file, cb, statusId){
+  if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    try{ var rows=parseCSV(ev.target.result); if(rows.length<2) throw new Error('File has no data rows'); cb(rows); }
+    catch(err){ showStatus(statusId,'Error: '+err.message,'error'); }
+  };
+  reader.readAsText(file);
+}
+function get(row,i){ return i>=0 ? (row[i]||'').trim() : ''; }
+function fmtNum(v){ if(v===''||v==null) return '—'; var n=parseFloat(v); return isNaN(n)?esc(String(v)):(Math.round(n*10)/10).toString(); }
+function fmtPct(v){ if(v===''||v==null) return '—'; var n=parseFloat(v); return isNaN(n)?esc(String(v)):(Math.round(n)+'%'); }
+
+// ============================== Collection helpers ==============================
+function teamsOf(locId){ return Object.keys(teams).map(function(k){return teams[k];}).filter(function(t){return t.locId===locId;}).sort(function(a,b){return a.order-b.order;}); }
+function membersOf(teamId){ return Object.keys(members).map(function(k){return members[k];}).filter(function(m){return m.teamId===teamId;}).sort(function(a,b){return a.order-b.order;}); }
+function wosOf(teamId){ return woOrder.map(function(w){return wos[w];}).filter(function(w){return w && w.teamId===teamId;}); }
+function unassignedWos(){ return woOrder.map(function(w){return wos[w];}).filter(function(w){return w && w.teamId==null;}); }
+
+// ============================== Hierarchy CRUD ==============================
+// Names are edited inline (no prompt) and deletes use a two-click inline confirm (no confirm()),
+// so the tool works in sandboxed preview iframes where window.prompt/confirm are unavailable.
+var pendingDel=null;   // token ('L<id>' / 'T<id>') currently awaiting a Confirm-delete click
+function armDel(t){ pendingDel=t; render(); }
+function cancelDel(){ pendingDel=null; render(); }
+function delControl(token, fnCall){
+  if(pendingDel===token) return '<button class="mini danger no-print" onclick="'+fnCall+'">Confirm delete</button> <button class="mini no-print" onclick="cancelDel()">Cancel</button>';
+  return '<button class="mini danger no-print" onclick="armDel(\''+token+'\')">Delete</button>';
+}
+function focusEl(id){ setTimeout(function(){ var e=document.getElementById(id); if(e){ e.focus(); if(e.select) e.select(); } },0); }
+
+function addLocation(){
+  var id='L'+(nextLocId++); locations[id]={id:id,name:'New Location',order:locOrder.length}; locOrder.push(id);
+  pendingDel=null; render(); focusEl('locname-'+id);
+}
+function setLocName(id,v){ if(locations[id]) locations[id].name=String(v||'').trim(); }
+function doDeleteLocation(id){
+  pendingDel=null; if(!locations[id]) return;
+  teamsOf(id).forEach(function(t){ removeTeam(t.id); });
+  delete locations[id]; locOrder=locOrder.filter(function(x){return x!==id;});
+  render();
+}
+function addTeam(locId){
+  if(!locations[locId]) return;
+  var id='T'+(nextTeamId++); teams[id]={id:id,locId:locId,name:'New Team',order:teamsOf(locId).length};
+  pendingDel=null; render(); focusEl('teamname-'+id);
+}
+function setTeamName(id,v){ if(teams[id]) teams[id].name=String(v||'').trim(); }
+function removeTeam(id){ // internal, no confirm/render
+  membersOf(id).forEach(function(m){ removeMember(m.id); });
+  wosOf(id).forEach(function(w){ w.teamId=null; w.taggedMembers=[]; });
+  delete teams[id];
+}
+function doDeleteTeam(id){
+  pendingDel=null; if(!teams[id]) return;
+  removeTeam(id); render();
+}
+function addMember(teamId){
+  var inp=document.getElementById('mi-'+teamId); if(!inp) return;
+  var raw=(inp.value||'').trim(); if(!raw) return;
+  // Accept "Name (badge)" — mirrors Employee Score Card roster format; badge enables a future join.
+  var name=raw, badge=null, mm=/^(.*?)\s*\(([^)]+)\)\s*$/.exec(raw);
+  if(mm){ name=mm[1].trim(); badge=mm[2].trim(); }
+  if(!name) return;
+  var id='M'+(nextMemberId++); members[id]={id:id,teamId:teamId,name:name,badge:badge,order:membersOf(teamId).length};
+  inp.value='';
+  render();
+}
+function removeMember(id){ // internal: also untag from any WO
+  Object.keys(wos).forEach(function(w){ var ww=wos[w]; if(ww.taggedMembers){ ww.taggedMembers=ww.taggedMembers.filter(function(x){return x!==id;}); } });
+  delete members[id];
+}
+function deleteMember(id){ if(!members[id]) return; removeMember(id); render(); }
+
+// ============================== Assignment (drag-drop + tagging) ==============================
+function onWoDragStart(e, woNo){ dragWo=woNo; if(e.dataTransfer){ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', woNo); } }
+function onDragOver(e){ e.preventDefault(); if(e.dataTransfer) e.dataTransfer.dropEffect='move'; var z=e.currentTarget; if(z) z.classList.add('dragover'); }
+function onDragLeave(e){ var z=e.currentTarget; if(z) z.classList.remove('dragover'); }
+function onDropTeam(e, teamId){
+  e.preventDefault(); var z=e.currentTarget; if(z) z.classList.remove('dragover');
+  var wo=dragWo; dragWo=null; var w=wos[wo]; if(!w||!teams[teamId]) return;
+  if(w.teamId!==teamId){ w.taggedMembers=[]; w.teamId=teamId; }  // moving teams clears tags (members differ per team)
+  render();
+}
+function onDropPool(e){
+  e.preventDefault(); var z=e.currentTarget; if(z) z.classList.remove('dragover');
+  var wo=dragWo; dragWo=null; var w=wos[wo]; if(!w) return;
+  w.teamId=null; w.taggedMembers=[]; render();
+}
+function toggleTag(woNo, memberId){
+  var w=wos[woNo], m=members[memberId]; if(!w||!m) return;
+  if(m.teamId!==w.teamId) return;                 // can only tag members of the WO's own team
+  var i=w.taggedMembers.indexOf(memberId);
+  if(i>=0) w.taggedMembers.splice(i,1); else w.taggedMembers.push(memberId);
+  render();
+}
+
+// ============================== Filter (Unassigned pool only) ==============================
+function setFilter(v){ filterText = String(v||'').trim().toLowerCase(); render(); }
+function matchesFilter(w){
+  if(!filterText) return true;
+  return ((w.woNo||'')+' '+(w.partNo||'')+' '+(w.partName||'')).toLowerCase().indexOf(filterText) >= 0;
+}
+
+// ============================== View toggle ==============================
+function toggleView(){
+  viewMode = (viewMode==='gate') ? 'operation' : 'gate';
+  var b=document.getElementById('view-btn'); if(b) b.textContent = 'View: ' + (viewMode==='gate' ? 'Gate names' : 'Operations');
+  render();
+}
+
+// ============================== Render ==============================
+function render(){
+  // action-bar enablement
+  var hasPlan = locOrder.length>0 || woOrder.length>0;
+  document.getElementById('export-state-btn').disabled = !hasPlan;
+  document.getElementById('save-btn').disabled = !hasPlan;
+  document.getElementById('snapshot-notice').style.display = isSnapshot ? 'block' : 'none';
+
+  var board=document.getElementById('board');
+  var html='<div id="org-pane">';
+  if(!locOrder.length){
+    html+='<div class="empty-hint">No locations yet. Click <b>+ Add Location</b> to start building your teams.</div>';
+  }
+  locOrder.forEach(function(locId){
+    var loc=locations[locId]; if(!loc) return;
+    html+='<div class="loc">';
+    html+='<div class="loc-head"><input class="name-input loc-name" id="locname-'+locId+'" value="'+esc(loc.name)+'" placeholder="Location name" onchange="setLocName(\''+locId+'\',this.value)">'+
+          '<span class="spacer"></span>'+
+          '<button class="mini no-print" onclick="addTeam(\''+locId+'\')">+ Team</button>'+
+          delControl('L'+locId,'doDeleteLocation(\''+locId+'\')')+'</div>';
+    var tms=teamsOf(locId);
+    if(!tms.length) html+='<div class="empty-hint">No teams yet — add one.</div>';
+    tms.forEach(function(t){ html+=teamHTML(t); });
+    html+='</div>';
+  });
+  html+='</div>';
+
+  // pool pane (filter applies here only)
+  var poolAll=unassignedWos();
+  var pool=poolAll.filter(matchesFilter);
+  var countBadge = filterText ? (pool.length+' of '+poolAll.length) : String(poolAll.length);
+  html+='<div id="pool-pane"><h2>Unassigned Work Orders <span class="badge pct">'+countBadge+'</span>'+
+        (filterText?' <span class="empty-hint">(filtered)</span>':'')+'</h2>';
+  html+='<div id="pool-zone" class="droptarget" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDropPool(event)">';
+  if(!woOrder.length) html+='<div class="empty-hint">Load a WO Assignment Feed to populate work orders.</div>';
+  else if(!poolAll.length) html+='<div class="empty-hint">All work orders are assigned.</div>';
+  else if(!pool.length) html+='<div class="empty-hint">No unassigned work orders match &ldquo;'+esc(filterText)+'&rdquo;.</div>';
+  pool.forEach(function(w){ html+=woCardHTML(w); });
+  html+='</div></div>';
+
+  board.innerHTML=html;
+}
+
+function teamHTML(t){
+  var html='<div class="team">';
+  html+='<div class="team-head"><input class="name-input team-name" id="teamname-'+t.id+'" value="'+esc(t.name)+'" placeholder="Team name" onchange="setTeamName(\''+t.id+'\',this.value)">'+
+        '<span class="spacer"></span>'+
+        delControl('T'+t.id,'doDeleteTeam(\''+t.id+'\')')+'</div>';
+  // members
+  var mem=membersOf(t.id);
+  html+='<div class="members">';
+  if(!mem.length) html+='<span class="empty-hint">No members</span>';
+  mem.forEach(function(m){
+    html+='<span class="mtag">'+esc(m.name)+(m.badge?' <span class="pn">('+esc(m.badge)+')</span>':'')+
+          ' <span class="x no-print" title="Remove member" onclick="deleteMember(\''+m.id+'\')">&times;</span></span>';
+  });
+  html+='</div>';
+  html+='<div class="addmem no-print"><input id="mi-'+t.id+'" list="member-roster" placeholder="Add member (or \'Name (badge)\')" '+
+        'onkeydown="if(event.key===\'Enter\'){addMember(\''+t.id+'\');event.preventDefault();}">'+
+        '<button class="mini" onclick="addMember(\''+t.id+'\')">+ Add</button></div>';
+  // assigned WO drop zone
+  html+='<div class="droptarget" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDropTeam(event,\''+t.id+'\')">';
+  var ws=wosOf(t.id);
+  if(!ws.length) html+='<div class="empty-hint">Drag work orders here</div>';
+  ws.forEach(function(w){ html+=woCardHTML(w); });
+  html+='</div></div>';
+  return html;
+}
+
+function woCardHTML(w){
+  var cls='wo-card'+(w.stale?' stale':'');
+  var html='<div class="'+cls+'" draggable="true" ondragstart="onWoDragStart(event,\''+esc(w.woNo)+'\')">';
+  html+='<div class="wo-head">WO '+esc(w.woNo);
+  if(w.stale) html+=' <span class="badge stale" title="No longer in the latest feed">stale</span>';
+  if(parseFloat(w.activeDrOps)>0) html+=' <span class="badge dr">DR '+esc(w.activeDrOps)+'</span>';
+  html+='</div>';
+  html+='<div class="wo-sub">'+esc(w.partName||'')+' <span class="pn">'+esc(w.partNo||'')+'</span></div>';
+
+  // Gate-view-only line (Operation view shows gates per-op in the table).
+  if(viewMode!=='operation') html+='<div class="wo-meta">Gate: '+esc(w.currentGate||'—')+'</div>';
+  // ETC / Finish / % retained in BOTH views.
+  html+='<div class="wo-meta">ETC '+fmtNum(w.etc)+' h &middot; Finish '+esc(w.plannedFinish||'—')+' &middot; '+
+        '<span class="badge pct">'+fmtPct(w.percentComplete)+' complete</span></div>';
+  if(viewMode==='operation') html+=opTableHTML(w);
+
+  // member tagging (only when assigned to a team)
+  if(w.teamId && teams[w.teamId]){
+    var mem=membersOf(w.teamId);
+    if(mem.length){
+      html+='<div class="tagrow"><span class="lab no-print">Assign:</span>';
+      mem.forEach(function(m){
+        var on=w.taggedMembers && w.taggedMembers.indexOf(m.id)>=0;
+        html+='<span class="mchip'+(on?' tagged':'')+'" onclick="toggleTag(\''+esc(w.woNo)+'\',\''+m.id+'\')">'+esc(m.name)+'</span>';
+      });
+      html+='</div>';
+    }
+  }
+  html+='</div>';
+  return html;
+}
+
+function opTableHTML(w){
+  var ops=(w.ops||[]).slice();
+  if(!ops.length) return '<div class="op-none">No active / in-queue operations'+(isSnapshot?' (re-upload a feed to refresh)':'')+'.</div>';
+  // DR (7000-series) first, then ascending Op #
+  ops.sort(function(a,b){
+    var da=(a.isDr||isDrOp(a.operNo))?0:1, db=(b.isDr||isDrOp(b.operNo))?0:1;
+    if(da!==db) return da-db;
+    return (parseInt(a.operNo,10)||0)-(parseInt(b.operNo,10)||0);
+  });
+  var html='<table class="op-table"><thead><tr><th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned hrs</th></tr></thead><tbody>';
+  ops.forEach(function(o){
+    var dr=o.isDr||isDrOp(o.operNo);
+    html+='<tr'+(dr?' class="dr"':'')+'><td class="num">'+esc(o.operNo)+(dr?' <span class="badge dr">DR</span>':'')+'</td>'+
+          '<td>'+esc(o.name||'')+'</td><td>'+esc(o.gate||'')+'</td><td>'+esc(o.status||'')+'</td>'+
+          '<td class="num">'+fmtNum(o.plannedHrs)+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  return html;
+}
+
+// ============================== Feed ingest ==============================
+function onFeedFile(input){ if(input.files && input.files[0]) loadCSV(input.files[0], ingestFeed, 'feed-status'); }
+function ingestFeed(rows){
+  var h=rows[0];
+  var iRec=colIndex(h,'Record'), iWO=colIndex(h,'WO');
+  if(iRec<0||iWO<0){ showStatus('feed-status','Error: not a WO Assignment Feed (missing Record / WO columns).','error'); return; }
+  var iPart=colIndex(h,'Part Number'),iName=colIndex(h,'Part Name'),iProg=colIndex(h,'Program'),
+      iGate=colIndex(h,'Current Gate'),iOpsRem=colIndex(h,'Ops Remaining In Gate'),
+      iHrsRem=colIndex(h,'Planned Hours Remaining In Gate'),iHrsAll=colIndex(h,'Planned Hours In Gate'),
+      iEtc=colIndex(h,'Remaining Planned Hours'),iPct=colIndex(h,'Percent Complete'),
+      iFin=colIndex(h,'Planned Finish'),iDr=colIndex(h,'Active DR Ops'),iAsOf=colIndex(h,'As Of'),
+      iOpNo=colIndex(h,'Operation No'),iOpName=colIndex(h,'Operation Name'),iOpGate=colIndex(h,'Operation Gate'),
+      iOpHrs=colIndex(h,'Operation Planned Hours'),iOpSt=colIndex(h,'Operation Status'),iIsDr=colIndex(h,'Is DR');
+  var feed={}, feedWos={};
+  for(var r=1;r<rows.length;r++){
+    var row=rows[r], rec=get(row,iRec).toUpperCase(), wo=get(row,iWO);
+    if(!wo) continue;
+    if(rec==='OP'){
+      if(!feed[wo]){ feed[wo]={woNo:wo,ops:[]}; feedWos[wo]=true; }
+      feed[wo].ops.push({ operNo:get(row,iOpNo),name:get(row,iOpName),gate:get(row,iOpGate),
+        plannedHrs:get(row,iOpHrs),status:get(row,iOpSt),isDr:/^y/i.test(get(row,iIsDr)) });
+    } else { // treat any non-OP row with a WO as the summary row
+      feedWos[wo]=true;
+      var fin=get(row,iFin), finISO=toISODate(fin);
+      feed[wo]=Object.assign(feed[wo]||{ops:[]},{ woNo:wo, partNo:get(row,iPart), partName:get(row,iName),
+        program:get(row,iProg), currentGate:get(row,iGate), opsRemInGate:get(row,iOpsRem),
+        hrsRemInGate:get(row,iHrsRem), hrsInGate:get(row,iHrsAll), etc:get(row,iEtc),
+        percentComplete:get(row,iPct), plannedFinish:(finISO===null?fin:finISO),
+        activeDrOps:get(row,iDr), asOf:get(row,iAsOf) });
+    }
+  }
+  var LIVE=['partNo','partName','program','currentGate','opsRemInGate','hrsRemInGate','hrsInGate',
+            'etc','percentComplete','plannedFinish','activeDrOps','asOf','ops'];
+  var added=0, updated=0, staled=0;
+  Object.keys(feed).forEach(function(wo){
+    var f=feed[wo];
+    if(!wos[wo]){ wos[wo]=Object.assign({teamId:null,taggedMembers:[],stale:false}, f); woOrder.push(wo); added++; }
+    else { var w=wos[wo]; LIVE.forEach(function(k){ if(k in f) w[k]=f[k]; }); w.stale=false; updated++; }
+  });
+  Object.keys(wos).forEach(function(wo){ if(!feedWos[wo]){ wos[wo].stale=true; staled++; } });
+  showStatus('feed-status','Loaded '+Object.keys(feed).length+' WOs — '+added+' new, '+updated+' updated'+(staled?', '+staled+' now stale':'')+'.','loaded');
+  render();
+}
+
+// ============================== Export / Import plan state ==============================
+var STATE_HEADER=['Type','Node ID','Parent ID','Order','Name','Badge','WO','Part Number','Part Name',
+  'Program','Current Gate','Planned Finish','ETC','Percent Complete','As Of','Active DR Ops',
+  'Team ID','Tagged Member IDs','Stale'];
+function exportStateCSV(){
+  var lines=[STATE_HEADER.join(',')];
+  function pushRow(o){
+    lines.push(STATE_HEADER.map(function(k){ return csvQuote(o[k]==null?'':o[k]); }).join(','));
+  }
+  locOrder.forEach(function(locId,i){ var l=locations[locId]; if(l) pushRow({Type:'LOC','Node ID':l.id,'Parent ID':'',Order:i,Name:l.name}); });
+  // teams + members nested so the file reads top-down by location
+  locOrder.forEach(function(locId){
+    teamsOf(locId).forEach(function(t,ti){
+      pushRow({Type:'TEAM','Node ID':t.id,'Parent ID':t.locId,Order:ti,Name:t.name});
+      membersOf(t.id).forEach(function(m,mi){ pushRow({Type:'MEMBER','Node ID':m.id,'Parent ID':m.teamId,Order:mi,Name:m.name,Badge:m.badge||''}); });
+    });
+  });
+  woOrder.forEach(function(woNo,i){
+    var w=wos[woNo]; if(!w) return;
+    pushRow({Type:'WO','Node ID':w.woNo,'Parent ID':'',Order:i,'WO':w.woNo,'Part Number':w.partNo||'',
+      'Part Name':w.partName||'','Program':w.program||'','Current Gate':w.currentGate||'',
+      'Planned Finish':w.plannedFinish||'','ETC':w.etc==null?'':w.etc,'Percent Complete':w.percentComplete==null?'':w.percentComplete,
+      'As Of':w.asOf||'','Active DR Ops':w.activeDrOps==null?'':w.activeDrOps,'Team ID':w.teamId||'',
+      'Tagged Member IDs':(w.taggedMembers||[]).join('|'),'Stale':w.stale?'Y':'N'});
+  });
+  downloadFile(lines.join('\n'),'task-assignment-plan-'+dateStr()+'.csv','text/csv');
+}
+function onStateFile(input){ if(input.files && input.files[0]) loadCSV(input.files[0], importState, 'state-status'); }
+function maxIdNum(prefix, id){ var m=new RegExp('^'+prefix+'(\\d+)$').exec(id); return m?+m[1]:-1; }
+function importState(rows){
+  var h=rows[0];
+  var iType=colIndex(h,'Type'), iId=colIndex(h,'Node ID'), iPid=colIndex(h,'Parent ID'),
+      iOrder=colIndex(h,'Order'), iName=colIndex(h,'Name'), iBadge=colIndex(h,'Badge'),
+      iWO=colIndex(h,'WO'), iPart=colIndex(h,'Part Number'), iPName=colIndex(h,'Part Name'),
+      iProg=colIndex(h,'Program'), iGate=colIndex(h,'Current Gate'), iFin=colIndex(h,'Planned Finish'),
+      iEtc=colIndex(h,'ETC'), iPct=colIndex(h,'Percent Complete'), iAsOf=colIndex(h,'As Of'),
+      iDr=colIndex(h,'Active DR Ops'), iTeam=colIndex(h,'Team ID'), iTags=colIndex(h,'Tagged Member IDs'),
+      iStale=colIndex(h,'Stale');
+  if(iType<0||iId<0){ showStatus('state-status','Error: not a saved plan (missing Type / Node ID columns).','error'); return; }
+  // reset
+  locations={}; locOrder=[]; teams={}; members={}; wos={}; woOrder=[];
+  nextLocId=0; nextTeamId=0; nextMemberId=0;
+  var locRows=[];
+  for(var r=1;r<rows.length;r++){
+    var row=rows[r], type=get(row,iType).toUpperCase(), id=get(row,iId);
+    var order=parseInt(get(row,iOrder),10); if(isNaN(order)) order=r;
+    if(type==='LOC'){ locations[id]={id:id,name:get(row,iName),order:order}; locRows.push({id:id,order:order}); nextLocId=Math.max(nextLocId,maxIdNum('L',id)+1); }
+    else if(type==='TEAM'){ teams[id]={id:id,locId:get(row,iPid),name:get(row,iName),order:order}; nextTeamId=Math.max(nextTeamId,maxIdNum('T',id)+1); }
+    else if(type==='MEMBER'){ members[id]={id:id,teamId:get(row,iPid),name:get(row,iName),badge:(iBadge>=0?get(row,iBadge):'')||null,order:order}; nextMemberId=Math.max(nextMemberId,maxIdNum('M',id)+1); }
+    else if(type==='WO'){
+      var wo=get(row,iWO)||id;
+      var fin=get(row,iFin), finISO=toISODate(fin);
+      var tags=get(row,iTags); var tagArr=tags?tags.split('|').map(function(s){return s.trim();}).filter(Boolean):[];
+      wos[wo]={ woNo:wo, partNo:get(row,iPart), partName:get(row,iPName), program:get(row,iProg),
+        currentGate:get(row,iGate), plannedFinish:(finISO===null?fin:finISO),
+        etc:(iEtc>=0?get(row,iEtc):''), percentComplete:(iPct>=0?get(row,iPct):''), asOf:get(row,iAsOf),
+        activeDrOps:(iDr>=0?get(row,iDr):''), opsRemInGate:'', hrsRemInGate:'', hrsInGate:'', ops:[],
+        teamId:(get(row,iTeam)||null), taggedMembers:tagArr, stale:/^y/i.test(get(row,iStale)),
+        _order:order };
+      woOrder.push(wo);
+    }
+  }
+  locOrder=locRows.sort(function(a,b){return a.order-b.order;}).map(function(x){return x.id;});
+  woOrder.sort(function(a,b){ return (wos[a]._order||0)-(wos[b]._order||0); });
+  woOrder.forEach(function(w){ delete wos[w]._order; });
+  // drop tags pointing at members that no longer exist
+  Object.keys(wos).forEach(function(w){ wos[w].taggedMembers=(wos[w].taggedMembers||[]).filter(function(id){return members[id];}); });
+  showStatus('state-status','Imported plan: '+locOrder.length+' locations, '+Object.keys(teams).length+' teams, '+woOrder.length+' work orders.','loaded');
+  render();
+}
+
+// ============================== Snapshot (editable HTML) ==============================
+function snapshotState(){
+  return { locations:locations, locOrder:locOrder, teams:teams, members:members, wos:wos, woOrder:woOrder,
+    nextLocId:nextLocId, nextTeamId:nextTeamId, nextMemberId:nextMemberId, viewMode:viewMode };
+}
+function hydrate(s){
+  locations=s.locations||{}; locOrder=s.locOrder||[]; teams=s.teams||{}; members=s.members||{};
+  wos=s.wos||{}; woOrder=s.woOrder||[]; nextLocId=s.nextLocId||0; nextTeamId=s.nextTeamId||0;
+  nextMemberId=s.nextMemberId||0; viewMode=s.viewMode||'gate';
+}
+function saveSnapshot(){
+  var json=JSON.stringify(snapshotState()).replace(/</g,'\\u003c');
+  var inject='<script id="snapshot-data">window.__SNAPSHOT_STATE__ = JSON.parse('+JSON.stringify(json)+');<\/script>\n';
+  // Carry the entire current document verbatim, then prepend the saved state into <head>.
+  var docHtml='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+  // strip any previous snapshot-data block so re-saving a snapshot doesn't stack them
+  docHtml=docHtml.replace(/<script id="snapshot-data">[\s\S]*?<\/script>\s*/,'');
+  docHtml=docHtml.replace('</head>', inject+'</head>');
+  downloadFile(docHtml,'task-assignment-plan-'+dateStr()+'.html','text/html');
+}
+
+// ============================== Init ==============================
+(function init(){
+  try{
+    if(window.__SNAPSHOT_STATE__){ hydrate(window.__SNAPSHOT_STATE__); isSnapshot=true; }
+  }catch(e){}
+  var vb=document.getElementById('view-btn'); if(vb) vb.textContent='View: '+(viewMode==='gate'?'Gate names':'Operations');
+  render();
+})();
+</script>
+</body>
+</html>

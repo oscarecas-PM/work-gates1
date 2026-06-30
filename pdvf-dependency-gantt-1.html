@@ -320,7 +320,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.13</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.14</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -369,6 +369,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
     <button class="emp-step" title="Add a tech" onclick="bumpEmployees(1)">+</button>
     <span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>
   <button class="btn btn-green" id="export-csv-btn" disabled onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>
+  <button class="btn btn-green" id="assign-feed-btn" disabled onclick="exportAssignmentFeed()">Export WO Assignment Feed</button>
   <button class="btn btn-slate" id="save-btn" disabled onclick="saveSnapshot()">Save for Editing</button>
 </div>
 
@@ -2607,6 +2608,7 @@ function renderLoadingTable() {
 function updateButtons() {
   var has = rootIds.length > 0;
   document.getElementById('export-csv-btn').disabled = !has;
+  var af = document.getElementById('assign-feed-btn'); if (af) af.disabled = !has;
   document.getElementById('save-btn').disabled = !has;
   document.getElementById('add-root-btn').disabled = Object.keys(woMeta).length === 0;
 }
@@ -2643,6 +2645,90 @@ function exportHierarchyCSV() {
   }
   rootIds.forEach(walk);
   downloadFile(lines.join('\n'), 'pdvf-hierarchy-' + dateStr() + '.csv', 'text/csv');
+}
+
+// ============================== Export: WO Assignment Feed ==============================
+// A per-WO feed consumed by the Task Assignment tool. One CSV with a Record column: a WO row
+// carries the per-WO summary (gate / hours / hours-based % / milestone) and OP rows list ONLY
+// the currently Active / In Queue operations (Op #, name, gate, planned hours). 7000-series ops
+// are flagged as DR and sorted to the front. Scoped to the WOs in this tree (the curated
+// critical-hardware subset); placeholders (no WO) are skipped. Hours/% mirror computeWOProgress.
+function isDrOp(op) { var n = parseInt(op, 10); return n >= 7000 && n <= 7999; }
+function exportAssignmentFeed() {
+  // Walk in the same family order as the hierarchy export, so the feed is stable and readable.
+  rootIds.forEach(function(rid, i){ if (nodes[rid]) nodes[rid].order = i; });
+  var realWoNodes = [];
+  function walk(id) {
+    var n = nodes[id];
+    if (n && n.woNo && !n.isPlaceholder) realWoNodes.push(n);
+    getChildren(id).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ walk(c.id); });
+  }
+  rootIds.forEach(walk);
+  if (!realWoNodes.length) { alert('No work orders in the tree. Add work orders and load a Daily Upload first.'); return; }
+
+  var asOf = todayISO();
+  var lines = [['Record','WO','Part Number','Part Name','Program','Current Gate','Ops Remaining In Gate',
+    'Planned Hours Remaining In Gate','Planned Hours In Gate','Remaining Planned Hours','Percent Complete',
+    'Planned Finish','Active DR Ops','As Of','Operation No','Operation Name','Operation Gate',
+    'Operation Planned Hours','Operation Status','Is DR'].join(',')];
+  var seenWo = {};
+
+  realWoNodes.forEach(function(n) {
+    if (seenWo[n.woNo]) return;            // a WO may appear more than once in the tree; emit it once
+    seenWo[n.woNo] = true;
+    var ring = ringByPart[n.partNo];
+    var rd = resolveOps(n);
+    var flat = rd.flat || [];
+    function gateNameForOp(op){ return ring ? (ring.gateName[ring.operToGate[op]] || '') : ''; }
+
+    // WO-level hours + %. Mirror computeWOProgress (canonical, ring-labor based) when it has a
+    // total; if it returns null (no decoder-ring labor hours) PDVF shows no %, so the feed leaves
+    // % blank too — but still reports remaining hours from the live ops so ETC isn't lost.
+    var prog = computeWOProgress(n);
+    var remainHrs, woPct;
+    if (prog) { remainHrs = prog.remainHrs; woPct = prog.woPct; }
+    else { remainHrs = 0; flat.forEach(function(o){ remainHrs += (o.remaining||0); }); woPct = ''; }
+
+    // Current gate = first gate (ring order) that still has open work; report its op/hours metrics.
+    var curGateName = '', opsRem = '', hrsRem = '', hrsAll = '';
+    if (rd.hasRing) {
+      for (var gi = 0; gi < rd.gates.length; gi++) {
+        var g = rd.gates[gi];
+        var remOps = g.ops.filter(function(o){ return o.remaining > 0; });
+        if (remOps.length) {
+          curGateName = (g.num !== '' ? g.num + '. ' : '') + g.name;
+          opsRem = remOps.length;
+          var hr = 0, ha = 0;
+          g.ops.forEach(function(o){ ha += (o.planned||0); if (o.remaining>0) hr += (o.planned||0); });
+          hrsRem = hr.toFixed(1); hrsAll = ha.toFixed(1);
+          break;
+        }
+      }
+    }
+
+    var activeOps = flat.filter(function(o){ var s=(o.status||'').toUpperCase().trim(); return s==='ACTIVE'||s==='IN QUEUE'; });
+    var drCount = activeOps.filter(function(o){ return isDrOp(o.operNo); }).length;
+
+    lines.push(['WO', csvQuote(n.woNo), csvQuote(n.partNo), csvQuote(csvField(n.partDesc||'')), csvQuote(n.program||''),
+      csvQuote(curGateName), opsRem, hrsRem, hrsAll,
+      remainHrs.toFixed(1), woPct === '' ? '' : woPct.toFixed(1),
+      csvQuote(n.completion||''), drCount, asOf,
+      '','','','','',''].join(','));
+
+    // OP rows: Active + In Queue only; DR (7000-series) first, then ascending Op #.
+    activeOps.sort(function(a,b){
+      var da = isDrOp(a.operNo) ? 0 : 1, db = isDrOp(b.operNo) ? 0 : 1;
+      if (da !== db) return da - db;
+      return (parseInt(a.operNo,10)||0) - (parseInt(b.operNo,10)||0);
+    });
+    activeOps.forEach(function(o){
+      lines.push(['OP', csvQuote(n.woNo), '','','','','','','','','','','','',
+        csvQuote(o.operNo), csvQuote(csvField(o.title||'')), csvQuote(gateNameForOp(o.operNo)),
+        (o.planned||0).toFixed(1), csvQuote(o.status||''), isDrOp(o.operNo)?'Y':'N'].join(','));
+    });
+  });
+
+  downloadFile(lines.join('\n'), 'wo-assignment-feed-' + dateStr() + '.csv', 'text/csv');
 }
 
 function importHierarchy(rows) {
@@ -2780,6 +2866,7 @@ function saveSnapshot() {
   html += '<span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span><input type="number" id="hrs-per-emp" min="0" step="1" placeholder="&mdash;" onchange="setHrsPerEmployee(this.value)"></span>';
   html += '<span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span><button class="emp-step" onclick="bumpEmployees(-1)">&minus;</button><input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)"><button class="emp-step" onclick="bumpEmployees(1)">+</button><span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>';
   html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>';
+  html += '<button class="btn btn-green" id="assign-feed-btn" onclick="exportAssignmentFeed()">Export WO Assignment Feed</button>';
   html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button></div>\n';
   html += '<div class="legend" id="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
   html += '<div id="board"></div>\n';

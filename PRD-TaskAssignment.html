@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PRD — Task Assignment Builder</title>
+<style>
+  @page { size: letter; margin: 0.75in 1in; }
+  @media print {
+    body { font-size: 10pt; }
+    .no-print { display: none; }
+    h2 { break-after: avoid; }
+    .req-table, .req-table tr, .req-table td { break-inside: avoid; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1a1a1a; line-height: 1.5; padding: 0.75in 1in; max-width: 8.5in; margin: 0 auto; background: #fff; }
+  .no-print { position: fixed; top: 16px; right: 16px; z-index: 100; }
+  .no-print button { padding: 10px 20px; font-size: 14px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  .no-print button:hover { background: #1d4ed8; }
+  .title-block { border-bottom: 3px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 24px; }
+  .title-block h1 { font-size: 22pt; color: #1e3a5f; margin-bottom: 4px; }
+  .title-block .subtitle { font-size: 11pt; color: #555; }
+  .meta-table { margin-top: 12px; font-size: 9pt; color: #444; }
+  .meta-table td { padding: 1px 12px 1px 0; }
+  .meta-table .label { font-weight: bold; min-width: 100px; }
+  h2 { font-size: 14pt; color: #1e3a5f; margin-top: 28px; margin-bottom: 10px; padding-bottom: 3px; border-bottom: 1.5px solid #cbd5e1; }
+  h3 { font-size: 11pt; color: #334155; margin-top: 16px; margin-bottom: 6px; }
+  p, li { font-size: 10pt; margin-bottom: 6px; }
+  ul, ol { padding-left: 20px; margin-bottom: 10px; }
+  .tag { display: inline-block; font-size: 8pt; font-weight: bold; padding: 1px 7px; border-radius: 3px; vertical-align: middle; margin-right: 4px; letter-spacing: 0.3px; }
+  .tag-explicit { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .tag-assumed  { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+  .tag-open     { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .tag-resolved { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
+  .tag-future   { background: #f3e8ff; color: #6b21a8; border: 1px solid #c4b5fd; }
+  .legend { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; font-size: 9pt; }
+  .legend-row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .req-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt; }
+  .req-table th { background: #334155; color: #fff; padding: 6px 8px; text-align: left; font-size: 9pt; }
+  .req-table td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  .req-table tr:nth-child(even) { background: #f8fafc; }
+  .req-id { font-weight: bold; white-space: nowrap; color: #475569; }
+  .data-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9pt; }
+  .data-table th { background: #f1f5f9; color: #334155; padding: 4px 8px; text-align: left; border: 1px solid #e2e8f0; }
+  .data-table td { padding: 4px 8px; border: 1px solid #e2e8f0; }
+  .xref { background: #f0f9ff; border-left: 3px solid #2563eb; padding: 8px 12px; margin-bottom: 10px; font-size: 9.5pt; }
+  .xref strong { color: #1e3a5f; }
+</style>
+</head>
+<body>
+
+<div class="no-print"><button onclick="window.print()">Print / Save as PDF</button></div>
+
+<div class="title-block">
+  <h1>Product Requirements Document</h1>
+  <div class="subtitle">Task Assignment Builder &mdash; Team Structure &amp; Work-Order Assignment Tool</div>
+  <table class="meta-table">
+    <tr><td class="label">Document Version:</td><td>1.1</td></tr>
+    <tr><td class="label">Date:</td><td>June 29, 2026</td></tr>
+    <tr><td class="label">Author:</td><td>Claude (AI) &mdash; on behalf of Oscar Castillo</td></tr>
+    <tr><td class="label">Status:</td><td>UPDATED (v1.1) &mdash; Documents <code>task-assignment-1.html</code>. v1.1 adds the Operation-view meta retention (F-06), the Unassigned-pool filter (F-14), print hides the pool (F-15), and records that hierarchy editing is inline (F-01a, replacing browser prompt/confirm so it works in sandboxed previews).</td></tr>
+    <tr><td class="label">App File:</td><td>task-assignment-1.html (in-app badge v1)</td></tr>
+    <tr><td class="label">Repository:</td><td>github.com/oscarecas-PM/work-gates1</td></tr>
+    <tr><td class="label">Related PRD:</td><td>PRD-PDVF.html (v1.3, &sect;5.8) &mdash; produces this tool&rsquo;s input feed</td></tr>
+  </table>
+</div>
+
+<div class="legend">
+  <strong>Requirement Source Legend</strong>
+  <div class="legend-row" style="margin-top:6px;">
+    <span><span class="tag tag-explicit">EXPLICIT</span> Direct instruction from product owner</span>
+    <span><span class="tag tag-assumed">ASSUMED</span> Decision made by developer</span>
+    <span><span class="tag tag-resolved">RESOLVED</span> Was OPEN, now answered</span>
+    <span><span class="tag tag-open">OPEN</span> Still needs definition</span>
+    <span><span class="tag tag-future">FUTURE</span> Deferred enhancement</span>
+  </div>
+</div>
+
+<h2>1. Purpose &amp; Background</h2>
+<p>The Task Assignment Builder lets a production manager (1) build out the structure of the shop's teams &mdash; <strong>Location &rarr; Team &rarr; Team Member</strong> &mdash; and (2) assign work orders to a team, tagging the specific members responsible for each. It is the organizational/assignment layer that sits on top of the data the rest of the work-gates1 family already computes.</p>
+<p>Crucially, the tool performs <strong>no engineering computation and requires no manual entry of work-order data.</strong> Every live field (current gate, hours, % complete, operations, planned finish) is sourced from a single CSV exported by <strong>PDVF</strong> (the <a>Production Dependency &amp; Velocity Forecaster</a>, &sect;5.8). PDVF is already scoped to the curated subset of critical hardware the manager monitors, so the assignment tool shows a short, relevant work-order list rather than every released WO. The only things the manager enters by hand are the team <em>structure</em> and the <em>assignment decisions</em>.</p>
+<div class="xref"><strong>Single source of truth.</strong> PDVF owns the heavy computation (decoder-ring gate mapping, ETC, hours-based % complete, operation status, milestone dates). The assignment tool joins that feed by WO# and never recomputes it &mdash; eliminating the risk of two tools drifting apart.</div>
+
+<h2>2. Scope &amp; Constraints</h2>
+<table class="req-table">
+  <tr><th style="width:64px">ID</th><th>Constraint</th></tr>
+  <tr><td class="req-id">C-01</td><td><span class="tag tag-explicit">EXPLICIT</span> Single self-contained HTML file (HTML + CSS + JS), consistent with the rest of the repo.</td></tr>
+  <tr><td class="req-id">C-02</td><td><span class="tag tag-explicit">EXPLICIT</span> Zero network calls; all processing client-side. CSP meta restricts to <code>'self' 'unsafe-inline'</code>.</td></tr>
+  <tr><td class="req-id">C-03</td><td><span class="tag tag-explicit">EXPLICIT</span> No persistent storage (no cookies/localStorage). State lives in memory and is exported to CSV or an editable HTML snapshot.</td></tr>
+  <tr><td class="req-id">C-04</td><td><span class="tag tag-assumed">ASSUMED</span> Target browsers Chrome &amp; Edge. <code>esc()</code> XSS-escaping on all data-derived HTML; CSV fields capped at 500 chars.</td></tr>
+  <tr><td class="req-id">C-05</td><td><span class="tag tag-explicit">EXPLICIT</span> No manual entry of work-order data fields; WO live data comes only from the PDVF feed.</td></tr>
+</table>
+
+<h2>3. Data Inputs</h2>
+<h3>3.1 WO Assignment Feed (required) &mdash; from PDVF &sect;5.8</h3>
+<p>A single CSV with a <code>Record</code> column distinguishing <code>WO</code> summary rows from <code>OP</code> detail rows. Joined to the plan by <strong>WO #</strong>.</p>
+<table class="data-table">
+  <tr><th>Record</th><th>Columns used</th></tr>
+  <tr><td>WO</td><td>WO, Part Number, Part Name, Program, Current Gate, Ops Remaining In Gate, Planned Hours Remaining In Gate, Planned Hours In Gate, Remaining Planned Hours (ETC), Percent Complete, Planned Finish, Active DR Ops, As Of</td></tr>
+  <tr><td>OP</td><td>WO, Operation No, Operation Name, Operation Gate, Operation Planned Hours, Operation Status (Active / In Queue), Is DR</td></tr>
+</table>
+
+<h3>3.2 Saved Plan CSV (optional) &mdash; this tool's own export</h3>
+<p>Re-imported to restore a previously built plan. See &sect;5 for the round-trip schema.</p>
+
+<h2>4. Functional Requirements</h2>
+<table class="req-table">
+  <tr><th style="width:64px">ID</th><th>Requirement</th></tr>
+  <tr><td class="req-id">F-01</td><td><span class="tag tag-explicit">EXPLICIT</span> Build a 3-level hierarchy: add / rename / delete <strong>Locations</strong>, <strong>Teams</strong> (within a location), and <strong>Team Members</strong> (within a team). Deleting a team or location returns its work orders to the Unassigned pool; deleting a member untags it everywhere.</td></tr>
+  <tr><td class="req-id">F-01a</td><td><span class="tag tag-resolved">RESOLVED</span> Hierarchy editing is fully <strong>inline</strong>: adding a Location/Team creates an editable name field in place (no popup); names are edited by typing in that field; deletes use a <strong>two-click inline confirm</strong> (Delete &rarr; Confirm delete / Cancel). This replaced an initial <code>prompt()</code>/<code>confirm()</code> approach, which is blocked in sandboxed preview iframes (and is poorer UX).</td></tr>
+  <tr><td class="req-id">F-02</td><td><span class="tag tag-explicit">EXPLICIT</span> Load the PDVF WO Assignment Feed; unassigned work orders appear in an <strong>Unassigned Work Orders</strong> pool.</td></tr>
+  <tr><td class="req-id">F-03</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Drag a work order onto a team</strong> to assign it. A WO lives under <strong>exactly one team at a time</strong> but can be <strong>moved</strong> between teams (drag again) or back to the pool. Moving a WO to a different team clears its tagged members (members belong to a specific team).</td></tr>
+  <tr><td class="req-id">F-04</td><td><span class="tag tag-explicit">EXPLICIT</span> Within an assigned WO, <strong>tag one or more of that team's members</strong> as responsible (toggle chips). Tagging is restricted to members of the WO's own team.</td></tr>
+  <tr><td class="req-id">F-05</td><td><span class="tag tag-explicit">EXPLICIT</span> Global <strong>view toggle</strong> between <strong>Gate Name view</strong> (default; current gate, ETC, planned finish, % complete) and <strong>Operation view</strong>.</td></tr>
+  <tr><td class="req-id">F-06</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Operation view</strong> lists, per WO, only the <strong>Active + In Queue</strong> operations &mdash; columns <strong>Op # / Operation / Gate / Status / Planned hrs</strong> &mdash; sorted by Op # ascending, with <strong>7000-series (DR) operations pulled to the front</strong> and flagged. Fully explicit text (no hover tooltips), suitable for a wall monitor or printout; a <strong>Print</strong> button and print CSS are provided. The <strong>ETC / Planned Finish / % Complete</strong> summary line is <strong>retained in Operation view</strong> as well (only the redundant current-gate summary line is dropped, since the per-op Gate column covers it).</td></tr>
+  <tr><td class="req-id">F-07</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Planned Finish</strong> per WO is the PDVF Milestone Date carried in the feed (no manual entry).</td></tr>
+  <tr><td class="req-id">F-08</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>% Complete</strong> is PDVF's hours-based figure, refreshed on every feed load (always current; no sticky/last-known mechanism, because PDVF has no weekly P-File dependency).</td></tr>
+  <tr><td class="req-id">F-09</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Refresh:</strong> re-uploading a fresh feed re-joins by WO# and updates live fields + operations only &mdash; the team/member hierarchy and every assignment/tag are preserved. New WOs land in the Unassigned pool.</td></tr>
+  <tr><td class="req-id">F-10</td><td><span class="tag tag-assumed">ASSUMED</span> A WO present in the plan but <strong>absent from the latest feed</strong> is flagged <strong>stale</strong> (amber), not deleted &mdash; so a completed/removed WO never silently disappears with its assignment history.</td></tr>
+  <tr><td class="req-id">F-11</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Export Plan CSV</strong> round-trips the full state (hierarchy + every WO placement + tagged members). <strong>Import Saved Plan</strong> restores it exactly.</td></tr>
+  <tr><td class="req-id">F-12</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Save for Editing</strong> writes a self-contained editable HTML snapshot that reopens with all state (including the active view) restored; re-uploading a feed into the snapshot refreshes live data.</td></tr>
+  <tr><td class="req-id">F-13</td><td><span class="tag tag-assumed">ASSUMED</span> Each WO card shows an <strong>Active DR Ops</strong> badge when &gt; 0, and stale WOs render with an amber treatment.</td></tr>
+  <tr><td class="req-id">F-14</td><td><span class="tag tag-explicit">EXPLICIT</span> A <strong>filter box</strong> narrows the <strong>Unassigned pool</strong> by case-insensitive substring across <strong>WO # / part name / part number</strong>; the pool header shows &ldquo;<em>X of Y</em>&rdquo; while filtering, and a no-match hint when empty. <strong>Scoped to the pool only</strong> &mdash; assigned WOs under teams are unaffected. Transient (not persisted in the plan/snapshot).</td></tr>
+  <tr><td class="req-id">F-15</td><td><span class="tag tag-explicit">EXPLICIT</span> <strong>Printing hides the Unassigned pool</strong> (<code>@media print #pool-pane{display:none}</code>) &mdash; a printout is the assignment board, not the intake list. (Any active filter is reflected on screen but does not affect the assigned-board printout.)</td></tr>
+</table>
+
+<h2>5. Data Model &amp; Round-trip Schema</h2>
+<p>Entities use stable IDs (<code>L#</code>, <code>T#</code>, <code>M#</code>) so the plan CSV round-trips deterministically. Work orders are keyed by WO #.</p>
+<ul>
+  <li><strong>Location</strong> { id, name, order }</li>
+  <li><strong>Team</strong> { id, locId, name, order }</li>
+  <li><strong>Member</strong> { id, teamId, name, <strong>badge</strong> (optional), order }</li>
+  <li><strong>Work Order</strong> { woNo, partNo, partName, program, currentGate, ETC, percentComplete, plannedFinish, activeDrOps, asOf, ops[] (live, from feed), teamId, taggedMembers[], stale }</li>
+</ul>
+<p><strong>Plan CSV (one file, <code>Type</code> column):</strong> <code>Type, Node ID, Parent ID, Order, Name, Badge, WO, Part Number, Part Name, Program, Current Gate, Planned Finish, ETC, Percent Complete, As Of, Active DR Ops, Team ID, Tagged Member IDs, Stale</code>. <code>Type</code> &isin; {LOC, TEAM, MEMBER, WO}; tagged members are pipe-joined (e.g. <code>M0|M3</code>). Per-operation detail is <strong>not</strong> persisted in the plan (it is transient/live and re-derived from the next feed load), keeping the file lean.</p>
+
+<h2>6. Future On-ramps</h2>
+<table class="req-table">
+  <tr><th style="width:64px">ID</th><th>Enhancement</th></tr>
+  <tr><td class="req-id">FUT-01</td><td><span class="tag tag-future">FUTURE</span> <strong>Employee Score Card integration.</strong> The Member entity already carries an optional <code>badge</code> (Score Card's canonical identity key &mdash; all-digit badges &ge;6 chars collapse to the last 6, matching Score Card's <code>identityKey()</code>), and the member-name input is an <code>&lt;input list&gt;</code> tied to an (initially empty) <code>&lt;datalist&gt;</code>. A later build can ingest a Score Card roster CSV (<code>Badge, Display Name, &hellip;</code>) to auto-complete/validate names and join per-person metrics (earned hours, CPI, # WOs). The member-add path accepts a typed <code>Name (badge)</code> form today.</td></tr>
+  <tr><td class="req-id">FUT-02</td><td><span class="tag tag-future">FUTURE</span> A dedicated cross-team <strong>leadership roll-up</strong> of active/in-queue operations (the data is already carried per WO).</td></tr>
+</table>
+
+<h2>7. Glossary</h2>
+<ul>
+  <li><strong>WO Assignment Feed</strong> &mdash; the PDVF &sect;5.8 export consumed as this tool's primary input.</li>
+  <li><strong>DR operation</strong> &mdash; a discrepancy/non-conformance operation, detected by operation number in the 7000&ndash;7999 range; surfaced first in Operation view.</li>
+  <li><strong>Stale WO</strong> &mdash; a work order still in the plan but no longer present in the latest feed.</li>
+  <li><strong>Hours-based % complete</strong> &mdash; <code>1 &minus; remaining &divide; planned</code> hours, computed by PDVF; blank when no decoder-ring labor total exists.</li>
+</ul>
+
+</body>
+</html>
