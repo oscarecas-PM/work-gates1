@@ -62,6 +62,38 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 #add-emp-input { width: 44px; text-align: center; }
 .vel-reset { display: inline-block; padding: 0 4px; font-size: 0.85rem; font-weight: bold; color: #7c3aed; cursor: pointer; vertical-align: middle; user-select: none; }
 .vel-reset:hover { color: #5b21b6; }
+/* Milestone Mode — required-rate chips + the toolbar toggle + the alarm ribbon. */
+.btn-milestone { background: #0e7490; color: #fff; min-width: 130px; } .btn-milestone:hover { background: #155e75; }
+body.milestone-mode .btn-milestone { background: #b91c1c; box-shadow: 0 0 0 2px rgba(185,28,28,0.35); } body.milestone-mode .btn-milestone:hover { background: #991b1b; }
+.vel-chip.req { background: #b91c1c; cursor: default; }
+.vel-chip.req.unatt { background: #7f1d1d; outline: 1px solid #fca5a5; }
+.milestone-ribbon { background: #7f1d1d; color: #fff; font-weight: bold; font-size: 0.82rem; padding: 8px 14px; border-radius: 5px; margin-bottom: 0.9rem; border: 2px solid #fca5a5; box-shadow: 0 2px 6px rgba(127,29,29,0.3); }
+/* Lab-wide shortfall headline panel. */
+.shortfall-panel { border-radius: 6px; padding: 12px 16px; margin-bottom: 1rem; border: 2px solid #cbd5e1; background: #f8fafc; }
+.shortfall-panel.alarm { border-color: #b91c1c; background: #fef2f2; }
+.shortfall-panel.ok { border-color: #16a34a; background: #f0fdf4; }
+.shortfall-panel .sf-main { display: flex; align-items: baseline; gap: 12px; }
+.shortfall-panel .sf-num { font-size: 2rem; font-weight: 900; line-height: 1; color: #7f1d1d; }
+.shortfall-panel.ok .sf-num { color: #166534; }
+.shortfall-panel .sf-unit { font-size: 0.86rem; font-weight: bold; color: #334155; }
+.shortfall-panel .sf-note { font-size: 0.72rem; font-weight: normal; color: #64748b; }
+.shortfall-panel .sf-sub { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.sf-pill { font-size: 0.74rem; font-weight: bold; padding: 2px 9px; border-radius: 11px; background: #e2e8f0; color: #334155; }
+.sf-pill.hold { background: #fde68a; color: #92400e; }
+.sf-pill.unatt { background: #fecaca; color: #991b1b; }
+.sf-pill.heads { background: #1e3a8a; color: #fff; }
+.sf-pill.heads .sf-cav { font-weight: normal; opacity: 0.85; font-size: 0.68rem; }
+.sf-pill.heads-empty { background: #fff; color: #64748b; border: 1px dashed #cbd5e1; }
+/* Collector group row — summary bar + inline rename + grouping checkbox. */
+.gantt-row.group-row { background: #eef2ff; border-bottom: 1px solid #c7d2fe; }
+.group-badge { font-size: 0.62rem; font-weight: 900; letter-spacing: 0.04em; color: #4338ca; background: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+.group-name-input { font-size: 0.82rem; font-weight: bold; color: #312e81; border: 1px solid transparent; background: transparent; border-radius: 3px; padding: 1px 4px; min-width: 90px; max-width: 220px; }
+.group-name-input:hover, .group-name-input:focus { border-color: #a5b4fc; background: #fff; outline: none; }
+.group-meta { font-size: 0.68rem; color: #6366f1; font-weight: bold; }
+.group-bar { position: absolute; top: 8px; bottom: 8px; min-width: 8px; background: repeating-linear-gradient(90deg, #4f46e5 0 10px, #6366f1 10px 20px); border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); display: flex; align-items: center; overflow: hidden; }
+.group-bar .group-bar-cap { font-size: 0.66rem; font-weight: bold; color: #fff; padding: 0 7px; white-space: nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.3); }
+.grp-sel { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; accent-color: #4f46e5; }
+body.milestone-mode .group-bar { filter: saturate(0.6) brightness(0.95); }
 /* Join-gate selector — feeder declares the parent gate it must be ready for. Fixed narrow width
    (independent of gate-name length); a chain icon shows linked state; the title carries the mapping;
    the open dropdown still lists full gate names. */
@@ -320,7 +352,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.14</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.15</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -356,6 +388,9 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
   <button class="btn btn-primary" id="add-root-btn" disabled onclick="openSearch('root', null)">+ Add Top Assembly</button>
   <button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>
   <button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>
+  <button class="btn btn-milestone" id="milestone-btn" title="Toggle between past-performance Estimation and required-rate Milestone view" onclick="toggleMilestoneMode()">Mode: Estimation</button>
+  <button class="btn btn-mode" id="group-mode-btn" title="Show checkboxes to roll a run of sibling branches into a collector group" onclick="toggleGroupMode()">Group rows: Off</button>
+  <button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>
   <span class="zoom-ctrl"><span class="zoom-cap">Zoom</span>
     <input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)">
     <span id="zoom-label" class="zoom-label">1.00×</span></span>
@@ -451,6 +486,15 @@ var loadExpand = {};         // Gate Loading collapsible state: key ('lab'|prog|
 var _opsCache = {}, _progCache = {}; // per-render memo caches for resolveOps / computeWOProgress (reset at render() top)
 var _childIndex = null;      // per-render parentId -> [childNodes] index; null outside a render pass
 var _savedScroll = 0;        // horizontal scroll position carried across a re-render
+// Collector groups — MS-Project-style summary bars that roll up a contiguous run of sibling branches
+// (same parent) into one bar (earliest start -> latest milestone). Overlay only: never touches parentId.
+var groups = [];             // [ { id, name, parentId, memberIds:[childId...], collapsed } ]  (persisted)
+var nextGroupId = 0;         // monotonic id source for new groups (persisted)
+var groupMode = false;       // transient: when true, eligible child rows show a grouping checkbox
+var groupSel = {};           // transient: childId -> true (rows checked for the next "Group Selected")
+// Milestone Mode — every WO shows the rate REQUIRED to hit its milestone (a need, not a past-performance
+// estimate). A display/compute layer: never writes overrideVelocity, so manual overrides survive a toggle.
+var milestoneMode = false;   // persisted (snapshot only; CSV import defaults it off)
 
 // ============================== Utilities (from gate-tracker / decoder-ring) ==============================
 var CSV_MAX_FIELD_LEN = 500;
@@ -998,8 +1042,11 @@ function deleteNode(id) {
   var who = n.woNo || ('placeholder ' + n.partNo);
   if (!confirm('Delete ' + who + (kids ? ' and its ' + kids + ' child branch(es)' : '') + '?')) return;
   var ids = collectSubtree(id, []);
-  ids.forEach(function(x){ delete nodes[x]; delete familyComments[x]; });
+  ids.forEach(function(x){ delete nodes[x]; delete familyComments[x]; delete groupSel[x]; });
   rootIds = rootIds.filter(function(rid){ return rid !== id && nodes[rid]; });
+  // Prune deleted branch roots from any collector group; drop groups left empty (hierarchy untouched).
+  groups.forEach(function(g){ g.memberIds = g.memberIds.filter(function(m){ return nodes[m]; }); });
+  groups = groups.filter(function(g){ return g.memberIds.length > 0; });
   render();
 }
 
@@ -1376,6 +1423,21 @@ function computeFleetVelocity() {
     if (n.overrideVelocity != null) overridden[id] = true;
   });
   var labCalc = 0; ids.forEach(function(id){ labCalc += calc[id]; });
+
+  // Milestone Mode — pure need. Every WO's effective rate is the rate REQUIRED to hit its milestone,
+  // computed independently and BYPASSING the lab-capacity conservation passes below. overrideVelocity is
+  // never read or written here, so any manual override is preserved and re-applies the moment the mode
+  // turns off (the user must resetVelocity() to clear it). `calc` is left intact as the honest baseline.
+  if (milestoneMode) {
+    var labEffM = 0;
+    ids.forEach(function(id) {
+      var rv = requiredVelocity(nodes[id]);
+      if (rv == null) rv = calc[id];                 // no milestone -> keep the historical estimate
+      else if (!isFinite(rv)) { var _p = computeWOProgress(nodes[id]); var rem = _p ? (_p.remainHrs || 0) : 0; rv = rem > 0 ? rem : calc[id]; } // past-due -> finish-ASAP sentinel (flagged elsewhere)
+      eff[id] = rv; labEffM += rv;
+    });
+    return { ids: ids, calc: calc, eff: eff, labCalc: labCalc, labEff: labEffM, overridden: {} };
+  }
 
   // Step A — Lab-capacity override. Primary control is "Add/Remove Employees": each tech is worth
   // hrsPerEmployee h/mo, so the staffing delta back-calculates to a lab-capacity delta on top of the
@@ -2049,11 +2111,163 @@ function axisTicksHTML() {
   return html;
 }
 
+// ============================== Collector groups ==============================
+function _byOrder(a, b) { return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }
+function groupById(gid) { for (var i = 0; i < groups.length; i++) { if (groups[i].id === gid) return groups[i]; } return null; }
+// The group a node is a DIRECT member of (memberIds holds branch roots only, not their descendants).
+function groupOfNode(id) { for (var i = 0; i < groups.length; i++) { if (groups[i].memberIds.indexOf(id) >= 0) return groups[i]; } return null; }
+function toggleGroupSel(id, on) { if (on) groupSel[id] = true; else delete groupSel[id]; refreshGroupBtn(); }
+function refreshGroupBtn() {
+  var btn = document.getElementById('group-sel-btn'); if (!btn) return;
+  var k = Object.keys(groupSel).length;
+  btn.disabled = k < 2;
+  btn.textContent = 'Group Selected' + (k ? ' (' + k + ')' : '');
+}
+function toggleGroupMode() {
+  groupMode = !groupMode;
+  if (!groupMode) groupSel = {};
+  var b = document.getElementById('group-mode-btn'); if (b) b.textContent = 'Group rows: ' + (groupMode ? 'On' : 'Off');
+  var gs = document.getElementById('group-sel-btn'); if (gs) gs.style.display = groupMode ? '' : 'none';
+  render();
+}
+// Create a collector from the checked rows: they must be a contiguous run of one parent's children,
+// none already grouped. The true parent/child hierarchy is never modified.
+function createGroupFromSelection() {
+  var ids = Object.keys(groupSel).filter(function(x){ return nodes[x]; });
+  if (ids.length < 2) { alert('Select at least two adjacent sibling rows to group.'); return; }
+  var par = nodes[ids[0]].parentId;
+  if (par == null) { alert('Groups collect child branches within a family, not top-level families.'); return; }
+  for (var i = 0; i < ids.length; i++) {
+    if (nodes[ids[i]].parentId !== par) { alert('All selected rows must share the same parent.'); return; }
+    if (groupOfNode(ids[i])) { alert('A selected row is already in a group. Ungroup it first.'); return; }
+  }
+  var sibs = getChildren(par).sort(_byOrder).map(function(c){ return c.id; });
+  var idxs = ids.map(function(x){ return sibs.indexOf(x); }).sort(function(a, b){ return a - b; });
+  for (var t = 1; t < idxs.length; t++) {
+    if (idxs[t] !== idxs[t - 1] + 1) { alert('Selected rows must be adjacent siblings (a contiguous run). Reorder them or adjust the selection.'); return; }
+  }
+  var name = (prompt('Name this group:', 'Group ' + (groups.length + 1)) || '').trim();
+  if (!name) return;
+  groups.push({ id: 'g' + (nextGroupId++), name: name, parentId: par, memberIds: idxs.map(function(ix){ return sibs[ix]; }), collapsed: false });
+  groupSel = {};
+  render();
+}
+function toggleGroupCollapse(gid) { var g = groupById(gid); if (g) { g.collapsed = !g.collapsed; render(); } }
+function setGroupName(gid, val) { var g = groupById(gid); if (g) g.name = (val || '').slice(0, 60); }
+function removeGroup(gid) { groups = groups.filter(function(g){ return g.id !== gid; }); render(); }
+// Earliest start -> latest milestone across every node in every member branch (full subtree rollup).
+function groupSpan(group) {
+  var startISO = null, endISO = null;
+  group.memberIds.forEach(function(mid) {
+    if (!nodes[mid]) return;
+    collectSubtree(mid, []).forEach(function(id) {
+      var n = nodes[id]; if (!n) return;
+      var s = n.startDate || gStart;
+      if (s && (startISO === null || s < startISO)) startISO = s;
+      var e = n.completion || (fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[id] : null);
+      if (e && (endISO === null || e > endISO)) endISO = e;
+    });
+  });
+  return { startISO: startISO, endISO: endISO };
+}
+function renderGroupRow(g, lvl) {
+  var span = groupSpan(g);
+  var bar = '';
+  if (span.startISO && span.endISO) {
+    var sp = pctOfDate(span.startISO), ep = pctOfDate(span.endISO);
+    if (!isFinite(sp)) sp = 0; if (!isFinite(ep)) ep = 0;
+    sp = Math.max(0, Math.min(100, sp)); ep = Math.max(0, Math.min(100, ep));
+    var w = Math.max(ep - sp, 0);
+    var tip = g.name + ' — ' + span.startISO + ' → ' + span.endISO;
+    bar = '<div class="bar-wrap"><div class="group-bar" style="left:' + sp.toFixed(2) + '%;width:' + w.toFixed(2) + '%" title="' + esc(tip) + '"><span class="group-bar-cap">' + esc(g.name) + '</span></div></div>';
+  }
+  var woCount = 0;
+  g.memberIds.forEach(function(m){ if (nodes[m]) collectSubtree(m, []).forEach(function(id){ if (nodes[id] && nodes[id].woNo && !nodes[id].isPlaceholder) woCount++; }); });
+  var html = '<div class="gantt-row group-row">';
+  html += '<div class="task-col" style="padding-left:' + (8 + lvl * 14) + 'px">';
+  html += '<div class="tc-line1">';
+  html += '<span class="caret" title="Collapse / expand group" onclick="toggleGroupCollapse(\'' + g.id + '\')">' + (g.collapsed ? '▸' : '▾') + '</span>';
+  html += '<span class="group-badge">▦ GROUP</span>';
+  html += '<input class="group-name-input" value="' + esc(g.name) + '" maxlength="60" title="Rename group" onchange="setGroupName(\'' + g.id + '\', this.value)">';
+  html += '<span class="group-meta">' + g.memberIds.length + ' branch' + (g.memberIds.length === 1 ? '' : 'es') + (woCount ? ' · ' + woCount + ' WO' + (woCount === 1 ? '' : 's') : '') + '</span>';
+  html += '<button class="row-btn del" title="Ungroup (the parent/child hierarchy is left untouched)" onclick="removeGroup(\'' + g.id + '\')">×</button>';
+  html += '</div></div>';
+  html += '<div class="time-col">' + bar + '</div>';
+  html += '</div>';
+  return html;
+}
+
+// ============================== Milestone Mode + lab-wide shortfall ==============================
+// Rate (h/mo) a WO needs to finish its remaining hours by its milestone. null = no milestone / not a real
+// WO (keep its estimate); Infinity = milestone already passed (unattainable); 0 = already complete.
+function requiredVelocity(node) {
+  if (node.isPlaceholder || !node.woNo) return null;
+  var prog = computeWOProgress(node); if (!prog) return null;
+  var rem = prog.remainHrs || 0;
+  if (rem <= 0.01) return 0;
+  if (!node.completion) return null;
+  var months = daysBetween(todayISO(), node.completion) / DAYS_PER_MONTH;
+  if (months <= 0.0001) return Infinity;
+  return rem / months;
+}
+function toggleMilestoneMode() {
+  milestoneMode = !milestoneMode;
+  var b = document.getElementById('milestone-btn'); if (b) b.textContent = 'Mode: ' + (milestoneMode ? 'Milestone (needs)' : 'Estimation');
+  document.body.classList.toggle('milestone-mode', milestoneMode);
+  render();
+}
+// Lab-wide "additional planned hours needed to hit milestones" = sum over non-excluded ringed WOs of the
+// remaining hours that WON'T complete by the milestone at the WO's own historical pace (calc). Past-due
+// WOs contribute their full remaining. Mode-independent diagnostic; the headcount is a gross estimate.
+function computeShortfall() {
+  var fleet = fleetCache ? fleetCache.fleet : null;
+  if (!fleet) return null;
+  var total = 0, holdCount = 0, unattCount = 0, contributing = 0;
+  var today = todayISO();
+  fleet.ids.forEach(function(id) {
+    var n = nodes[id];
+    if (n.excluded || !n.completion) return;
+    var prog = computeWOProgress(n);
+    var rem = prog ? (prog.remainHrs || 0) : 0;
+    if (rem <= 0.01) return;
+    var months = daysBetween(today, n.completion) / DAYS_PER_MONTH;
+    var baseline = fleet.calc[id] || 0;
+    var add = (months <= 0.0001) ? (unattCount++, rem) : Math.max(0, rem - baseline * months);
+    if (add > 0.01) { total += add; contributing++; if (isOnHold(n)) holdCount++; }
+  });
+  return { total: total, holdCount: holdCount, unattCount: unattCount, contributing: contributing };
+}
+function renderShortfallPanel() {
+  var s = computeShortfall();
+  if (!s) return '';
+  var heads = (hrsPerEmployee && hrsPerEmployee > 0) ? (s.total / hrsPerEmployee) : null;
+  var html = '<div class="shortfall-panel' + (s.total > 0.01 ? ' alarm' : ' ok') + '">';
+  html += '<div class="sf-main"><span class="sf-num">' + Math.round(s.total).toLocaleString() + '</span>' +
+          '<span class="sf-unit">additional planned hours needed to finish on time<br><span class="sf-note">(work that won’t complete by its milestone at our current pace)</span></span></div>';
+  html += '<div class="sf-sub">';
+  html += '<span class="sf-pill">' + s.contributing + ' work order' + (s.contributing === 1 ? '' : 's') + ' behind</span>';
+  if (s.holdCount) html += '<span class="sf-pill hold">' + s.holdCount + ' on hold</span>';
+  if (s.unattCount) html += '<span class="sf-pill unatt">' + s.unattCount + ' past-due / unattainable</span>';
+  if (heads != null) html += '<span class="sf-pill heads">≈ ' + Math.ceil(heads) + ' added tech' + (Math.ceil(heads) === 1 ? '' : 's') + ' needed <span class="sf-cav">gross: ' + Math.round(s.total).toLocaleString() + ' h ÷ ' + hrsPerEmployee + ' h/mo per emp — milestone dates vary</span></span>';
+  else html += '<span class="sf-pill heads-empty">Enter “h/mo per emp” above to estimate added headcount</span>';
+  html += '</div></div>';
+  return html;
+}
+
 function buildRows(rootId, level, acc) {
   var n = nodes[rootId];
   acc.push({ node: n, level: level });
   if (!n.collapsed) {
-    getChildren(rootId).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ buildRows(c.id, level+1, acc); });
+    var kids = getChildren(rootId).sort(_byOrder);
+    var headerDone = {};
+    kids.forEach(function(c) {
+      var g = groupOfNode(c.id);
+      if (g && g.parentId === rootId) {
+        if (!headerDone[g.id]) { headerDone[g.id] = true; acc.push({ group: g, level: level + 1 }); }
+        if (g.collapsed) return;   // collector collapsed -> hide the whole member branch
+      }
+      buildRows(c.id, level + 1, acc);
+    });
   }
   return acc;
 }
@@ -2114,6 +2328,9 @@ function render() {
   });
 
   var html = '';
+  // Lab-wide shortfall headline (always on) + Milestone-Mode ribbon (when active) sit above all programs.
+  html += renderShortfallPanel();
+  if (milestoneMode) html += '<div class="milestone-ribbon">⚠ MILESTONE MODE — bars and rates show what each work order REQUIRES to hit its milestone (a need, not an estimate from past performance). Manual rate overrides are preserved underneath and restore when you switch back to Estimation.</div>';
   progOrder.forEach(function(prog) {
     html += '<div class="prog-section"><div class="prog-title">' + esc(prog) +
       '<input class="prog-label-input" maxlength="20" data-prog="' + esc(prog) + '" value="' + esc(programLabels[prog] || '') +
@@ -2124,6 +2341,7 @@ function render() {
     byProg[prog].forEach(function(rid) {
       var rows = buildRows(rid, 0, []);
       rows.forEach(function(rw) {
+        if (rw.group) { html += renderGroupRow(rw.group, rw.level); return; }
         var n = rw.node, lvl = rw.level;
         var kids = getChildren(n.id);
         var atMaxChild = lvl >= 9;          // depth cap raised 5 -> 10 levels
@@ -2141,6 +2359,10 @@ function render() {
         html += '<span class="drag-handle" draggable="true" title="Drag to reorder"' +
           ' ondragstart="onRowDragStart(event,\'' + n.id + '\')" ondragend="onRowDragEnd(event)">&#9776;</span>';
         html += '<span class="caret ' + (kids.length ? '' : 'empty') + '" onclick="toggleCollapse(\'' + n.id + '\')">' + (kids.length ? (n.collapsed ? '▸' : '▾') : '•') + '</span>';
+        // Grouping checkbox — only in Group-rows mode, only for ungrouped child rows (groups are child-level).
+        if (groupMode && n.parentId && !groupOfNode(n.id)) {
+          html += '<input type="checkbox" class="grp-sel" title="Select to group with adjacent siblings"' + (groupSel[n.id] ? ' checked' : '') + ' onclick="event.stopPropagation();toggleGroupSel(\'' + n.id + '\', this.checked)">';
+        }
         var ident = identToken(n);
         var tip = [ (n.serial ? 'SN ' + String(n.serial).trim().replace(/^S\/?N[\s-]?/i, '') : ''), n.woNo, n.partNo, n.partDesc ].filter(Boolean).join(' · ');
         // Show part # inline in BOTH edit and review modes so the row identifier is always self-explanatory.
@@ -2157,8 +2379,16 @@ function render() {
           chipsHTML += '<span class="wo-pct ' + pcls + '" title="Hours-based: (planned − remaining) / planned">' + woProg.woPct.toFixed(0) + '%</span>' +
                   '<span class="wo-rem" title="Sum of planned hours for ops currently open in the daily upload">' + woProg.remainHrs.toFixed(1) + 'h rem</span>';
         }
-        // Velocity chip (from EHA trailing-N-week avg, with any overrides applied).
-        if (fleetCache && fleetCache.fleet.eff[n.id] != null) {
+        // Velocity chip. In Milestone Mode it shows the REQUIRED rate (need, not estimate) and is read-only;
+        // otherwise it's the EHA trailing-N-week avg with any manual override applied (click to edit).
+        if (milestoneMode && !n.isPlaceholder && n.woNo && fleetCache && fleetCache.fleet.eff[n.id] != null) {
+          var rv = requiredVelocity(n);
+          if (rv === Infinity) {
+            chipsHTML += '<span class="vel-chip req unatt" title="Milestone has already passed — unattainable; full remaining hours count as behind">⚠ unattainable</span>';
+          } else if (rv != null) {
+            chipsHTML += '<span class="vel-chip req" title="' + esc('REQUIRED ' + fleetCache.fleet.eff[n.id].toFixed(1) + ' h/mo to hit ' + (n.completion || 'milestone') + ' — a need, not a past-performance estimate') + '">⚡ ' + fleetCache.fleet.eff[n.id].toFixed(1) + ' h/mo req</span>';
+          }
+        } else if (fleetCache && fleetCache.fleet.eff[n.id] != null) {
           var v = fleetCache.fleet.eff[n.id];
           var isOver = n.overrideVelocity != null;
           var vTip = 'Velocity: ' + v.toFixed(1) + ' h/mo — click to override' + (isOver ? ' (currently overridden — ↺ to reset)' : ' (from last ' + lookbackWeeks + ' weeks of EHA actuals)');
@@ -2238,6 +2468,7 @@ function render() {
   renderLoadingTable();
   syncFloatingAxis();
   syncEmpControls();
+  refreshGroupBtn();
   drawConnectors();
   _childIndex = null;
 }
@@ -2623,7 +2854,7 @@ function downloadFile(content, filename, type) {
 }
 
 function exportHierarchyCSV() {
-  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order,Excluded,Add Employees'];
+  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order,Excluded,Add Employees,Group Id,Group Name,Group Collapsed'];
   var labCapStr = (overrideLabTotal == null ? '' : String(overrideLabTotal));
   // Sync each root's order field to its rootIds position so the exported Order column reflects the
   // current (possibly drag-reordered) family sequence and round-trips on import.
@@ -2634,13 +2865,16 @@ function exportHierarchyCSV() {
     var fc = (!parent) ? (familyComments[id] || '') : '';
     var ovStr = (n.overrideVelocity == null ? '' : String(n.overrideVelocity));
     var jg = (n.joinGate == null ? '' : String(n.joinGate));
+    // Group columns carry only on a group's DIRECT member rows (branch roots), so import can rebuild groups[].
+    var grp = groupOfNode(id);
     lines.push([csvQuote(n.id), csvQuote(parent ? parent.id : ''), lvl, csvQuote(n.program),
       csvQuote(programLabels[n.program] || ''), csvQuote(n.woNo), csvQuote(n.partNo), csvQuote(n.partDesc),
       csvQuote(n.serial), n.isPlaceholder ? 'Y' : 'N', csvQuote(parent ? parent.woNo : ''), csvQuote(parent ? parent.partNo : ''),
       csvQuote(n.completion || ''), n.manualDate ? 'Y' : 'N', csvQuote(fc),
       csvQuote(jg), csvQuote(ovStr), csvQuote(labCapStr), String(lookbackWeeks),
       csvQuote(n.startDate || ''), String(n.order == null ? '' : n.order),
-      n.excluded ? 'Y' : 'N', String(addEmployees)].join(','));
+      n.excluded ? 'Y' : 'N', String(addEmployees),
+      csvQuote(grp ? grp.id : ''), csvQuote(grp ? grp.name : ''), grp ? (grp.collapsed ? 'Y' : 'N') : ''].join(','));
     getChildren(id).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ walk(c.id); });
   }
   rootIds.forEach(walk);
@@ -2754,12 +2988,16 @@ function importHierarchy(rows) {
   var iOrder = colIndex(h, 'Order');
   var iExcl = colIndex(h, 'Excluded');
   var iAddEmp = colIndex(h, 'Add Employees');
+  var iGId = colIndex(h, 'Group Id');
+  var iGName = colIndex(h, 'Group Name');
+  var iGCol = colIndex(h, 'Group Collapsed');
   var byId = (iId >= 0 && iPid >= 0);
   if (!byId && (iWO < 0 || iPWO < 0)) {
     showStatus('hier-status', 'Error: hierarchy CSV needs Node ID/Parent ID (or WO/Parent WO) columns.', 'error'); return;
   }
 
   nodes = {}; rootIds = []; nextNodeId = 0; programLabels = {}; familyComments = {};
+  groups = []; nextGroupId = 0; groupSel = {};   // collector groups rebuilt from the Group Id column below
   overrideLabTotal = null; addEmployees = 0;   // refresh: import will pick up the first non-empty value below
   var byWO = {}, maxNum = -1, pending = [], badDates = 0;
   for (var r = 1; r < rows.length; r++) {
@@ -2825,11 +3063,40 @@ function importHierarchy(rows) {
   // Restore drag-reordered family order deterministically when the Order column is present.
   if (iOrder >= 0) rootIds.sort(function(a,b){ return (nodes[a].order - nodes[b].order) || ((+a.slice(1)) - (+b.slice(1))); });
   if (byId) nextNodeId = maxNum + 1;
+  // Rebuild collector groups from the Group Id column (Node-ID exports only). Bucket member rows in row
+  // order, then validate same-parent + contiguity; drop (with a warning) any group a hand-edit broke.
+  var groupsDropped = 0;
+  if (byId && iGId >= 0) {
+    var gOrder = [], gObj = {};
+    for (var rg = 1; rg < rows.length; rg++) {
+      var gid = (rows[rg][iGId] || '').trim(); if (!gid) continue;
+      var gnid = (rows[rg][iId] || '').trim(); if (!gnid || !nodes[gnid]) continue;
+      if (!gObj[gid]) {
+        gObj[gid] = { id: gid, name: (iGName >= 0 ? (rows[rg][iGName] || '').trim() : '') || gid,
+          parentId: nodes[gnid].parentId, memberIds: [], collapsed: iGCol >= 0 ? /^y/i.test((rows[rg][iGCol] || '').trim()) : false };
+        gOrder.push(gid);
+      }
+      gObj[gid].memberIds.push(gnid);
+      var gm = /^g(\d+)$/.exec(gid); if (gm) nextGroupId = Math.max(nextGroupId, (+gm[1]) + 1);
+    }
+    gOrder.forEach(function(gid) {
+      var g = gObj[gid], par = g.parentId, ok = par != null;
+      if (ok) ok = g.memberIds.every(function(m){ return nodes[m] && nodes[m].parentId === par; });
+      if (ok) {
+        var sibs = getChildren(par).sort(_byOrder).map(function(c){ return c.id; });
+        var idxs = g.memberIds.map(function(m){ return sibs.indexOf(m); }).filter(function(x){ return x >= 0; }).sort(function(a, b){ return a - b; });
+        for (var t = 1; t < idxs.length && ok; t++) { if (idxs[t] !== idxs[t - 1] + 1) ok = false; }
+        if (ok) g.memberIds = idxs.map(function(ix){ return sibs[ix]; });   // canonical sibling order
+      }
+      if (ok && g.memberIds.length) groups.push(g); else groupsDropped++;
+    });
+  }
   if (!scheduleStart) scheduleStart = todayISO();
   normalizeDates();
-  var okMsg = 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)). Re-upload a Daily Upload to refresh status.';
+  var okMsg = 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)' + (groups.length ? ', ' + groups.length + ' group(s)' : '') + '). Re-upload a Daily Upload to refresh status.';
+  if (groupsDropped) okMsg += ' ⚠ ' + groupsDropped + ' group(s) skipped (members no longer a contiguous run).';
   if (badDates > 0) showStatus('hier-status', okMsg + ' ⚠ ' + badDates + ' date(s) were unreadable and left blank — expected yyyy-mm-dd.', 'warning');
-  else showStatus('hier-status', okMsg, 'loaded');
+  else showStatus('hier-status', okMsg, groupsDropped ? 'warning' : 'loaded');
   render();
 }
 
@@ -2842,7 +3109,8 @@ function saveSnapshot() {
                 programLabels: programLabels, familyComments: familyComments,
                 zoomFactor: zoomFactor, compactMode: compactMode,
                 weeklyEarned: weeklyEarned, lookbackWeeks: lookbackWeeks, overrideLabTotal: overrideLabTotal,
-                hrsPerEmployee: hrsPerEmployee, addEmployees: addEmployees };
+                hrsPerEmployee: hrsPerEmployee, addEmployees: addEmployees,
+                groups: groups, nextGroupId: nextGroupId, milestoneMode: milestoneMode };
   var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
 
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
@@ -2861,6 +3129,9 @@ function saveSnapshot() {
   html += '<div class="action-bar"><button class="btn btn-primary" id="add-root-btn" onclick="openSearch(\'root\', null)">+ Add Top Assembly</button>';
   html += '<button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>';
   html += '<button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>';
+  html += '<button class="btn btn-milestone" id="milestone-btn" onclick="toggleMilestoneMode()">Mode: Estimation</button>';
+  html += '<button class="btn btn-mode" id="group-mode-btn" onclick="toggleGroupMode()">Group rows: Off</button>';
+  html += '<button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>';
   html += '<span class="zoom-ctrl"><span class="zoom-cap">Zoom</span><input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)"><span id="zoom-label" class="zoom-label">1.00×</span></span>';
   html += '<span class="vel-ctrl"><span class="vel-cap">Lookback</span><input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>';
   html += '<span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span><input type="number" id="hrs-per-emp" min="0" step="1" placeholder="&mdash;" onchange="setHrsPerEmployee(this.value)"></span>';
@@ -2885,6 +3156,8 @@ function saveSnapshot() {
   html += 'var weeklyEarned = snapshotState.weeklyEarned || {}, lookbackWeeks = snapshotState.lookbackWeeks || 4, overrideLabTotal = (snapshotState.overrideLabTotal == null ? null : snapshotState.overrideLabTotal);\n';
   html += 'var hrsPerEmployee = (snapshotState.hrsPerEmployee == null ? null : snapshotState.hrsPerEmployee);\n';
   html += 'var addEmployees = snapshotState.addEmployees || 0;\n';
+  html += 'var groups = snapshotState.groups || [], nextGroupId = snapshotState.nextGroupId || 0, milestoneMode = !!snapshotState.milestoneMode;\n';
+  html += 'var groupMode = false, groupSel = {};\n';
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var renameId = null; var gStart = "", gMax = "", maxZoom = 15;\n';
   html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
@@ -2907,7 +3180,10 @@ function saveSnapshot() {
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
     barWidthPct, barStartPct, gateSegPcts, gateSegTip, gateWaitHTML, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderLoadingTable,
-    csvQuote, dateStr, downloadFile, exportHierarchyCSV, importHierarchy, saveSnapshot];
+    _byOrder, groupById, groupOfNode, toggleGroupSel, refreshGroupBtn, toggleGroupMode, createGroupFromSelection,
+    toggleGroupCollapse, setGroupName, removeGroup, groupSpan, renderGroupRow,
+    requiredVelocity, toggleMilestoneMode, computeShortfall, renderShortfallPanel,
+    csvQuote, dateStr, downloadFile, exportHierarchyCSV, isDrOp, exportAssignmentFeed, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
   html += 'wireInputs();\n';
   html += 'document.getElementById("view-btn").textContent = "View: " + (globalView==="bars"?"Bars":(globalView==="gateblocks"?"Gate blocks":"Chips"));\n';
@@ -2916,6 +3192,8 @@ function saveSnapshot() {
   html += 'document.getElementById("compact-btn").textContent = "Mode: " + (compactMode ? "Review" : "Edit");\n';
   html += 'document.body.classList.toggle("compact-mode", compactMode);\n';
   html += 'document.getElementById("lookback-input").value = lookbackWeeks;\n';
+  html += 'document.body.classList.toggle("milestone-mode", milestoneMode);\n';
+  html += 'document.getElementById("milestone-btn").textContent = "Mode: " + (milestoneMode ? "Milestone (needs)" : "Estimation");\n';
   html += 'render();\n';
   html += '<\/script>\n</body>\n</html>';
 
