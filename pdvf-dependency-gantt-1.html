@@ -304,7 +304,29 @@ tr.lt-grouphdr .lt-sub-head { padding-left: 12px !important; }
 .lt-cov-na { color: #94a3b8; }
 tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-size: 0.7rem; font-weight: normal; font-style: italic; }
 .lt-pp { font-weight: bold; color: #cbd5e1; }
+/* Held WO: hatch the Plan cells (front-loaded hours that can't actually be worked while on hold) + a row pill. */
+td.lt-plan-held { background-image: repeating-linear-gradient(45deg, rgba(180,83,9,0.13) 0 5px, transparent 5px 10px); }
+.lt-held-pill { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 0.62rem; font-weight: bold; color: #fff; background: #b45309; margin-left: 6px; white-space: nowrap; }
+/* "Later" catch-all column — hours pushed past the last calendar month. */
+th.lt-later-col { background: #fbf7ef; color: #92722a; }
+/* Reconciliation headline strip above the table — makes the table account for every remaining hour. */
+.lt-recon { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; padding: 8px 14px; font-size: 0.74rem; color: #334155; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+.lt-recon .lt-recon-cap { font-weight: bold; color: #1e293b; }
+.lt-recon .lt-recon-num { font-weight: bold; font-variant-numeric: tabular-nums; }
+.lt-recon .lt-recon-item { white-space: nowrap; }
+.lt-recon .lt-recon-warn { color: #b45309; font-weight: bold; }
+.lt-recon .lt-recon-sep { color: #cbd5e1; }
 @media print { .lt-scroll { overflow: visible; } }
+/* What-if family toggle — the per-root hide button + the restore strip above the board. */
+.whatif-hide { margin-left: 4px; border: 1px solid #cbd5e1; background: #fff; color: #64748b; border-radius: 3px; font-size: 0.62rem; font-weight: bold; padding: 0 5px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.whatif-hide:hover { background: #fef2f2; border-color: #dc2626; color: #dc2626; }
+.whatif-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 1rem; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; font-size: 0.78rem; color: #92400e; }
+.whatif-strip .wf-cap { font-weight: bold; }
+.whatif-chip { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #fcd34d; border-radius: 11px; padding: 1px 4px 1px 9px; font-weight: bold; color: #92400e; }
+.whatif-chip .wf-restore { cursor: pointer; color: #2563eb; font-weight: bold; border: none; background: none; font-size: 0.9rem; line-height: 1; padding: 0 2px; }
+.whatif-chip .wf-restore:hover { color: #1d4ed8; }
+.whatif-strip .wf-all { margin-left: auto; cursor: pointer; color: #2563eb; font-weight: bold; background: none; border: none; font-size: 0.78rem; }
+.whatif-strip .wf-all:hover { text-decoration: underline; }
 
 /* Search modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: none; align-items: flex-start; justify-content: center; z-index: 1000; }
@@ -352,7 +374,7 @@ tr.lt-exrow > th, tr.lt-exrow > td { background: #fffbeb; color: #92400e; font-s
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.15</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.16</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -492,6 +514,10 @@ var groups = [];             // [ { id, name, parentId, memberIds:[childId...], 
 var nextGroupId = 0;         // monotonic id source for new groups (persisted)
 var groupMode = false;       // transient: when true, eligible child rows show a grouping checkbox
 var groupSel = {};           // transient: childId -> true (rows checked for the next "Group Selected")
+// What-if family toggle — a hidden top-assembly root (and its whole subtree) is dropped from the board
+// AND from every calculation (fleet velocity, gate loading, shortfall, axis). Purely transient scenario
+// state: never written to CSV or the snapshot, so a reload / re-open starts with all families visible.
+var whatIfHiddenRoots = {};  // transient: rootId -> true
 // Milestone Mode — every WO shows the rate REQUIRED to hit its milestone (a need, not a past-performance
 // estimate). A display/compute layer: never writes overrideVelocity, so manual overrides survive a toggle.
 var milestoneMode = false;   // persisted (snapshot only; CSV import defaults it off)
@@ -576,6 +602,17 @@ function toISODate(s) {
   var y = +m[1], mo = +m[2], d = +m[3];
   if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
   return y + '-' + pad(mo) + '-' + pad(d);
+}
+// ISO of the 1st of the month AFTER the given date (end-of-current-month boundary).
+function firstOfNextMonth(sISO) { var d = parseISO(sISO); return iso(new Date(d.getFullYear(), d.getMonth() + 1, 1)); }
+// Months of runway left in the CURRENT calendar month (today -> first of next month). Floored at ~1 day
+// so it's never 0. Used by the past-due rule: a WO whose milestone already passed is granted the rest of
+// this month to burn down its remaining hours (instead of being dropped from Plan / flagged infinite).
+function currentMonthRemainderMonths() {
+  var t = todayISO();
+  var days = daysBetween(t, firstOfNextMonth(t));
+  if (days < 1) days = 1;
+  return days / DAYS_PER_MONTH;
 }
 
 // status -> color
@@ -1415,6 +1452,7 @@ function computeFleetVelocity() {
   var calc = {}, eff = {}, overridden = {};
   Object.keys(nodes).forEach(function(id) {
     var n = nodes[id];
+    if (isWhatIfHidden(n)) return;   // family toggled off for what-if -> drop from the fleet (capacity redistributes)
     if (n.isPlaceholder) return;
     var ring = ringByPart[n.partNo]; if (!ring) return;
     ids.push(id);
@@ -1432,8 +1470,8 @@ function computeFleetVelocity() {
     var labEffM = 0;
     ids.forEach(function(id) {
       var rv = requiredVelocity(nodes[id]);
-      if (rv == null) rv = calc[id];                 // no milestone -> keep the historical estimate
-      else if (!isFinite(rv)) { var _p = computeWOProgress(nodes[id]); var rem = _p ? (_p.remainHrs || 0) : 0; rv = rem > 0 ? rem : calc[id]; } // past-due -> finish-ASAP sentinel (flagged elsewhere)
+      if (rv == null || !isFinite(rv)) rv = calc[id];   // no milestone -> keep the historical estimate
+      // past-due now yields a finite current-month burndown rate from requiredVelocity (still flagged unattainable in the UI)
       eff[id] = rv; labEffM += rv;
     });
     return { ids: ids, calc: calc, eff: eff, labCalc: labCalc, labEff: labEffM, overridden: {} };
@@ -1716,8 +1754,11 @@ function requiredRateInfo(node) {
   var daysToMilestone = node.completion ? daysBetween(todayISO(), node.completion) : null;
   var required = null, milestonePassed = false;
   if (daysToMilestone != null) {
-    if (daysToMilestone <= 0) { milestonePassed = true; required = null; }
-    else { required = prog.remainHrs / (daysToMilestone / DAYS_PER_MONTH); }
+    // Past-due: keep the flag, but grant the rest of the current month to burn down the remaining
+    // hours (finite rate) instead of dropping the WO from Plan entirely.
+    var months = (daysToMilestone <= 0) ? (milestonePassed = true, currentMonthRemainderMonths())
+                                        : (daysToMilestone / DAYS_PER_MONTH);
+    required = prog.remainHrs / months;
   }
   return { required: required, daysToMilestone: daysToMilestone, milestonePassed: milestonePassed, remainHrs: prog.remainHrs, eff: eff };
 }
@@ -1778,6 +1819,14 @@ function isComplete(node) { var p = computeWOProgress(node); return !!(p && p.wo
 // A finished WO whose need date has already passed: it needs no timeline bar/diamond/connector, and
 // its milestone date must not read as "overdue" (it's done, not late).
 function isDonePastDue(node) { return isComplete(node) && node.completion && daysBetween(scheduleStart, node.completion) < 0; }
+// A WO/placeholder with a milestone in the past that still has open work. Drives the "past-due /
+// unattainable" visual flag, which we keep even though the past-due Plan rate is now finite
+// (current-month burndown). Works for placeholders too.
+function isPastDue(node) { return !!node.completion && daysBetween(todayISO(), node.completion) < 0 && !isComplete(node); }
+// Walk up to the top-assembly root of a node's branch.
+function rootIdOf(node) { var n = node, guard = 0; while (n && n.parentId && nodes[n.parentId] && guard++ < 50) n = nodes[n.parentId]; return n ? n.id : node.id; }
+// True when the node's family root is toggled off for what-if analysis (hidden from board + all calcs).
+function isWhatIfHidden(node) { return !!whatIfHiddenRoots[rootIdOf(node)]; }
 
 // Left edge of the bar as a percent of [gStart, gMax]. 0 (gStart) unless the row has a
 // user-set planned start date (non-WO placeholder rows). Clamped to the timeline.
@@ -2207,7 +2256,7 @@ function requiredVelocity(node) {
   if (rem <= 0.01) return 0;
   if (!node.completion) return null;
   var months = daysBetween(todayISO(), node.completion) / DAYS_PER_MONTH;
-  if (months <= 0.0001) return Infinity;
+  if (months <= 0.0001) months = currentMonthRemainderMonths();   // past-due -> finish within the current month
   return rem / months;
 }
 function toggleMilestoneMode() {
@@ -2231,8 +2280,10 @@ function computeShortfall() {
     var rem = prog ? (prog.remainHrs || 0) : 0;
     if (rem <= 0.01) return;
     var months = daysBetween(today, n.completion) / DAYS_PER_MONTH;
+    // Past-due: still counted unattainable (warning kept), but burndown is the current-month remainder.
+    if (months <= 0.0001) { unattCount++; months = currentMonthRemainderMonths(); }
     var baseline = fleet.calc[id] || 0;
-    var add = (months <= 0.0001) ? (unattCount++, rem) : Math.max(0, rem - baseline * months);
+    var add = Math.max(0, rem - baseline * months);
     if (add > 0.01) { total += add; contributing++; if (isOnHold(n)) holdCount++; }
   });
   return { total: total, holdCount: holdCount, unattCount: unattCount, contributing: contributing };
@@ -2301,6 +2352,7 @@ function render() {
   // compute axis domain — extend across milestone, forecast AND cascade-pushed end
   gMax = gStart;
   Object.keys(nodes).forEach(function(id){
+    if (isWhatIfHidden(nodes[id])) return;   // hidden family must not stretch the axis
     var c = nodes[id].completion; if (c && c > gMax) gMax = c;
     var fe = fleetCache.forecast.forecastEnd[id];
     if (fe && fe > gMax) gMax = fe;
@@ -2319,15 +2371,18 @@ function render() {
   maxZoom = Math.max(15, Math.ceil(TARGET_PXPERDAY * _total / _basePx));
   var _zsl = document.getElementById('zoom-slider'); if (_zsl) _zsl.max = maxZoom;
 
-  // group roots by program
+  // group roots by program (what-if-hidden families are dropped entirely)
   var progOrder = [], byProg = {};
   rootIds.forEach(function(rid) {
+    if (whatIfHiddenRoots[rid]) return;
     var p = nodes[rid].program || '(no program)';
     if (!byProg[p]) { byProg[p] = []; progOrder.push(p); }
     byProg[p].push(rid);
   });
 
   var html = '';
+  // What-if restore strip (only when a family is hidden) sits above everything so hidden families are recoverable.
+  html += renderWhatIfStrip();
   // Lab-wide shortfall headline (always on) + Milestone-Mode ribbon (when active) sit above all programs.
   html += renderShortfallPanel();
   if (milestoneMode) html += '<div class="milestone-ribbon">⚠ MILESTONE MODE — bars and rates show what each work order REQUIRES to hit its milestone (a need, not an estimate from past performance). Manual rate overrides are preserved underneath and restore when you switch back to Estimation.</div>';
@@ -2370,6 +2425,8 @@ function render() {
         html += '<span class="node-label' + (n.isPlaceholder ? ' placeholder' : '') + '" title="' + esc(tip) + '">' +
           '<span class="ident">' + esc(ident) + '</span>' + partInline +
           (n.partDesc ? ' <span class="pd">' + esc(n.partDesc) + '</span>' : '') + '</span>';
+        // What-if family toggle (roots only) — hides the whole family from the board and every calculation (transient).
+        if (isRoot) html += '<button class="whatif-hide" title="What-if: hide this whole family from the board and all calculations (not saved to CSV/snapshot)" onclick="event.stopPropagation();toggleWhatIfFamily(\'' + n.id + '\')">what-if: hide</button>';
         html += '</div>';   // .tc-line1  (identity only — keeps the product name readable)
         // ----- Line 2 (own line, both modes): progress / velocity / join-gate, right-aligned -----
         var chipsHTML = '';
@@ -2383,8 +2440,8 @@ function render() {
         // otherwise it's the EHA trailing-N-week avg with any manual override applied (click to edit).
         if (milestoneMode && !n.isPlaceholder && n.woNo && fleetCache && fleetCache.fleet.eff[n.id] != null) {
           var rv = requiredVelocity(n);
-          if (rv === Infinity) {
-            chipsHTML += '<span class="vel-chip req unatt" title="Milestone has already passed — unattainable; full remaining hours count as behind">⚠ unattainable</span>';
+          if (isPastDue(n)) {
+            chipsHTML += '<span class="vel-chip req unatt" title="Milestone has already passed — flagged unattainable; Plan compresses the remaining hours into the current month">⚠ unattainable</span>';
           } else if (rv != null) {
             chipsHTML += '<span class="vel-chip req" title="' + esc('REQUIRED ' + fleetCache.fleet.eff[n.id].toFixed(1) + ' h/mo to hit ' + (n.completion || 'milestone') + ' — a need, not a past-performance estimate') + '">⚡ ' + fleetCache.fleet.eff[n.id].toFixed(1) + ' h/mo req</span>';
           }
@@ -2582,6 +2639,12 @@ function monthList() {
                firstISO: iso(d), nextISO: iso(nd) });
     d.setMonth(d.getMonth() + 1);
   }
+  // Trailing "Later" catch-all: absorbs any hours a curve pushes past the last calendar month (very-slow /
+  // no-forecast WOs, rounding). Its open-ended range makes every row's columns sum to true remaining hours.
+  if (out.length) {
+    var lastNext = out[out.length - 1].nextISO;
+    out.push({ key: 'later', label: 'Later', firstISO: lastNext, nextISO: addDays(gMax, 3650), isLater: true });
+  }
   return out;
 }
 
@@ -2630,9 +2693,16 @@ function computeGateLoading() {
   var monthRange = {};
   months.forEach(function(m){ monthRange[m.key] = [daysBetween(gStart, m.firstISO), daysBetween(gStart, m.nextISO)]; });
   var programs = [], seenProg = {};
-  rootIds.forEach(function(rid){ var p = nodes[rid].program || '(no program)'; if (!seenProg[p]) { seenProg[p] = true; programs.push(p); } });
+  rootIds.forEach(function(rid){ if (whatIfHiddenRoots[rid]) return; var p = nodes[rid].program || '(no program)'; if (!seenProg[p]) { seenProg[p] = true; programs.push(p); } });
   var today = todayISO();
   var todayDay = Math.max(0, daysBetween(gStart, today));
+  // Reconciliation accumulators — every remaining hour is shown, not-mapped, or excluded; held /
+  // no-milestone / past-due / no-EHA are flagged subsets of "shown". (What-if-hidden families are
+  // skipped entirely below and leave no trace.)
+  var ehaLoaded = Object.keys(weeklyEarned).length > 0;
+  var recon = { shownHrs:0, notMappedHrs:0, notMappedCount:0, excludedHrs:0, excludedCount:0,
+                heldHrs:0, heldCount:0, noMsHrs:0, noMsCount:0, pastDueHrs:0, pastDueCount:0,
+                ehaMissHrs:0, ehaMissCount:0, ehaLoaded: ehaLoaded };
 
   function blankSub(){ return {}; }
   function addSub(store, mk, field, hrs){ if (!store[mk]) store[mk] = { plan:0, pace:0 }; store[mk][field] += hrs; }
@@ -2663,22 +2733,36 @@ function computeGateLoading() {
 
   Object.keys(nodes).forEach(function(id) {
     var n = nodes[id];
+    if (isWhatIfHidden(n)) return;   // family toggled off for what-if -> omit from every calc (no trace)
     var prog = n.program || '(no program)';
     var store = byProg[prog]; if (!store) { store = byProg[prog] = { sub:blankSub(), gates:{}, wos:[], excluded:[] }; programs.push(prog); }
     var label = nodeIdent(n);
     var idTag = (n.serial ? 'S/N ' + n.serial : (n.woNo || n.partNo));
     var pnsn = (n.partNo || '?') + (n.serial ? ' · S/N ' + n.serial : (n.woNo ? ' · ' + n.woNo : ''));
     var gates = gateRemaining(n);
-    if (!gates) { store.excluded.push({ text: pnsn, reason: 'no decoder ring' }); return; }
-    if (n.excluded) { store.excluded.push({ text: pnsn, reason: 'excluded' }); return; }
+    if (!gates) {   // no decoder ring -> estimate remaining from daily-upload planned hours so it isn't silently lost
+      var estRem = 0; resolveOps(n).flat.forEach(function(o){ estRem += (o.remaining || 0); });
+      store.excluded.push({ text: pnsn, reason: 'no decoder ring' });
+      recon.notMappedHrs += estRem; recon.notMappedCount++; return;
+    }
     var totalRem = 0; gates.forEach(function(g){ totalRem += g.H; });
+    if (n.excluded) { store.excluded.push({ text: pnsn, reason: 'excluded' }); recon.excludedHrs += totalRem; recon.excludedCount++; return; }
     if (totalRem <= 0.05) return;   // nothing left to load
+    // Included from here on — tally reconciliation subsets.
+    recon.shownHrs += totalRem;
+    var held = !n.isPlaceholder && isOnHold(n);
+    if (held) { recon.heldHrs += totalRem; recon.heldCount++; }
+    if (!n.completion) { recon.noMsHrs += totalRem; recon.noMsCount++; }
+    if (isPastDue(n)) { recon.pastDueHrs += totalRem; recon.pastDueCount++; }
+    if (!n.isPlaceholder && ehaLoaded && !weeklyEarned[n.woNo]) { recon.ehaMissHrs += totalRem; recon.ehaMissCount++; }
 
     // ----- Plan (needed to hit the milestone) -----
     var planCurve = null, required = null;
     if (n.isPlaceholder) {
       var planStartISO = (n.startDate && n.startDate > today) ? n.startDate : today;
       var mTo = n.completion ? daysBetween(planStartISO, n.completion) / DAYS_PER_MONTH : 0;
+      // Past-due placeholder: grant the rest of the current month (from its start anchor) rather than dropping Plan.
+      if (n.completion && mTo <= 0) mTo = Math.max(1, daysBetween(planStartISO, firstOfNextMonth(planStartISO))) / DAYS_PER_MONTH;
       if (mTo > 0) { required = totalRem / mTo;
         planCurve = simulateLoad(gates, required, Math.max(0, daysBetween(gStart, planStartISO)), months, monthRange); }
     } else {
@@ -2708,9 +2792,11 @@ function computeGateLoading() {
     // (post-truncation). Denominator is the authoritative remaining-hours figure.
     var planSum = 0, paceSum = 0;
     Object.keys(wm).forEach(function(mk){ planSum += wm[mk].plan; paceSum += wm[mk].pace; });
-    var remHrs = (computeWOProgress(n) || {}).remainHrs || totalRem;
+    // Coverage denominator = the hours actually placed in the table (gateRemaining basis), so the
+    // covBadge numerator and denominator share a basis (fixes the ring-only mismatch that read 0%).
+    var remHrs = totalRem;
     store.wos.push({ id:id, label:label, idTag:idTag, pn:n.partNo, sn:n.serial, woNo:n.woNo,
-      isPlaceholder:n.isPlaceholder, planMissing: !planCurve, paceMissing: !paceCurve,
+      isPlaceholder:n.isPlaceholder, planMissing: !planCurve, paceMissing: !paceCurve, held: held,
       behind: behind, catchup: catchup, required: required, eff: eff, months: wm,
       planSum: planSum, paceSum: paceSum, remHrs: remHrs });
   });
@@ -2729,11 +2815,55 @@ function computeGateLoading() {
     lab.cov.anyPlan = lab.cov.anyPlan || st.cov.anyPlan; lab.cov.anyPace = lab.cov.anyPace || st.cov.anyPace;
   });
 
-  return { months: months, programs: programs, lab: lab, byProg: byProg, todayDay: todayDay };
+  return { months: months, programs: programs, lab: lab, byProg: byProg, todayDay: todayDay, recon: recon };
 }
 
 function toggleLoadExpand(key) { loadExpand[key] = !loadExpand[key]; renderLoadingTable(); }
 function toggleExclude(id) { if (nodes[id]) { nodes[id].excluded = !nodes[id].excluded; renderLoadingTable(); } }
+
+// Reconciliation headline above the loading table: every remaining hour is shown, not-mapped, or
+// excluded (so the Lab row is honestly lab-wide), plus flagged subsets (held / no-milestone / past-due /
+// no-EHA-history). What-if-hidden families are omitted from computeGateLoading entirely, so they never
+// appear here — vanish completely, by design.
+function renderReconciliation(gl) {
+  var r = gl.recon; if (!r) return '';
+  var total = r.shownHrs + r.notMappedHrs + r.excludedHrs;
+  if (total <= 0.05 && !r.ehaMissCount) return '';
+  function n1(h){ return Math.round(h).toLocaleString(); }
+  function woN(c){ return c + ' WO' + (c === 1 ? '' : 's'); }
+  var items = [];
+  items.push('<span class="lt-recon-item"><span class="lt-recon-cap">Remaining:</span> <span class="lt-recon-num">' + n1(total) + ' h</span></span>');
+  items.push('<span class="lt-recon-item">shown <span class="lt-recon-num">' + n1(r.shownHrs) + ' h</span></span>');
+  if (r.notMappedCount) items.push('<span class="lt-recon-item lt-recon-warn" title="Work orders with no decoder ring — hours estimated from daily-upload planned hours; not phased into months">&#9888; not mapped &#8776; ' + n1(r.notMappedHrs) + ' h (' + woN(r.notMappedCount) + ')</span>');
+  if (r.excludedCount) items.push('<span class="lt-recon-item">excluded ' + n1(r.excludedHrs) + ' h (' + woN(r.excludedCount) + ')</span>');
+  var flags = [];
+  if (r.heldCount) flags.push('<span class="lt-recon-item lt-recon-warn" title="On hold — Plan hatched, Pace blank (not in the Pace forecast)">&#9208; held ' + n1(r.heldHrs) + ' h (' + woN(r.heldCount) + ')</span>');
+  if (r.noMsCount) flags.push('<span class="lt-recon-item" title="No milestone date -> no Plan curve for these lines">no milestone ' + n1(r.noMsHrs) + ' h (' + woN(r.noMsCount) + ')</span>');
+  if (r.pastDueCount) flags.push('<span class="lt-recon-item lt-recon-warn" title="Milestone in the past -> Plan compressed into the current month; still flagged unattainable">past-due ' + n1(r.pastDueHrs) + ' h (' + woN(r.pastDueCount) + ')</span>');
+  if (r.ehaLoaded && r.ehaMissCount) flags.push('<span class="lt-recon-item" title="No earned-hour history matched by work-order number -> Pace is blank for these">no EHA history ' + woN(r.ehaMissCount) + '</span>');
+  var html = '<div class="lt-recon">' + items.join('<span class="lt-recon-sep">·</span>');
+  if (flags.length) html += '<span class="lt-recon-sep">&#124;</span>' + flags.join('<span class="lt-recon-sep">·</span>');
+  html += '</div>';
+  return html;
+}
+
+// What-if family toggle — transient scenario controls (never persisted). Hiding a family drops its whole
+// subtree from the board AND every calculation; a restore strip above the board is the only way back.
+function toggleWhatIfFamily(rootId) { if (whatIfHiddenRoots[rootId]) delete whatIfHiddenRoots[rootId]; else whatIfHiddenRoots[rootId] = true; render(); }
+function restoreWhatIfFamily(rootId) { delete whatIfHiddenRoots[rootId]; render(); }
+function restoreAllWhatIf() { whatIfHiddenRoots = {}; render(); }
+function whatIfLabel(rootId) { var n = nodes[rootId]; if (!n) return rootId; return (n.program ? n.program + ' · ' : '') + (n.partNo || n.woNo || identToken(n)); }
+function renderWhatIfStrip() {
+  var ids = rootIds.filter(function(rid){ return whatIfHiddenRoots[rid] && nodes[rid]; });
+  if (!ids.length) return '';
+  var chips = ids.map(function(rid){
+    return '<span class="whatif-chip">' + esc(whatIfLabel(rid)) +
+      '<button class="wf-restore" title="Restore this family" onclick="restoreWhatIfFamily(\'' + rid + '\')">&#8634;</button></span>';
+  }).join('');
+  return '<div class="whatif-strip"><span class="wf-cap">What-if: ' + ids.length + (ids.length === 1 ? ' family' : ' families') +
+    ' hidden</span> <span>(removed from board + all calculations, not saved)</span> ' + chips +
+    '<button class="wf-all" onclick="restoreAllWhatIf()">Restore all</button></div>';
+}
 
 function renderLoadingTable() {
   var el = document.getElementById('loading');
@@ -2745,21 +2875,22 @@ function renderLoadingTable() {
   function empFor(h) { return (hrsPerEmployee && hrsPerEmployee > 0) ? (h / hrsPerEmployee).toFixed(1) : '—'; }
   function num(h){ return (h > 0.05) ? h : 0; }
   // Plan / Pace cell. Blank half shows "·" (we don't have that estimate). Highlights when Pace < Plan.
-  function ppCell(o, showEmp, cls) {
+  function ppCell(o, showEmp, cls, held) {
     cls = cls || 'lt-cell';
     if (!o || (num(o.plan) <= 0 && num(o.pace) <= 0)) return '<td class="' + cls + '">—</td>';
     var plan = num(o.plan), pace = num(o.pace);
     var behind = plan > 0 && pace > 0 && pace < plan - 0.05;
+    var hatch = (held && plan > 0) ? ' lt-plan-held' : '';   // held WO: Plan hours can't actually be worked
     var planTxt = plan > 0 ? plan.toFixed(1) : '·';
     var paceTxt = pace > 0 ? pace.toFixed(1) : '·';
     var emp = (showEmp && hrsPerEmployee) ? '<div class="lt-emp">' + (plan > 0 ? empFor(plan) : '·') + ' / ' + (pace > 0 ? empFor(pace) : '·') + ' emp</div>' : '';
-    return '<td class="' + cls + (behind ? ' lt-behind' : '') + '"><span class="lt-plan">' + planTxt + '</span><span class="lt-sep">/</span><span class="lt-pace">' + paceTxt + '</span>' + emp + '</td>';
+    return '<td class="' + cls + (behind ? ' lt-behind' : '') + hatch + '"><span class="lt-plan">' + planTxt + '</span><span class="lt-sep">/</span><span class="lt-pace">' + paceTxt + '</span>' + emp + '</td>';
   }
   function subTotals(sub) { var tp = 0, tc = 0; months.forEach(function(m){ var c = sub[m.key]; if (c){ tp += num(c.plan); tc += num(c.pace); } }); return { plan: tp, pace: tc }; }
-  function subRow(headHTML, sub, showEmp, rowCls) {
+  function subRow(headHTML, sub, showEmp, rowCls, held) {
     var h = '<tr class="' + (rowCls || '') + '">' + headHTML;
-    months.forEach(function(m){ h += ppCell(sub[m.key], showEmp); });
-    h += ppCell(subTotals(sub), showEmp, 'lt-rowtotal') + '</tr>';
+    months.forEach(function(m){ h += ppCell(sub[m.key], showEmp, null, held); });
+    h += ppCell(subTotals(sub), showEmp, 'lt-rowtotal', held) + '</tr>';
     return h;
   }
   function gateKeyOrder(gstore) {
@@ -2780,8 +2911,9 @@ function renderLoadingTable() {
     wos.forEach(function(w){
       var flag = w.behind ? '<span class="lt-behind-flag" title="Behind schedule — must speed up to hit target">▾ needs +' + (w.catchup != null ? w.catchup.toFixed(1) : '?') + ' h/mo</span>' : '';
       var cov = covBadge({ planSum: w.planSum, paceSum: w.paceSum, rem: w.remHrs, anyPlan: !w.planMissing, anyPace: !w.paceMissing });
-      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + cov + esc(w.label) + flag + '</th>';
-      h += subRow(head, w.months, false, 'lt-sub lt-wo');
+      var heldPill = w.held ? ' <span class="lt-held-pill" title="On hold — Plan hours are hatched (can\'t be worked while held); Pace is blank (no recent velocity)">&#9208; held</span>' : '';
+      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + cov + esc(w.label) + heldPill + flag + '</th>';
+      h += subRow(head, w.months, false, 'lt-sub lt-wo', w.held);
     });
     return h;
   }
@@ -2804,8 +2936,9 @@ function renderLoadingTable() {
   }
 
   var html = '<div class="loading-section"><div class="loading-title">Gate Loading by Month — <span class="lt-pp">Plan</span> / <span class="lt-pp lt-pace">Pace</span> hours (plan = needed to hit milestone · pace = at current velocity)</div>';
+  html += renderReconciliation(gl);
   html += '<div class="lt-scroll"><table class="loading-table"><thead><tr><th class="lt-rowhead">Program</th>';
-  months.forEach(function(m){ html += '<th>' + esc(m.label) + '</th>'; });
+  months.forEach(function(m){ html += '<th' + (m.isLater ? ' class="lt-later-col" title="Hours pushed past the last calendar month (very slow / no computable forecast)"' : '') + '>' + esc(m.label) + '</th>'; });
   html += '<th class="lt-rowtotal">Total</th></tr></thead><tbody>';
 
   // Entire Lab
@@ -3158,6 +3291,7 @@ function saveSnapshot() {
   html += 'var addEmployees = snapshotState.addEmployees || 0;\n';
   html += 'var groups = snapshotState.groups || [], nextGroupId = snapshotState.nextGroupId || 0, milestoneMode = !!snapshotState.milestoneMode;\n';
   html += 'var groupMode = false, groupSel = {};\n';
+  html += 'var whatIfHiddenRoots = {};\n';   // transient what-if state — always starts empty in a snapshot
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var renameId = null; var gStart = "", gMax = "", maxZoom = 15;\n';
   html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
@@ -3165,8 +3299,8 @@ function saveSnapshot() {
   // Module-scope constants used by serialized functions (velocity/forecast math, CSV parsing) —
   // not functions, so they must be re-declared here or the snapshot would ReferenceError at runtime.
   html += 'var WEEKS_PER_MONTH = ' + WEEKS_PER_MONTH + ', DAYS_PER_MONTH = ' + DAYS_PER_MONTH + ', CSV_MAX_FIELD_LEN = ' + CSV_MAX_FIELD_LEN + ', CASCADE_MAX_ITERS = ' + CASCADE_MAX_ITERS + ';\n';
-  var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween, toISODate,
-    isComplete, isDonePastDue, openRename, closeRename, saveRename,
+  var fns = [csvField, parseCSV, colIndex, esc, normOper, showStatus, loadCSV, pad, iso, todayISO, parseISO, addDays, daysBetween, toISODate, firstOfNextMonth, currentMonthRemainderMonths,
+    isComplete, isDonePastDue, isPastDue, rootIdOf, isWhatIfHidden, openRename, closeRename, saveRename,
     operColorClass, statusRank, legendHTML, isHold, wireInputs, parseDailyUpload, parseDecoderRing,
     getChildren, nodeLevel, collectSubtree, treeMaxLevel, normalizeDates, scheduleDateRender, setCompletion, setStartDate,
     reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
@@ -3179,7 +3313,8 @@ function saveSnapshot() {
     setHrsPerEmployee, setAddEmployees, bumpEmployees, syncEmpControls,
     cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
     barWidthPct, barStartPct, gateSegPcts, gateSegTip, gateWaitHTML, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
-    monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderLoadingTable,
+    monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderReconciliation, renderLoadingTable,
+    toggleWhatIfFamily, restoreWhatIfFamily, restoreAllWhatIf, whatIfLabel, renderWhatIfStrip,
     _byOrder, groupById, groupOfNode, toggleGroupSel, refreshGroupBtn, toggleGroupMode, createGroupFromSelection,
     toggleGroupCollapse, setGroupName, removeGroup, groupSpan, renderGroupRow,
     requiredVelocity, toggleMilestoneMode, computeShortfall, renderShortfallPanel,
