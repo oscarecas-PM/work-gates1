@@ -91,7 +91,8 @@ h2{font-size:15px;margin:0 0 8px}
 .op-table th{text-align:left;background:#f1f5f9;border:1px solid var(--line);padding:3px 6px;font-size:11px;color:var(--slate-d)}
 .op-table td{border:1px solid var(--line);padding:3px 6px}
 .op-table td.num{text-align:right;font-variant-numeric:tabular-nums}
-.op-table td.sel,.op-table th.sel{text-align:center;width:30px}
+.op-table td.sel,.op-table th.sel{text-align:center;white-space:nowrap}
+.op-caption{font-size:11px;color:var(--muted);font-style:italic;margin:6px 0 2px}
 .op-table tr.dr td{background:var(--amber-bg)}
 .op-table tr.op-sel td{background:#eff6ff}
 .op-table tr.op-sel.dr td{background:#fde9c8}
@@ -176,8 +177,11 @@ var teams     = {};   // teamId -> { id, locId, name, order }
 var members   = {};   // memberId -> { id, teamId, name, badge, order }
 var wos       = {};   // woNo -> { woNo, partNo, partName, program, currentGate, opsRemInGate,
                       //   hrsRemInGate, hrsInGate, etc, percentComplete, plannedFinish, activeDrOps,
-                      //   asOf, ops:[{operNo,name,gate,plannedHrs,status,isDr}], stale }
+                      //   asOf, stale }   (operations live in feedOps, NOT here)
 var woOrder   = [];   // woNo display/insertion order
+// Operations are feed-sourced and independent of the plan: importing a saved plan must NOT erase
+// them. feedOps is written ONLY by ingestFeed and is NOT reset by importState; it rides in snapshots.
+var feedOps   = {};   // woNo -> [ {operNo,name,gate,plannedHrs,status,isDr} ]  (active + in-queue)
 // A work order may be assigned to MANY teams. Each (WO,team) assignment carries its own
 // selected operations (what prints for the week) and tagged members. Operations are exclusive
 // across teams for a given WO.
@@ -519,8 +523,10 @@ function woCardHTML(w, teamId){
 }
 
 function opTableHTML(w, teamId){
-  var ops=(w.ops||[]).slice();
-  if(!ops.length) return '<div class="op-none">No active / in-queue operations'+(isSnapshot?' (re-upload a feed to refresh)':'')+'.</div>';
+  // Operations come from the feed (feedOps), not the plan — so an imported plan never blanks them.
+  if(!(w.woNo in feedOps)) return '<div class="op-none">No operations loaded &mdash; upload the current WO Assignment Feed to see this work order’s operations.</div>';
+  var ops=(feedOps[w.woNo]||[]).slice();
+  if(!ops.length) return '<div class="op-none">No active / in-queue operations.</div>';
   // DR (7000-series) first, then ascending Op #
   ops.sort(function(a,b){
     var da=(a.isDr||isDrOp(a.operNo))?0:1, db=(b.isDr||isDrOp(b.operNo))?0:1;
@@ -532,8 +538,10 @@ function opTableHTML(w, teamId){
   var anySelVisible = a && ops.some(function(o){ return sel.indexOf(String(o.operNo))>=0; });
   // On an assigned card with nothing selected yet, hide the whole table on the printout.
   var tableCls='op-table'+(teamId && !anySelVisible ? ' print-hide' : '');
-  var html='<table class="'+tableCls+'"><thead><tr>'+
-    (teamId?'<th class="sel no-print">✓</th>':'')+
+  // On assigned cards the leader sees ALL ops; the "Include" checkboxes only curate the exported artifact.
+  var html = teamId ? '<div class="op-caption no-print">Tick operations to include on the printout / signage &mdash; none ticked = none shown on the artifact.</div>' : '';
+  html+='<table class="'+tableCls+'"><thead><tr>'+
+    (teamId?'<th class="sel no-print">Include</th>':'')+
     '<th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned hrs</th></tr></thead><tbody>';
   ops.forEach(function(o){
     var dr=o.isDr||isDrOp(o.operNo), opNo=String(o.operNo);
@@ -591,11 +599,12 @@ function ingestFeed(rows){
     }
   }
   var LIVE=['partNo','partName','program','currentGate','opsRemInGate','hrsRemInGate','hrsInGate',
-            'etc','percentComplete','plannedFinish','activeDrOps','asOf','ops'];
+            'etc','percentComplete','plannedFinish','activeDrOps','asOf'];
   var added=0, updated=0, staled=0;
   Object.keys(feed).forEach(function(wo){
     var f=feed[wo];
-    if(!wos[wo]){ wos[wo]=Object.assign({stale:false}, f); woOrder.push(wo); added++; }
+    feedOps[wo]=f.ops||[];   // operations always come from the feed; keyed by WO#, plan-independent
+    if(!wos[wo]){ var nw={stale:false}; LIVE.forEach(function(k){ if(k in f) nw[k]=f[k]; }); nw.woNo=wo; wos[wo]=nw; woOrder.push(wo); added++; }
     else { var w=wos[wo]; LIVE.forEach(function(k){ if(k in f) w[k]=f[k]; }); w.stale=false; updated++; }
   });
   Object.keys(wos).forEach(function(wo){ if(!feedWos[wo]){ wos[wo].stale=true; staled++; } });
@@ -667,7 +676,7 @@ function importState(rows){
       wos[wo]={ woNo:wo, partNo:get(row,iPart), partName:get(row,iPName), program:get(row,iProg),
         currentGate:get(row,iGate), plannedFinish:(finISO===null?fin:finISO),
         etc:etcv, percentComplete:(iPct>=0?get(row,iPct):''), asOf:get(row,iAsOf),
-        activeDrOps:(iDr>=0?get(row,iDr):''), opsRemInGate:'', hrsRemInGate:'', hrsInGate:'', ops:[],
+        activeDrOps:(iDr>=0?get(row,iDr):''), opsRemInGate:'', hrsRemInGate:'', hrsInGate:'',
         stale:/^y/i.test(get(row,iStale)) };
       woOrder.push(wo); woOrders[wo]=order;
       // Back-compat: a v1 plan carried Team ID + Tagged Member IDs on the WO row (single team).
@@ -693,11 +702,11 @@ function importState(rows){
 // ============================== Snapshot (editable HTML) ==============================
 function snapshotState(){
   return { locations:locations, locOrder:locOrder, teams:teams, members:members, wos:wos, woOrder:woOrder,
-    assign:assign, nextLocId:nextLocId, nextTeamId:nextTeamId, nextMemberId:nextMemberId, viewMode:viewMode };
+    assign:assign, feedOps:feedOps, nextLocId:nextLocId, nextTeamId:nextTeamId, nextMemberId:nextMemberId, viewMode:viewMode };
 }
 function hydrate(s){
   locations=s.locations||{}; locOrder=s.locOrder||[]; teams=s.teams||{}; members=s.members||{};
-  wos=s.wos||{}; woOrder=s.woOrder||[]; assign=s.assign||{};
+  wos=s.wos||{}; woOrder=s.woOrder||[]; assign=s.assign||{}; feedOps=s.feedOps||{};
   nextLocId=s.nextLocId||0; nextTeamId=s.nextTeamId||0; nextMemberId=s.nextMemberId||0; viewMode=s.viewMode||'gate';
 }
 function saveSnapshot(){
