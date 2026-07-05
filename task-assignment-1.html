@@ -51,6 +51,13 @@ h2{font-size:15px;margin:0 0 8px}
 .team{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:10px 0 0}
 .team-name{font-size:14px;font-weight:700;color:var(--slate-d)}
 .team-zone{margin-top:8px}
+.team-goal{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 2px}
+.team-goal .lab{font-size:12px;font-weight:700;color:var(--slate)}
+.goal-input{font-family:inherit;flex:1;min-width:200px;border:1px solid var(--line);background:#fff;border-radius:5px;padding:3px 8px;font-size:13px}
+.goal-input:focus{border-color:var(--blue);outline:none}
+.goal-date{font-size:11px;color:var(--muted)}
+.goal-date.stale{color:#b45309;font-weight:700}
+.team-goal .goal-date.stale{background:#fef3c7;border:1px solid #fde047;border-radius:8px;padding:1px 7px}
 .name-input{font-family:inherit;border:1px solid transparent;background:transparent;border-radius:5px;padding:3px 6px;min-width:160px}
 .name-input:hover{border-color:var(--line);background:#fff}
 .name-input:focus{border-color:var(--blue);background:#fff;outline:none}
@@ -77,6 +84,12 @@ h2{font-size:15px;margin:0 0 8px}
 .wo-sub{color:var(--slate-d);margin:2px 0}
 .wo-sub .pn{color:var(--muted);font-size:12px}
 .wo-meta{font-size:12px;color:var(--slate);margin-top:2px}
+.linkbtn{cursor:pointer;color:var(--blue);font-weight:600;text-decoration:underline;font-size:12px}
+.ontime{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:10px;border:1px solid transparent}
+.ontime.ok{background:#dcfce7;color:#166534;border-color:#86efac}
+.ontime.warn{background:#fef9c3;color:#854d0e;border-color:#fde047}
+.ontime.bad{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+.ontime.na{background:#e2e8f0;color:#475569;border-color:#cbd5e1}
 .badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
 .badge.stale{background:var(--amber-line);color:#fff}
 .badge.dr{background:var(--amber);color:#fff}
@@ -128,7 +141,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v2</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -153,6 +166,8 @@ h2{font-size:15px;margin:0 0 8px}
     <button class="btn btn-green" id="export-state-btn" onclick="exportStateCSV()" disabled>Export Plan CSV</button>
     <button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()" disabled>Save for Editing</button>
     <button class="btn" onclick="printBoard()">Print</button>
+    <button class="btn btn-green" onclick="exportTeamPNGs()">Export Team PNGs</button>
+    <button class="btn" style="background:#fef3c7;border:1px dashed #d97706;color:#92400e" onclick="previewArtifactHTML()">Temp: Preview artifact (HTML)</button>
     <button class="btn" onclick="expandAll()">Expand all</button>
     <button class="btn" onclick="collapseAll()">Collapse all</button>
     <input type="text" id="wo-filter" class="filter-input" oninput="setFilter(this.value)" placeholder="Filter unassigned by WO #, part name, or part #">
@@ -173,11 +188,13 @@ h2{font-size:15px;margin:0 0 8px}
 // ============================== State ==============================
 var locations = {};   // locId  -> { id, name, order }
 var locOrder  = [];   // locId display order
-var teams     = {};   // teamId -> { id, locId, name, order }
+var teams     = {};   // teamId -> { id, locId, name, order, goal, goalDate }  (goal = weekly team goal;
+                      //   goalDate = date it was set, so a stale weekly goal is visible not perpetuated)
 var members   = {};   // memberId -> { id, teamId, name, badge, order }
 var wos       = {};   // woNo -> { woNo, partNo, partName, program, currentGate, opsRemInGate,
                       //   hrsRemInGate, hrsInGate, etc, percentComplete, plannedFinish, activeDrOps,
-                      //   asOf, stale }   (operations live in feedOps, NOT here)
+                      //   asOf, serial, avgWeeklyHours, requiredWeeklyHours, gatesRemaining, stale }
+                      //   (operations live in feedOps, NOT here)
 var woOrder   = [];   // woNo display/insertion order
 // Operations are feed-sourced and independent of the plan: importing a saved plan must NOT erase
 // them. feedOps is written ONLY by ingestFeed and is NOT reset by importState; it rides in snapshots.
@@ -194,6 +211,8 @@ var pickerWo  = null;     // woNo whose team-picker modal is open
 // Default on every load: locations expanded, teams collapsed.
 var collapsedLoc  = {};   // locId -> true when collapsed (default expanded)
 var collapsedTeam = {};   // teamId -> false when expanded (default/undefined => collapsed)
+var poolExpanded  = {};   // transient: woNo -> true when an UNASSIGNED pool card's ops are expanded
+                          //   (decoupled from the global view toggle; not persisted)
 var forceExpand   = false;// true during printBoard() so the printout shows everything
 var isSnapshot = false;
 
@@ -310,6 +329,12 @@ function addTeam(locId){
   pendingDel=null; render(); focusEl('teamname-'+id);
 }
 function setTeamName(id,v){ if(teams[id]) teams[id].name=String(v||'').trim(); }
+// Weekly team goal: stamp the date it was set, so an out-of-date goal is visible rather than silently
+// perpetuated. Blanking the goal clears the date too.
+function setTeamGoal(id,v){ if(!teams[id]) return; var t=String(v||'').trim(); teams[id].goal=t; teams[id].goalDate = t ? dateStr() : ''; render(); }
+// days between two ISO (yyyy-mm-dd) dates; null if either is unparseable
+function daysSinceISO(iso){ if(!iso) return null; var d=new Date(iso+'T00:00:00'); if(isNaN(d.getTime())) return null; return Math.floor((new Date(dateStr()+'T00:00:00')-d)/86400000); }
+function goalIsStale(t){ var d=daysSinceISO(t&&t.goalDate); return d!=null && d>7; }   // weekly goal older than a week
 function removeTeam(id){ // internal, no confirm/render
   membersOf(id).forEach(function(m){ removeMember(m.id); });
   Object.keys(assign).forEach(function(k){ if(assign[k].teamId===id) delete assign[k]; });
@@ -351,7 +376,7 @@ function renderPicker(){
     tms.forEach(function(t){
       var on=!!getAssign(wo,t.id);
       h+='<div class="team-row'+(on?' on':'')+'" onclick="toggleAssign(\''+esc(wo)+'\',\''+t.id+'\')">'+
-         '<span class="chk">'+(on?'✓':'')+'</span><span>'+esc(t.name)+'</span></div>';
+         '<span class="chk">'+(on?'✓':'')+'</span><span><span class="pn">'+esc(locations[t.locId].name)+' · </span>'+esc(t.name)+'</span></div>';
     });
   });
   h+='<div class="foot"><button class="btn btn-primary" onclick="closeTeamPicker()">Done</button></div>';
@@ -395,6 +420,253 @@ function toggleView(){
   var b=document.getElementById('view-btn'); if(b) b.textContent = 'View: ' + (viewMode==='gate' ? 'Gate names' : 'Operations');
   render();
 }
+// Per-card ops expand for UNASSIGNED pool cards (decoupled from the global toggle; transient).
+function togglePoolOps(woNo){ poolExpanded[woNo]=!poolExpanded[woNo]; render(); }
+
+// ============================== On-time signal (feature 5) ==============================
+// Compares the actual weekly pace (from EHA velocity, carried in the feed) with the pace required to
+// hit the planned finish. weeksLate = etc*(1/V - 1/R) = (weeks at current pace) - (weeks available);
+// both terms are feed-sourced, so past-due handling is inherited from PDVF's requiredVelocity.
+function onTimeStatus(w){
+  if(!w) return null;
+  var etc=parseFloat(w.etc);
+  if(!isNaN(etc) && etc<=0) return {cls:'ok',text:'✓ complete',title:'No remaining planned hours'};
+  var V=parseFloat(w.avgWeeklyHours), R=parseFloat(w.requiredWeeklyHours);
+  if(isNaN(R)||R<=0) return {cls:'na',text:'⏱ no finish-date pace',title:'No required weekly hours (no milestone / no ring total)'};
+  if(isNaN(V)||V<=0) return {cls:'na',text:'⏱ '+fmtNum(w.requiredWeeklyHours)+' h/wk needed · no pace data',
+    title:'No earned-hour history for this WO, so actual weekly speed is unknown'};
+  if(isNaN(etc)) return null;
+  var weeksLate = etc*(1/V - 1/R);
+  var cls = weeksLate<=1 ? 'ok' : (weeksLate<=2 ? 'warn' : 'bad');
+  var lateTxt = weeksLate<=1 ? 'on track' : ('~'+(Math.round(weeksLate*10)/10)+' wk late');
+  var text = '⏱ '+fmtNum(w.requiredWeeklyHours)+' h/wk needed · '+fmtNum(w.avgWeeklyHours)+' h/wk pace · '+lateTxt;
+  return {cls:cls,text:text,title:'Required '+fmtNum(w.requiredWeeklyHours)+' h/wk vs actual '+fmtNum(w.avgWeeklyHours)+' h/wk; projected '+(Math.round(weeksLate*10)/10)+' weeks vs plan'};
+}
+
+// ============================== Team artifact (printout / PNG) — feature 6 ==============================
+// Shared data model so the HTML preview and the canvas PNG render identical content. Each team sheet
+// shows, per assigned WO: the header line, tagged technicians, live meta, the SELECTED ops only, a
+// "gates remaining" bar, and the required-pace goal line; plus the team's weekly goal at the top.
+function parseGatesRemaining(s){
+  if(!s) return [];
+  return String(s).split('|').map(function(p){ p=p.trim(); if(!p) return null; var i=p.lastIndexOf('=');
+    if(i<0) return {name:p,hrs:''}; return {name:p.slice(0,i).trim(), hrs:p.slice(i+1).trim()}; }).filter(Boolean);
+}
+function artifactOpsFor(woNo, teamId){
+  var a=getAssign(woNo,teamId); var sel=a?(a.selectedOps||[]):[];
+  var ops=(feedOps[woNo]||[]).filter(function(o){ return sel.indexOf(String(o.operNo))>=0; });
+  ops.sort(function(x,y){ var dx=(x.isDr||isDrOp(x.operNo))?0:1, dy=(y.isDr||isDrOp(y.operNo))?0:1;
+    if(dx!==dy) return dx-dy; return (parseInt(x.operNo,10)||0)-(parseInt(y.operNo,10)||0); });
+  return ops;
+}
+function teamArtifact(t){
+  var loc=locations[t.locId];
+  var wolist=assignmentsOfTeam(t.id).map(function(a){
+    var w=wos[a.woNo]; if(!w) return null;
+    var techs=(a.taggedMembers||[]).map(function(id){ return members[id]?members[id].name:null; }).filter(Boolean);
+    return { w:w, ops:artifactOpsFor(a.woNo,t.id), techs:techs, gates:parseGatesRemaining(w.gatesRemaining) };
+  }).filter(Boolean);
+  return { loc:loc?loc.name:'', team:t.name, goal:t.goal||'', goalDate:t.goalDate||'', goalStale:goalIsStale(t), wos:wolist };
+}
+function woTitleLine(w){
+  var woLabel=String(w.woNo||'').replace(/^WO[\s\-]*/i,'');   // avoid "WO WO-5001" when the id already carries the prefix
+  return [w.partNo||'?', (w.serial?'SN '+w.serial:''), w.partName||''].filter(Boolean).join(', ')
+    + ' (WO '+woLabel+')' + (w.program?' – '+w.program:'');
+}
+function woMetaLine(w){
+  return 'Remaining Planned Hours: '+fmtNum(w.etc)+' h  ·  Planned Finish: '+(w.plannedFinish||'—')+'  ·  Percent Complete: '+fmtPct(w.percentComplete);
+}
+function woGoalLine(w){
+  var r=w.requiredWeeklyHours; var rTxt=(r==null||r==='')?'—':fmtNum(r);
+  return 'Close an average of '+rTxt+' hrs/week to complete work order by '+(w.plannedFinish||'—')+'.';
+}
+
+// ---- HTML preview (TEMP button): renders every team's sheet in a new tab for layout tuning ----
+var ARTIFACT_CSS =
+ 'body{margin:0;background:#e2e8f0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:20px}'
++'.sheet{width:1840px;min-height:1000px;background:#fff;margin:0 auto 30px;padding:40px;box-sizing:border-box;'
++'border:1px solid #94a3b8;box-shadow:0 2px 8px rgba(0,0,0,.15)}'
++'.sh-title{font-size:32px;font-weight:800;color:#0f172a}'
++'.sh-goal{font-size:20px;color:#1e3a5f;margin:6px 0 4px;padding:8px 12px;background:#f1f5f9;border-radius:8px}'
++'.sh-goal .d{font-size:14px;color:#64748b}'
++'.sh-goal.stale{background:#fef3c7;border:1px solid #fde047} .sh-goal.stale .d{color:#b45309;font-weight:700}'
++'.blk{border-top:2px solid #cbd5e1;padding:16px 0 8px}'
++'.blk-title{font-size:22px;font-weight:700;color:#0f172a}'
++'.blk-tech{font-size:16px;color:#334155;margin-top:2px}'
++'.blk-meta{font-size:16px;color:#475569;margin-top:2px}'
++'table.ops{width:100%;border-collapse:collapse;margin:8px 0}'
++'table.ops th{background:#1e3a5f;color:#fff;font-size:14px;text-align:left;padding:5px 8px}'
++'table.ops td{font-size:14px;padding:4px 8px;border-bottom:1px solid #e2e8f0}'
++'table.ops tr.dr td{background:#fef2f2}'
++'.gr-lab{font-size:16px;font-weight:700;color:#334155;margin-top:6px}'
++'.gr-bar{display:flex;width:100%;height:46px;margin:4px 0}'
++'.gr-seg{background:#1e3a5f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;'
++'border-right:2px solid #fff;overflow:hidden;white-space:nowrap}'
++'.blk-goal{font-size:16px;font-style:italic;color:#166534;margin-top:8px}'
++'.none{font-size:14px;font-style:italic;color:#94a3b8;margin:6px 0}';
+
+function opsTableHTMLForArtifact(ops){
+  if(!ops.length) return '<div class="none">No operations selected for this team.</div>';
+  var h='<table class="ops"><thead><tr><th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned Hours</th></tr></thead><tbody>';
+  ops.forEach(function(o){ var dr=o.isDr||isDrOp(o.operNo);
+    h+='<tr class="'+(dr?'dr':'')+'"><td>'+esc(o.operNo)+(dr?' (DR)':'')+'</td><td>'+esc(o.name||'')+'</td><td>'+esc(o.gate||'')+'</td><td>'+esc(o.status||'')+'</td><td>'+fmtNum(o.plannedHrs)+'</td></tr>';
+  });
+  return h+'</tbody></table>';
+}
+function gatesBarHTML(gates){
+  var segs=gates.filter(function(g){ return parseFloat(g.hrs)>0; });
+  if(!segs.length) return '';
+  var total=0; segs.forEach(function(g){ total+=parseFloat(g.hrs)||0; });
+  var h='<div class="gr-lab">Gates Remaining</div><div class="gr-bar">';
+  segs.forEach(function(g){ var pct=total?((parseFloat(g.hrs)||0)/total*100):0;
+    h+='<div class="gr-seg" style="width:'+pct.toFixed(2)+'%">'+esc(g.name)+' – '+fmtNum(g.hrs)+' hrs</div>'; });
+  return h+'</div>';
+}
+function artifactSheetHTML(d){
+  var h='<div class="sheet"><div class="sh-title">'+esc(d.loc)+' &middot; '+esc(d.team)+'</div>';
+  h+='<div class="sh-goal'+(d.goalStale?' stale':'')+'"><b>Weekly Goal:</b> '+(d.goal?esc(d.goal):'<i>— not set —</i>')+
+     (d.goalDate?' <span class="d">(set '+esc(d.goalDate)+(d.goalStale?' · may be stale':'')+')</span>':'')+'</div>';
+  if(!d.wos.length) h+='<div class="none">No work orders assigned to this team.</div>';
+  d.wos.forEach(function(b){ var w=b.w;
+    h+='<div class="blk"><div class="blk-title">'+esc(woTitleLine(w))+'</div>'+
+       '<div class="blk-tech">Technicians assigned: '+(b.techs.length?esc(b.techs.join(', ')):'—')+'</div>'+
+       '<div class="blk-meta">'+esc(woMetaLine(w))+'</div>'+
+       opsTableHTMLForArtifact(b.ops)+ gatesBarHTML(b.gates)+
+       '<div class="blk-goal">'+esc(woGoalLine(w))+'</div></div>';
+  });
+  return h+'</div>';
+}
+function previewArtifactHTML(){
+  var list=[];
+  locOrder.forEach(function(locId){ teamsOf(locId).forEach(function(t){ if(assignmentsOfTeam(t.id).length) list.push(t); }); });
+  if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
+  var body=''; list.forEach(function(t){ body+=artifactSheetHTML(teamArtifact(t)); });
+  var doc='<!DOCTYPE html><html><head><meta charset="utf-8"><title>Team Artifacts Preview</title><style>'+ARTIFACT_CSS+'</style></head><body>'+body+'</body></html>';
+  var win=window.open('','_blank');
+  if(!win){ alert('Popup blocked — allow popups for this page to preview the artifacts.'); return; }
+  win.document.open(); win.document.write(doc); win.document.close();
+}
+
+// ---- Canvas PNG export: one 1920x1080 PNG per team, auto-paginated (models Gate Tracker signage) ----
+var A_W=1920, A_H=1080, A_PAD=40, A_FONT='system-ui,-apple-system,"Segoe UI",sans-serif';
+function aRR(ctx,x,y,w,h,r,fill,stroke){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r); ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath(); if(fill){ctx.fillStyle=fill;ctx.fill();} if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();} }
+function aTrunc(ctx,t,maxW){ t=String(t==null?'':t); if(ctx.measureText(t).width<=maxW) return t;
+  while(t.length && ctx.measureText(t+'…').width>maxW) t=t.slice(0,-1); return t+'…'; }
+// Fixed line heights make block height deterministic without a measuring pass.
+var BL={title:30,tech:22,meta:26,gap:6,opsHead:30,opRow:27,opsPad:10,noOps:26,grLab:24,grBar:46,grPad:12,goal:28,blockGap:24};
+function blockHeight(b){
+  var h=BL.title+BL.tech+BL.meta+BL.gap;
+  h += b.ops.length ? (BL.opsHead + b.ops.length*BL.opRow + BL.opsPad) : BL.noOps;
+  var segs=b.gates.filter(function(g){ return parseFloat(g.hrs)>0; });
+  h += segs.length ? (BL.grLab+BL.grBar+BL.grPad) : 0;
+  h += BL.goal + BL.blockGap;
+  return h;
+}
+function drawOpsTableCanvas(ctx,ops,x,y,w){
+  var wOp=90, wGate=250, wStatus=150, wPlan=130, wName=w-wOp-wGate-wStatus-wPlan;
+  var xOp=x, xName=x+wOp, xGate=xName+wName, xStat=xGate+wGate, xPlan=xStat+wStatus;
+  aRR(ctx,x,y,w,BL.opsHead,4,'#1e3a5f',null);
+  ctx.fillStyle='#fff'; ctx.font='bold 15px '+A_FONT; ctx.textBaseline='middle'; ctx.textAlign='left';
+  var hy=y+BL.opsHead/2;
+  ctx.fillText('Op #',xOp+8,hy); ctx.fillText('Operation',xName+8,hy); ctx.fillText('Gate',xGate+8,hy);
+  ctx.fillText('Status',xStat+8,hy); ctx.fillText('Planned Hours',xPlan+8,hy);
+  y+=BL.opsHead;
+  ops.forEach(function(o){ var dr=o.isDr||isDrOp(o.operNo);
+    if(dr){ ctx.fillStyle='#fef2f2'; ctx.fillRect(x,y,w,BL.opRow); }
+    ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,y+BL.opRow); ctx.lineTo(x+w,y+BL.opRow); ctx.stroke();
+    ctx.font='14px '+A_FONT; ctx.fillStyle='#0f172a'; var my=y+BL.opRow/2; ctx.textBaseline='middle';
+    ctx.fillText(aTrunc(ctx,o.operNo+(dr?' (DR)':''),wOp-10),xOp+8,my);
+    ctx.fillText(aTrunc(ctx,o.name||'',wName-12),xName+8,my);
+    ctx.fillText(aTrunc(ctx,o.gate||'',wGate-12),xGate+8,my);
+    ctx.fillText(aTrunc(ctx,o.status||'',wStatus-12),xStat+8,my);
+    ctx.fillText(aTrunc(ctx,fmtNum(o.plannedHrs),wPlan-12),xPlan+8,my);
+    y+=BL.opRow;
+  });
+  return y;
+}
+function drawGatesBarCanvas(ctx,gates,x,y,w){
+  var segs=gates.filter(function(g){ return parseFloat(g.hrs)>0; }); if(!segs.length) return y;
+  ctx.font='bold 16px '+A_FONT; ctx.fillStyle='#334155'; ctx.textBaseline='top'; ctx.textAlign='left';
+  ctx.fillText('Gates Remaining',x,y); y+=BL.grLab;
+  var total=0; segs.forEach(function(g){ total+=parseFloat(g.hrs)||0; });
+  var cx=x;
+  segs.forEach(function(g){ var sw=w*((parseFloat(g.hrs)||0)/total);
+    ctx.fillStyle='#1e3a5f'; ctx.fillRect(cx,y,sw-2,BL.grBar);
+    ctx.fillStyle='#fff'; ctx.font='15px '+A_FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(aTrunc(ctx,g.name+' – '+fmtNum(g.hrs)+' hrs',sw-10),cx+sw/2,y+BL.grBar/2);
+    cx+=sw;
+  });
+  ctx.textAlign='left';
+  return y+BL.grBar;
+}
+function drawBlockCanvas(ctx,b,x,y,w){
+  var wo=b.w;
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.font='bold 22px '+A_FONT; ctx.fillStyle='#0f172a'; ctx.fillText(aTrunc(ctx,woTitleLine(wo),w),x,y); y+=BL.title;
+  ctx.font='16px '+A_FONT; ctx.fillStyle='#334155';
+  ctx.fillText(aTrunc(ctx,'Technicians assigned: '+(b.techs.length?b.techs.join(', '):'—'),w),x,y); y+=BL.tech;
+  ctx.fillStyle='#475569'; ctx.fillText(aTrunc(ctx,woMetaLine(wo),w),x,y); y+=BL.meta+BL.gap;
+  if(b.ops.length){ y=drawOpsTableCanvas(ctx,b.ops,x,y,w)+BL.opsPad; }
+  else { ctx.font='italic 14px '+A_FONT; ctx.fillStyle='#94a3b8'; ctx.fillText('No operations selected for this team.',x,y); y+=BL.noOps; }
+  y=drawGatesBarCanvas(ctx,b.gates,x,y,w);
+  var segs=b.gates.filter(function(g){ return parseFloat(g.hrs)>0; }); if(segs.length) y+=BL.grPad;
+  ctx.font='italic 16px '+A_FONT; ctx.fillStyle='#166534'; ctx.fillText(aTrunc(ctx,woGoalLine(wo),w),x,y); y+=BL.goal;
+  return y;
+}
+function drawTeamCanvas(d, blocks, pageNo, pageCount){
+  var cv=document.createElement('canvas'); cv.width=A_W; cv.height=A_H;
+  var ctx=cv.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,A_W,A_H);
+  var x=A_PAD, w=A_W-A_PAD*2, y=A_PAD;
+  // Header: team title + weekly goal
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.font='bold 32px '+A_FONT; ctx.fillStyle='#0f172a';
+  var ttl=d.loc+' · '+d.team + (pageCount>1?'  (page '+pageNo+' of '+pageCount+')':'');
+  ctx.fillText(aTrunc(ctx,ttl,w),x,y); y+=42;
+  var goalTxt='Weekly Goal: '+(d.goal||'— not set —')+(d.goalDate?'  (set '+d.goalDate+(d.goalStale?' · may be stale':'')+')':'');
+  aRR(ctx,x,y,w,36,6, d.goalStale?'#fef3c7':'#f1f5f9', d.goalStale?'#fde047':'#e2e8f0');
+  ctx.font='bold 18px '+A_FONT; ctx.fillStyle=d.goalStale?'#b45309':'#1e3a5f'; ctx.textBaseline='middle';
+  ctx.fillText(aTrunc(ctx,goalTxt,w-20),x+10,y+18); y+=36+16;
+  ctx.textBaseline='top';
+  // Blocks
+  blocks.forEach(function(b){ ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w,y); ctx.stroke();
+    y+=10; y=drawBlockCanvas(ctx,b,x,y,w); y+=BL.blockGap; });
+  // Footer bar
+  aRR(ctx,0,A_H-30,A_W,30,0,'#fef3c7',null);
+  ctx.font='bold 13px '+A_FONT; ctx.fillStyle='#92400e'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('PROPRIETARY — Internal Use Only',A_W/2,A_H-15);
+  return cv;
+}
+function downloadCanvasPNG(canvas, filename){
+  var a=document.createElement('a'); a.href=canvas.toDataURL('image/png'); a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+function safeName(s){ return String(s||'').replace(/[^a-z0-9\-]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase()||'x'; }
+function exportTeamPNGs(){
+  var list=[];
+  locOrder.forEach(function(locId){ teamsOf(locId).forEach(function(t){ if(assignmentsOfTeam(t.id).length) list.push(t); }); });
+  if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
+  var avail=A_H - (A_PAD + 42 + 36 + 16) - 30 - 10;   // header + footer reserved
+  var count=0;
+  list.forEach(function(t){
+    var d=teamArtifact(t);
+    // greedily pack WO blocks into pages of the available height
+    var pages=[], cur=[], curH=0;
+    d.wos.forEach(function(b){ b._h=blockHeight(b)+10;   // +10 for the separator line
+      if(cur.length && curH+b._h>avail){ pages.push(cur); cur=[]; curH=0; }
+      cur.push(b); curH+=b._h; });
+    if(cur.length||!pages.length) pages.push(cur);
+    pages.forEach(function(pg,i){
+      var cv=drawTeamCanvas(d,pg,i+1,pages.length);
+      var suffix=pages.length>1?('-p'+(i+1)):'';
+      downloadCanvasPNG(cv,'task-'+safeName(d.loc)+'-'+safeName(d.team)+'-'+dateStr()+suffix+'.png');
+      count++;
+    });
+  });
+  showStatus('feed-status','Exported '+count+' team PNG'+(count===1?'':'s')+' ('+list.length+' team'+(list.length===1?'':'s')+').','loaded');
+}
 
 // ============================== Collapse / expand (transient) ==============================
 function isLocCollapsed(id){ return collapsedLoc[id]===true; }              // default expanded
@@ -426,10 +698,13 @@ function render(){
     var loc=locations[locId]; if(!loc) return;
     var tms=teamsOf(locId);
     var locCollapsed=!forceExpand && isLocCollapsed(locId);
+    // Distinct WOs assigned anywhere in this location (a WO shared by two teams counts once).
+    var locWoSet={}; tms.forEach(function(t){ assignmentsOfTeam(t.id).forEach(function(a){ locWoSet[a.woNo]=1; }); });
+    var locWoN=Object.keys(locWoSet).length;
     html+='<div class="loc">';
     html+='<div class="loc-head"><span class="caret no-print" onclick="toggleLoc(\''+locId+'\')">'+(locCollapsed?'▸':'▾')+'</span>'+
           '<input class="name-input loc-name" id="locname-'+locId+'" value="'+esc(loc.name)+'" placeholder="Location name" onchange="setLocName(\''+locId+'\',this.value)">'+
-          '<span class="count-badge" title="Teams in this location">'+tms.length+' team'+(tms.length===1?'':'s')+'</span>'+
+          '<span class="count-badge" title="Teams &amp; work orders in this location">'+tms.length+' team'+(tms.length===1?'':'s')+' &middot; '+locWoN+' WO'+(locWoN===1?'':'s')+'</span>'+
           '<span class="spacer"></span>'+
           '<button class="mini no-print" onclick="addTeam(\''+locId+'\')">+ Team</button>'+
           delControl('L'+locId,'doDeleteLocation(\''+locId+'\')')+'</div>';
@@ -468,6 +743,13 @@ function teamHTML(t){
         '<span class="spacer"></span>'+
         delControl('T'+t.id,'doDeleteTeam(\''+t.id+'\')')+'</div>';
   if(collapsed){ html+='</div>'; return html; }
+  // Weekly team goal (feature 1): free text + the date it was set; amber when older than a week.
+  var gstale=goalIsStale(t);
+  html+='<div class="team-goal">'+
+        '<span class="lab no-print">Weekly goal:</span>'+
+        '<input class="goal-input" id="goal-'+t.id+'" value="'+esc(t.goal||'')+'" placeholder="Team goal for the week" onchange="setTeamGoal(\''+t.id+'\',this.value)">'+
+        (t.goalDate?'<span class="goal-date'+(gstale?' stale':'')+'">set '+esc(t.goalDate)+(gstale?' &middot; may be stale':'')+'</span>':'')+
+        '</div>';
   var mem=membersOf(t.id);
   html+='<div class="members">';
   if(!mem.length) html+='<span class="empty-hint">No members</span>';
@@ -498,12 +780,19 @@ function woCardHTML(w, teamId){
   if(teamId) html+='<div class="wo-remove no-print"><button class="mini danger" onclick="unassignWoFromTeam(\''+esc(w.woNo)+'\',\''+teamId+'\')">Remove from this team</button></div>';
   html+='<div class="wo-sub">'+esc(w.partName||'')+' <span class="pn">'+esc(w.partNo||'')+'</span></div>';
 
-  // Gate-view-only line (Operation view shows gates per-op in the table).
-  if(viewMode!=='operation') html+='<div class="wo-meta">Gate: '+esc(w.currentGate||'—')+'</div>';
+  // Ops follow the global view toggle for ASSIGNED cards; pool cards are decoupled — each unassigned
+  // card expands its own ops via "Show operations" so the intake list stays compact.
+  var showOps = teamId ? (viewMode==='operation') : !!poolExpanded[w.woNo];
+  // Gate summary line — dropped when ops are showing (gates appear per-op in the table).
+  if(!showOps) html+='<div class="wo-meta">Gate: '+esc(w.currentGate||'—')+'</div>';
   // Remaining Planned Hours / Planned Finish Date / % retained in BOTH views.
   html+='<div class="wo-meta">Remaining Planned Hours '+fmtNum(w.etc)+' h &middot; Planned Finish Date '+esc(w.plannedFinish||'—')+' &middot; '+
         '<span class="badge pct">'+fmtPct(w.percentComplete)+' complete</span></div>';
-  if(viewMode==='operation') html+=opTableHTML(w, teamId);
+  // On-time signal (feature 5): required vs actual weekly pace -> weeks late (green/yellow/red).
+  var ot=onTimeStatus(w);
+  if(ot) html+='<div class="wo-meta"><span class="ontime '+ot.cls+'" title="'+esc(ot.title)+'">'+ot.text+'</span></div>';
+  if(!teamId) html+='<div class="wo-meta no-print"><a class="linkbtn" onclick="togglePoolOps(\''+esc(w.woNo)+'\')">'+(showOps?'Hide operations':'Show operations')+'</a></div>';
+  if(showOps) html+=opTableHTML(w, teamId);
 
   // per-team member tagging (assigned cards only)
   if(teamId && teams[teamId]){
@@ -578,6 +867,8 @@ function ingestFeed(rows){
       iHrsRem=colIndex(h,'Planned Hours Remaining In Gate'),iHrsAll=colIndex(h,'Planned Hours In Gate'),
       iEtc=colIndex(h,'Remaining Planned Hours'),iPct=colIndex(h,'Percent Complete'),
       iFin=colIndex(h,'Planned Finish'),iDr=colIndex(h,'Active DR Ops'),iAsOf=colIndex(h,'As Of'),
+      iSerial=colIndex(h,'Serial'),iAvgWk=colIndex(h,'Avg Weekly Hours'),iReqWk=colIndex(h,'Required Weekly Hours'),
+      iGatesRem=colIndex(h,'Gates Remaining'),
       iOpNo=colIndex(h,'Operation No'),iOpName=colIndex(h,'Operation Name'),iOpGate=colIndex(h,'Operation Gate'),
       iOpHrs=colIndex(h,'Operation Planned Hours'),iOpSt=colIndex(h,'Operation Status'),iIsDr=colIndex(h,'Is DR');
   var feed={}, feedWos={};
@@ -595,11 +886,13 @@ function ingestFeed(rows){
         program:get(row,iProg), currentGate:get(row,iGate), opsRemInGate:get(row,iOpsRem),
         hrsRemInGate:get(row,iHrsRem), hrsInGate:get(row,iHrsAll), etc:get(row,iEtc),
         percentComplete:get(row,iPct), plannedFinish:(finISO===null?fin:finISO),
-        activeDrOps:get(row,iDr), asOf:get(row,iAsOf) });
+        activeDrOps:get(row,iDr), asOf:get(row,iAsOf), serial:get(row,iSerial),
+        avgWeeklyHours:get(row,iAvgWk), requiredWeeklyHours:get(row,iReqWk), gatesRemaining:get(row,iGatesRem) });
     }
   }
   var LIVE=['partNo','partName','program','currentGate','opsRemInGate','hrsRemInGate','hrsInGate',
-            'etc','percentComplete','plannedFinish','activeDrOps','asOf'];
+            'etc','percentComplete','plannedFinish','activeDrOps','asOf',
+            'serial','avgWeeklyHours','requiredWeeklyHours','gatesRemaining'];
   var added=0, updated=0, staled=0;
   Object.keys(feed).forEach(function(wo){
     var f=feed[wo];
@@ -615,14 +908,15 @@ function ingestFeed(rows){
 // ============================== Export / Import plan state ==============================
 var STATE_HEADER=['Type','Node ID','Parent ID','Order','Name','Badge','WO','Part Number','Part Name',
   'Program','Current Gate','Planned Finish','Remaining Planned Hours','Percent Complete','As Of','Active DR Ops',
-  'Team ID','Tagged Member IDs','Selected Ops','Stale'];
+  'Team ID','Tagged Member IDs','Selected Ops','Stale',
+  'Goal','Goal Date','Serial','Avg Weekly Hours','Required Weekly Hours'];
 function exportStateCSV(){
   var lines=[STATE_HEADER.join(',')];
   function pushRow(o){ lines.push(STATE_HEADER.map(function(k){ return csvQuote(o[k]==null?'':o[k]); }).join(',')); }
   locOrder.forEach(function(locId,i){ var l=locations[locId]; if(l) pushRow({Type:'LOC','Node ID':l.id,'Parent ID':'',Order:i,Name:l.name}); });
   locOrder.forEach(function(locId){
     teamsOf(locId).forEach(function(t,ti){
-      pushRow({Type:'TEAM','Node ID':t.id,'Parent ID':t.locId,Order:ti,Name:t.name});
+      pushRow({Type:'TEAM','Node ID':t.id,'Parent ID':t.locId,Order:ti,Name:t.name,'Goal':t.goal||'','Goal Date':t.goalDate||''});
       membersOf(t.id).forEach(function(m,mi){ pushRow({Type:'MEMBER','Node ID':m.id,'Parent ID':m.teamId,Order:mi,Name:m.name,Badge:m.badge||''}); });
     });
   });
@@ -632,7 +926,9 @@ function exportStateCSV(){
       'Part Name':w.partName||'','Program':w.program||'','Current Gate':w.currentGate||'',
       'Planned Finish':w.plannedFinish||'','Remaining Planned Hours':w.etc==null?'':w.etc,
       'Percent Complete':w.percentComplete==null?'':w.percentComplete,
-      'As Of':w.asOf||'','Active DR Ops':w.activeDrOps==null?'':w.activeDrOps,'Stale':w.stale?'Y':'N'});
+      'As Of':w.asOf||'','Active DR Ops':w.activeDrOps==null?'':w.activeDrOps,'Stale':w.stale?'Y':'N',
+      'Serial':w.serial||'','Avg Weekly Hours':w.avgWeeklyHours==null?'':w.avgWeeklyHours,
+      'Required Weekly Hours':w.requiredWeeklyHours==null?'':w.requiredWeeklyHours});
   });
   // ASSIGN rows (per WO x team): selected ops + tagged members
   locOrder.forEach(function(locId){
@@ -657,17 +953,19 @@ function importState(rows){
       iRPH=colIndex(h,'Remaining Planned Hours'), iEtc=colIndex(h,'ETC'),
       iPct=colIndex(h,'Percent Complete'), iAsOf=colIndex(h,'As Of'), iDr=colIndex(h,'Active DR Ops'),
       iTeam=colIndex(h,'Team ID'), iTags=colIndex(h,'Tagged Member IDs'), iSel=colIndex(h,'Selected Ops'),
-      iStale=colIndex(h,'Stale');
+      iStale=colIndex(h,'Stale'), iGoal=colIndex(h,'Goal'), iGoalDate=colIndex(h,'Goal Date'),
+      iSerial=colIndex(h,'Serial'), iAvgWk=colIndex(h,'Avg Weekly Hours'), iReqWk=colIndex(h,'Required Weekly Hours');
   if(iType<0||iId<0){ showStatus('state-status','Error: not a saved plan (missing Type / Node ID columns).','error'); return; }
   locations={}; locOrder=[]; teams={}; members={}; wos={}; woOrder=[]; assign={};
-  collapsedLoc={}; collapsedTeam={};   // transient view state resets on import (default: locs expanded, teams collapsed)
+  collapsedLoc={}; collapsedTeam={}; poolExpanded={};   // transient view state resets on import (default: locs expanded, teams collapsed)
   nextLocId=0; nextTeamId=0; nextMemberId=0;
   var locRows=[], woOrders={};
   for(var r=1;r<rows.length;r++){
     var row=rows[r], type=get(row,iType).toUpperCase(), id=get(row,iId);
     var order=parseInt(get(row,iOrder),10); if(isNaN(order)) order=r;
     if(type==='LOC'){ locations[id]={id:id,name:get(row,iName),order:order}; locRows.push({id:id,order:order}); nextLocId=Math.max(nextLocId,maxIdNum('L',id)+1); }
-    else if(type==='TEAM'){ teams[id]={id:id,locId:get(row,iPid),name:get(row,iName),order:order}; nextTeamId=Math.max(nextTeamId,maxIdNum('T',id)+1); }
+    else if(type==='TEAM'){ teams[id]={id:id,locId:get(row,iPid),name:get(row,iName),order:order,
+        goal:(iGoal>=0?get(row,iGoal):''), goalDate:(iGoalDate>=0?get(row,iGoalDate):'')}; nextTeamId=Math.max(nextTeamId,maxIdNum('T',id)+1); }
     else if(type==='MEMBER'){ members[id]={id:id,teamId:get(row,iPid),name:get(row,iName),badge:(iBadge>=0?get(row,iBadge):'')||null,order:order}; nextMemberId=Math.max(nextMemberId,maxIdNum('M',id)+1); }
     else if(type==='WO'){
       var wo=get(row,iWO)||id;
@@ -677,6 +975,8 @@ function importState(rows){
         currentGate:get(row,iGate), plannedFinish:(finISO===null?fin:finISO),
         etc:etcv, percentComplete:(iPct>=0?get(row,iPct):''), asOf:get(row,iAsOf),
         activeDrOps:(iDr>=0?get(row,iDr):''), opsRemInGate:'', hrsRemInGate:'', hrsInGate:'',
+        serial:(iSerial>=0?get(row,iSerial):''), avgWeeklyHours:(iAvgWk>=0?get(row,iAvgWk):''),
+        requiredWeeklyHours:(iReqWk>=0?get(row,iReqWk):''), gatesRemaining:'',
         stale:/^y/i.test(get(row,iStale)) };
       woOrder.push(wo); woOrders[wo]=order;
       // Back-compat: a v1 plan carried Team ID + Tagged Member IDs on the WO row (single team).
