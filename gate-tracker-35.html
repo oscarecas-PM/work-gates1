@@ -265,7 +265,7 @@
 </head>
 <body>
 
-<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v35</span></h1>
+<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v36</span></h1>
 <p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
 
 <div class="file-inputs">
@@ -4904,6 +4904,86 @@ function _wireVacPlotInteractivity(canvas, partNo, orderNos, vacHistory, evmResu
 }
 
 // ---- Digital Signage Export (1920x1080 PNG) ----
+// ---- Signage layout helpers (shared by drawSignageCanvas + exportSignage pagination) ----
+// Returns the sizing-tier constants for the signage canvas. tierOverride:
+//   - an object -> returned as-is (an explicit tier forced across paginated pages so card
+//                  size stays identical page-to-page)
+//   - 'dense'   -> the densest tier (used by unmapped-location pages)
+//   - falsy     -> adaptive ladder based on gate/order counts (original behavior)
+function signageTier(gateCount, totalOrders, tierOverride) {
+  if (tierOverride && typeof tierOverride === 'object') return tierOverride;
+  if (tierOverride === 'dense') {
+    return { cols: 4, CARD_W: 128, CARD_H: 62, CARD_GAP: 4, HDR_H: 22, HOLD_H: 22, SEC_GAP: 5,
+             FONT_ORDER: 12, FONT_PART: 10, FONT_SN: 9, FONT_LABEL: 8, FONT_DAYS: 8, FONT_HDR: 14 };
+  } else if (gateCount <= 6 && totalOrders <= 30) {
+    return { cols: 2, CARD_W: 160, CARD_H: 85, CARD_GAP: 6, HDR_H: 28, HOLD_H: 28, SEC_GAP: 10,
+             FONT_ORDER: 15, FONT_PART: 12, FONT_SN: 11, FONT_LABEL: 10, FONT_DAYS: 10, FONT_HDR: 18 };
+  } else if (gateCount <= 12 && totalOrders <= 80) {
+    return { cols: 3, CARD_W: 148, CARD_H: 78, CARD_GAP: 5, HDR_H: 26, HOLD_H: 26, SEC_GAP: 8,
+             FONT_ORDER: 14, FONT_PART: 11, FONT_SN: 10, FONT_LABEL: 9, FONT_DAYS: 9, FONT_HDR: 16 };
+  } else if (gateCount <= 18) {
+    return { cols: 3, CARD_W: 138, CARD_H: 70, CARD_GAP: 4, HDR_H: 24, HOLD_H: 24, SEC_GAP: 6,
+             FONT_ORDER: 13, FONT_PART: 10, FONT_SN: 9, FONT_LABEL: 9, FONT_DAYS: 9, FONT_HDR: 15 };
+  }
+  return { cols: 4, CARD_W: 128, CARD_H: 62, CARD_GAP: 4, HDR_H: 22, HOLD_H: 22, SEC_GAP: 5,
+           FONT_ORDER: 12, FONT_PART: 10, FONT_SN: 9, FONT_LABEL: 8, FONT_DAYS: 8, FONT_HDR: 14 };
+}
+
+// Column width for a given tier on the 1920-wide canvas (PAD=30 each side, colGap=14).
+function signageColW(tier) {
+  var usableW = 1920 - 30 * 2;
+  return (usableW - (tier.cols - 1) * 14) / tier.cols;
+}
+
+// Pixel height of one section. Accepts both renderer gates ({type,bucket}) and
+// orchestrator/unmapped sections ({gateName,orders,isHold}). Holds + Not-Scanned collapse
+// to HOLD_H; gates size to their card rows. Must stay identical to the renderer's own
+// packing math so a paginated page never re-truncates.
+function signageGateHeight(gate, tier, colW) {
+  if (gate.type === 'hold' || gate.isHold || gate.type === 'notscanned') return tier.HOLD_H;
+  var orders = gate.bucket ? gate.bucket.orders : gate.orders;
+  var cardsPerRow = Math.max(1, Math.floor((colW - 12) / (tier.CARD_W + tier.CARD_GAP)));
+  var rows = Math.ceil((orders ? orders.length : 0) / cardsPerRow);
+  return tier.HDR_H + 8 + rows * (tier.CARD_H + tier.CARD_GAP) + 4;
+}
+
+// Greedy shortest-column-first bin-packing across pages. Adds each section to the shortest of
+// tier.cols simulated columns; if that would push the column past gridH, finalizes the current
+// page and starts a new one. Sections are ATOMIC — never split across pages (a page break pushes
+// the whole gate forward). Returns an array of pages (each an array of sections).
+function paginateSignageSections(sections, gridH, tier) {
+  var cols = tier.cols, SEC_GAP = tier.SEC_GAP;
+  var colW = signageColW(tier);
+  for (var i = 0; i < sections.length; i++) {
+    if (sections[i].height == null) sections[i].height = signageGateHeight(sections[i], tier, colW);
+  }
+  var pages = [];
+  var currentPage = [];
+  var currentColH = [];
+  for (var c = 0; c < cols; c++) currentColH.push(0);
+
+  for (var si = 0; si < sections.length; si++) {
+    var s = sections[si];
+    var shortest = 0;
+    for (var ci = 1; ci < cols; ci++) {
+      if (currentColH[ci] < currentColH[shortest]) shortest = ci;
+    }
+    var newH = currentColH[shortest] + s.height + SEC_GAP;
+    if (newH > gridH && currentPage.length > 0) {
+      pages.push(currentPage);
+      currentPage = [s];
+      currentColH = [];
+      for (var c2 = 0; c2 < cols; c2++) currentColH.push(0);
+      currentColH[0] = s.height + SEC_GAP;
+    } else {
+      currentPage.push(s);
+      currentColH[shortest] = newH;
+    }
+  }
+  if (currentPage.length > 0) pages.push(currentPage);
+  return pages;
+}
+
 // Pure renderer: returns a fully-drawn 1920x1080 canvas. Caller handles download.
 // payload shape:
 //   { gateBuckets, gateOrder, notFoundOrders, programColorMap, programColorFallbacks,
@@ -5046,41 +5126,21 @@ function drawSignageCanvas(payload) {
     }
   }
 
-  // Adaptive sizing tiers (or forced densest tier when paginating)
+  // Adaptive sizing tiers (or forced tier when paginating). tierOverride may be an explicit
+  // tier object (forced identical across paginated pages) or 'dense' or falsy (adaptive).
   var gateCount = gates.length;
-  var CARD_W, CARD_H, CARD_GAP, HDR_H, HOLD_H, SEC_GAP, FONT_ORDER, FONT_PART, FONT_SN, FONT_LABEL, FONT_DAYS, FONT_HDR, cols;
-
-  if (payload.tierOverride === 'dense') {
-    // Used by unmapped-location pages so pagination stays consistent page-to-page.
-    cols = 4; CARD_W = 128; CARD_H = 62; CARD_GAP = 4; HDR_H = 22; HOLD_H = 22; SEC_GAP = 5;
-    FONT_ORDER = 12; FONT_PART = 10; FONT_SN = 9; FONT_LABEL = 8; FONT_DAYS = 8; FONT_HDR = 14;
-  } else if (gateCount <= 6 && totalOrders <= 30) {
-    cols = 2; CARD_W = 160; CARD_H = 85; CARD_GAP = 6; HDR_H = 28; HOLD_H = 28; SEC_GAP = 10;
-    FONT_ORDER = 15; FONT_PART = 12; FONT_SN = 11; FONT_LABEL = 10; FONT_DAYS = 10; FONT_HDR = 18;
-  } else if (gateCount <= 12 && totalOrders <= 80) {
-    cols = 3; CARD_W = 148; CARD_H = 78; CARD_GAP = 5; HDR_H = 26; HOLD_H = 26; SEC_GAP = 8;
-    FONT_ORDER = 14; FONT_PART = 11; FONT_SN = 10; FONT_LABEL = 9; FONT_DAYS = 9; FONT_HDR = 16;
-  } else if (gateCount <= 18) {
-    cols = 3; CARD_W = 138; CARD_H = 70; CARD_GAP = 4; HDR_H = 24; HOLD_H = 24; SEC_GAP = 6;
-    FONT_ORDER = 13; FONT_PART = 10; FONT_SN = 9; FONT_LABEL = 9; FONT_DAYS = 9; FONT_HDR = 15;
-  } else {
-    cols = 4; CARD_W = 128; CARD_H = 62; CARD_GAP = 4; HDR_H = 22; HOLD_H = 22; SEC_GAP = 5;
-    FONT_ORDER = 12; FONT_PART = 10; FONT_SN = 9; FONT_LABEL = 8; FONT_DAYS = 8; FONT_HDR = 14;
-  }
+  var tier = signageTier(gateCount, totalOrders, payload.tierOverride);
+  var cols = tier.cols;
+  var CARD_W = tier.CARD_W, CARD_H = tier.CARD_H, CARD_GAP = tier.CARD_GAP;
+  var HDR_H = tier.HDR_H, HOLD_H = tier.HOLD_H, SEC_GAP = tier.SEC_GAP;
+  var FONT_ORDER = tier.FONT_ORDER, FONT_PART = tier.FONT_PART, FONT_SN = tier.FONT_SN;
+  var FONT_LABEL = tier.FONT_LABEL, FONT_DAYS = tier.FONT_DAYS, FONT_HDR = tier.FONT_HDR;
 
   var colGap = 14;
   var colW = (usableW - (cols - 1) * colGap) / cols;
 
-  // Calculate height for each gate section
-  function calcGateHeight(gate) {
-    if (gate.type === 'hold') return HOLD_H;
-    var cardsPerRow = Math.max(1, Math.floor((colW - 12) / (CARD_W + CARD_GAP)));
-    var rows = Math.ceil(gate.bucket.orders.length / cardsPerRow);
-    return HDR_H + 8 + rows * (CARD_H + CARD_GAP) + 4;
-  }
-
   for (var gh = 0; gh < gates.length; gh++) {
-    gates[gh].height = calcGateHeight(gates[gh]);
+    gates[gh].height = signageGateHeight(gates[gh], tier, colW);
   }
 
   // Add "Not Scanned" tally bar if applicable
@@ -5285,44 +5345,9 @@ function downloadCanvas(canvas, filename) {
 
 // Pack unmapped-location sections into pages, each fitting in `gridH` at the densest tier.
 // Each section: { gateNumber:'', gateName, isHold:false, orders:[...], _location:'...' }.
-// Greedy: add each section to the shortest of 4 simulated columns; if doing so would
-// overflow gridH, finalize the current page and start a new one.
+// Thin wrapper over the shared paginator using the 'dense' tier (unchanged behavior).
 function paginateUnmappedSections(sections, gridH) {
-  var W = 1920, PAD = 30, colGap = 14, cols = 4;
-  var usableW = W - PAD * 2;
-  var colW = (usableW - (cols - 1) * colGap) / cols;
-  var CARD_W = 128, CARD_H = 62, CARD_GAP = 4, HDR_H = 22, SEC_GAP = 5;
-
-  function calcHeight(sec) {
-    var cardsPerRow = Math.max(1, Math.floor((colW - 12) / (CARD_W + CARD_GAP)));
-    var rows = Math.ceil(sec.orders.length / cardsPerRow);
-    return HDR_H + 8 + rows * (CARD_H + CARD_GAP) + 4;
-  }
-  for (var i = 0; i < sections.length; i++) sections[i].height = calcHeight(sections[i]);
-
-  var pages = [];
-  var currentPage = [];
-  var currentColH = [0, 0, 0, 0];
-
-  for (var si = 0; si < sections.length; si++) {
-    var s = sections[si];
-    var shortest = 0;
-    for (var ci = 1; ci < cols; ci++) {
-      if (currentColH[ci] < currentColH[shortest]) shortest = ci;
-    }
-    var newH = currentColH[shortest] + s.height + SEC_GAP;
-    if (newH > gridH && currentPage.length > 0) {
-      pages.push(currentPage);
-      currentPage = [s];
-      currentColH = [0, 0, 0, 0];
-      currentColH[0] = s.height + SEC_GAP;
-    } else {
-      currentPage.push(s);
-      currentColH[shortest] = newH;
-    }
-  }
-  if (currentPage.length > 0) pages.push(currentPage);
-  return pages;
+  return paginateSignageSections(sections, gridH, signageTier(0, 0, 'dense'));
 }
 
 // Orchestrator wired to the Digital Signage Export button.
@@ -5339,18 +5364,83 @@ function exportSignage() {
     String(now.getMonth() + 1).padStart(2, '0') + '-' +
     String(now.getDate()).padStart(2, '0');
 
-  // --- 1. Mapped PNG (existing behavior, unchanged appearance) ---
-  var mappedCanvas = drawSignageCanvas({
-    gateBuckets: data.gateBuckets,
-    gateOrder: data.gateOrder,
-    notFoundOrders: data.notFoundOrders,
-    programColorMap: data.programColorMap,
-    programColorFallbacks: data.programColorFallbacks,
-    partNames: data.partNames,
-    scanDateDisplay: data.scanDateDisplay,
-    title: 'Gate Tracker'
-  });
-  downloadCanvas(mappedCanvas, 'gate-signage-' + dateStr + '.png');
+  // --- 1. Mapped PNG(s) — paginated when gates overflow one 1920x1080 screen ---
+  // Build the mapped section list ONCE, mirroring drawSignageCanvas's gate collection so the
+  // tier we compute here matches the tier the renderer picks. Gates are atomic: the paginator
+  // never splits one across screens (a page break pushes the whole gate to the next PNG), so the
+  // "Work Orders with DR operations - Location Unclear" gate — appended last — now flows onto an
+  // overflow page instead of being truncated off the bottom.
+  var mSections = [];
+  var mTotalOrders = 0;
+  for (var mgi = 0; mgi < data.gateOrder.length; mgi++) {
+    var mKey = data.gateOrder[mgi];
+    var mBkt = data.gateBuckets[mKey];
+    if (!mBkt) continue;
+    if (mBkt.isHold) {
+      mSections.push({ _key: mKey, type: 'hold', bucket: mBkt, orderCount: mBkt.orders.length });
+    } else if (mBkt.orders.length > 0) {
+      mSections.push({ _key: mKey, type: 'gate', bucket: mBkt, orderCount: mBkt.orders.length });
+      mTotalOrders += mBkt.orders.length;
+    }
+  }
+  // Tier is chosen from the gate/hold set only (Not-Scanned excluded), matching the renderer,
+  // which selects its tier before appending the Not-Scanned bar.
+  var mTier = signageTier(mSections.length, mTotalOrders, null);
+  if (data.notFoundOrders && data.notFoundOrders.length > 0) {
+    mSections.push({ _key: '__NOTSCANNED__', type: 'notscanned',
+                     orderCount: data.notFoundOrders.length, height: mTier.HOLD_H });
+  }
+
+  // Grid heights: no-subtitle single page (legendY=PAD+58) vs subtitled pages (legendY=PAD+80).
+  // gridBottom = (H-36) - 10 = 1034; gridTop = legendY + 52.
+  var GRID_NO_SUB = 1034 - (30 + 58 + 52); // 894
+  var GRID_SUB = 1034 - (30 + 80 + 52);    // 872
+
+  // Pass 1: does everything fit on ONE screen at the no-subtitle geometry? If so, emit the
+  // original single PNG unchanged (no subtitle, original filename) — byte-for-byte as before.
+  var mPages1 = paginateSignageSections(mSections, GRID_NO_SUB, mTier);
+  if (mPages1.length <= 1) {
+    var mappedCanvas = drawSignageCanvas({
+      gateBuckets: data.gateBuckets,
+      gateOrder: data.gateOrder,
+      notFoundOrders: data.notFoundOrders,
+      programColorMap: data.programColorMap,
+      programColorFallbacks: data.programColorFallbacks,
+      partNames: data.partNames,
+      scanDateDisplay: data.scanDateDisplay,
+      title: 'Gate Tracker'
+    });
+    downloadCanvas(mappedCanvas, 'gate-signage-' + dateStr + '.png');
+  } else {
+    // Overflow: re-pack at the subtitled geometry and emit one PNG per page. Force the same
+    // tier object on every page so card size stays identical across screens.
+    var mPages = paginateSignageSections(mSections, GRID_SUB, mTier);
+    for (var mp = 0; mp < mPages.length; mp++) {
+      var pageSecs = mPages[mp];
+      var pageBuckets = {};
+      var pageOrder = [];
+      var pageHasNotScanned = false;
+      for (var ps = 0; ps < pageSecs.length; ps++) {
+        var sec = pageSecs[ps];
+        if (sec.type === 'notscanned') { pageHasNotScanned = true; continue; }
+        pageBuckets[sec._key] = sec.bucket;
+        pageOrder.push(sec._key);
+      }
+      var pageCanvas = drawSignageCanvas({
+        gateBuckets: pageBuckets,
+        gateOrder: pageOrder,
+        notFoundOrders: pageHasNotScanned ? data.notFoundOrders : [],
+        programColorMap: data.programColorMap,
+        programColorFallbacks: data.programColorFallbacks,
+        partNames: data.partNames,
+        scanDateDisplay: data.scanDateDisplay,
+        title: 'Gate Tracker',
+        subtitle: 'Gate Board — page ' + (mp + 1) + ' of ' + mPages.length,
+        tierOverride: mTier
+      });
+      downloadCanvas(pageCanvas, 'gate-signage-' + dateStr + '-p' + (mp + 1) + '.png');
+    }
+  }
 
   // --- 2. Unmapped-locations PNG(s) — scan mode only, paginated ---
   if (data.unmappedOrder && data.unmappedOrder.length > 0) {
