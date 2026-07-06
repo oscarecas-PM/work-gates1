@@ -90,6 +90,7 @@ h2{font-size:15px;margin:0 0 8px}
 .ontime.warn{background:#fef9c3;color:#854d0e;border-color:#fde047}
 .ontime.bad{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
 .ontime.na{background:#e2e8f0;color:#475569;border-color:#cbd5e1}
+.lastknown{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:10px;background:#fef3c7;color:#92400e;border:1px solid #fde047}
 .badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;text-transform:uppercase;letter-spacing:.03em}
 .badge.stale{background:var(--amber-line);color:#fff}
 .badge.dr{background:var(--amber);color:#fff}
@@ -141,7 +142,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v3</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3.1</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -215,6 +216,14 @@ var poolExpanded  = {};   // transient: woNo -> true when an UNASSIGNED pool car
                           //   (decoupled from the global view toggle; not persisted)
 var forceExpand   = false;// true during printBoard() so the printout shows everything
 var isSnapshot = false;
+// The feed OWNS every live MES field below; the plan CSV only carries them as a last-known fallback.
+// `lastFeed` retains the most recent feed's live values so it can be re-applied after ANY plan import
+// (feed-always-wins, independent of upload order). Per-WO `fromFeed` marks whether a WO's live data is
+// from the current feed (true) or only last-known from a plan (false -> shows the "last known" badge).
+var LIVE=['partNo','partName','program','currentGate','opsRemInGate','hrsRemInGate','hrsInGate',
+          'etc','percentComplete','plannedFinish','activeDrOps','asOf',
+          'serial','avgWeeklyHours','requiredWeeklyHours','gatesRemaining'];
+var lastFeed = null;   // woNo -> { LIVE field values } from the newest feed load
 
 // ============================== Utilities (from PDVF / decoder-ring) ==============================
 var CSV_MAX_FIELD_LEN = 500;
@@ -499,9 +508,11 @@ var ARTIFACT_CSS =
 +'table.ops td{font-size:14px;padding:4px 8px;border-bottom:1px solid #e2e8f0}'
 +'table.ops tr.dr td{background:#fef2f2}'
 +'.gr-lab{font-size:16px;font-weight:700;color:#334155;margin-top:6px}'
-+'.gr-bar{display:flex;width:100%;height:46px;margin:4px 0}'
-+'.gr-seg{background:#1e3a5f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;'
-+'border-right:2px solid #fff;overflow:hidden;white-space:nowrap}'
++'.gr-bar{display:flex;width:100%;height:40px;margin:4px 0;border-radius:4px;overflow:hidden}'
++'.gr-seg{background:#1e3a5f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;'
++'font-weight:700;border-right:2px solid #fff;overflow:hidden}'
++'.gr-legend{display:flex;flex-wrap:wrap;gap:3px 18px;margin:2px 0 4px;font-size:14px;color:#334155}'
++'.gr-item{white-space:nowrap}.gr-num{font-weight:700}'
 +'.blk-goal{font-size:16px;font-style:italic;color:#166534;margin-top:8px}'
 +'.none{font-size:14px;font-style:italic;color:#94a3b8;margin:6px 0}';
 
@@ -513,14 +524,22 @@ function opsTableHTMLForArtifact(ops){
   });
   return h+'</tbody></table>';
 }
+// Circled number ①..⑳ so every gate segment gets a legible marker even when it's a thin sliver;
+// the authoritative name+hours live in the legend beneath, which never truncates.
+function circledNum(i){ return (i>=1 && i<=20) ? String.fromCharCode(0x2460+i-1) : '('+i+')'; }
 function gatesBarHTML(gates){
   var segs=gates.filter(function(g){ return parseFloat(g.hrs)>0; });
   if(!segs.length) return '';
   var total=0; segs.forEach(function(g){ total+=parseFloat(g.hrs)||0; });
-  var h='<div class="gr-lab">Gates Remaining</div><div class="gr-bar">';
-  segs.forEach(function(g){ var pct=total?((parseFloat(g.hrs)||0)/total*100):0;
-    h+='<div class="gr-seg" style="width:'+pct.toFixed(2)+'%">'+esc(g.name)+' – '+fmtNum(g.hrs)+' hrs</div>'; });
-  return h+'</div>';
+  // Proportional bar carries the shape (each segment min-42px so tiny gates stay visible); a circled
+  // number marks each segment; the legend below carries the full "name – hours" text.
+  var bar='<div class="gr-bar">', leg='<div class="gr-legend">';
+  segs.forEach(function(g,i){
+    var hrs=parseFloat(g.hrs)||0, num=circledNum(i+1), lbl=esc(g.name)+' – '+fmtNum(g.hrs)+' h';
+    bar+='<div class="gr-seg" style="flex:'+hrs+' 0 42px" title="'+lbl.replace(/"/g,'')+'">'+num+'</div>';
+    leg+='<span class="gr-item"><span class="gr-num">'+num+'</span> '+lbl+'</span>';
+  });
+  return '<div class="gr-lab">Gates Remaining</div>'+bar+'</div>'+leg+'</div>';
 }
 function artifactSheetHTML(d){
   var h='<div class="sheet"><div class="sh-title">'+esc(d.loc)+' &middot; '+esc(d.team)+'</div>';
@@ -556,12 +575,13 @@ function aRR(ctx,x,y,w,h,r,fill,stroke){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx
 function aTrunc(ctx,t,maxW){ t=String(t==null?'':t); if(ctx.measureText(t).width<=maxW) return t;
   while(t.length && ctx.measureText(t+'…').width>maxW) t=t.slice(0,-1); return t+'…'; }
 // Fixed line heights make block height deterministic without a measuring pass.
-var BL={title:30,tech:22,meta:26,gap:6,opsHead:30,opRow:27,opsPad:10,noOps:26,grLab:24,grBar:46,grPad:12,goal:28,blockGap:24};
+var BL={title:30,tech:22,meta:26,gap:6,opsHead:30,opRow:27,opsPad:10,noOps:26,grLab:24,grBar:42,grLegend:22,grPad:12,goal:28,blockGap:24};
 function blockHeight(b){
   var h=BL.title+BL.tech+BL.meta+BL.gap;
   h += b.ops.length ? (BL.opsHead + b.ops.length*BL.opRow + BL.opsPad) : BL.noOps;
   var segs=b.gates.filter(function(g){ return parseFloat(g.hrs)>0; });
-  h += segs.length ? (BL.grLab+BL.grBar+BL.grPad) : 0;
+  // grBar + a legend estimated at ~4 gates/line (rough; only affects pagination packing).
+  h += segs.length ? (BL.grLab+BL.grBar+Math.ceil(segs.length/4)*BL.grLegend+BL.grPad) : 0;
   h += BL.goal + BL.blockGap;
   return h;
 }
@@ -592,15 +612,25 @@ function drawGatesBarCanvas(ctx,gates,x,y,w){
   ctx.font='bold 16px '+A_FONT; ctx.fillStyle='#334155'; ctx.textBaseline='top'; ctx.textAlign='left';
   ctx.fillText('Gates Remaining',x,y); y+=BL.grLab;
   var total=0; segs.forEach(function(g){ total+=parseFloat(g.hrs)||0; });
-  var cx=x;
-  segs.forEach(function(g){ var sw=w*((parseFloat(g.hrs)||0)/total);
+  // Proportional widths with a per-segment floor so tiny gates stay a visible band; a circled number
+  // labels each segment (always legible), full name+hours in the legend below.
+  var minW=44, flexW=Math.max(0, w-minW*segs.length), cx=x;
+  segs.forEach(function(g,i){ var sw=minW + flexW*((parseFloat(g.hrs)||0)/total);
     ctx.fillStyle='#1e3a5f'; ctx.fillRect(cx,y,sw-2,BL.grBar);
-    ctx.fillStyle='#fff'; ctx.font='15px '+A_FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(aTrunc(ctx,g.name+' – '+fmtNum(g.hrs)+' hrs',sw-10),cx+sw/2,y+BL.grBar/2);
+    ctx.fillStyle='#fff'; ctx.font='bold 18px '+A_FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(circledNum(i+1),cx+sw/2,y+BL.grBar/2);
     cx+=sw;
   });
-  ctx.textAlign='left';
-  return y+BL.grBar;
+  y+=BL.grBar+4;
+  // Legend: word-wrap "① Name – X h" items across the width.
+  ctx.textAlign='left'; ctx.textBaseline='top'; ctx.font='14px '+A_FONT; ctx.fillStyle='#334155';
+  var cxl=x, gap=26;
+  segs.forEach(function(g,i){ var item=circledNum(i+1)+' '+g.name+' – '+fmtNum(g.hrs)+' h';
+    var wItem=ctx.measureText(item).width;
+    if(cxl>x && cxl+wItem>x+w){ cxl=x; y+=BL.grLegend; }
+    ctx.fillText(item,cxl,y); cxl+=wItem+gap;
+  });
+  return y+BL.grLegend;
 }
 function drawBlockCanvas(ctx,b,x,y,w){
   var wo=b.w;
@@ -788,6 +818,10 @@ function woCardHTML(w, teamId){
   // Remaining Planned Hours / Planned Finish Date / % retained in BOTH views.
   html+='<div class="wo-meta">Remaining Planned Hours '+fmtNum(w.etc)+' h &middot; Planned Finish Date '+esc(w.plannedFinish||'—')+' &middot; '+
         '<span class="badge pct">'+fmtPct(w.percentComplete)+' complete</span></div>';
+  // Provenance: when live data isn't from the current feed, flag it so stale numbers aren't mistaken for live.
+  if(w.fromFeed===false){
+    html+='<div class="wo-meta"><span class="lastknown" title="These live fields (gate, hours, %, pace, finish) are from a saved plan, not the current MES feed. Upload the latest WO Assignment Feed to refresh.">&#9203; last known'+(w.asOf?' &middot; as of '+esc(w.asOf):'')+' &mdash; upload current feed</span></div>';
+  }
   // On-time signal (feature 5): required vs actual weekly pace -> weeks late (green/yellow/red).
   var ot=onTimeStatus(w);
   if(ot) html+='<div class="wo-meta"><span class="ontime '+ot.cls+'" title="'+esc(ot.title)+'">'+ot.text+'</span></div>';
@@ -890,17 +924,19 @@ function ingestFeed(rows){
         avgWeeklyHours:get(row,iAvgWk), requiredWeeklyHours:get(row,iReqWk), gatesRemaining:get(row,iGatesRem) });
     }
   }
-  var LIVE=['partNo','partName','program','currentGate','opsRemInGate','hrsRemInGate','hrsInGate',
-            'etc','percentComplete','plannedFinish','activeDrOps','asOf',
-            'serial','avgWeeklyHours','requiredWeeklyHours','gatesRemaining'];
   var added=0, updated=0, staled=0;
+  lastFeed = lastFeed || {};
   Object.keys(feed).forEach(function(wo){
     var f=feed[wo];
     feedOps[wo]=f.ops||[];   // operations always come from the feed; keyed by WO#, plan-independent
     if(!wos[wo]){ var nw={stale:false}; LIVE.forEach(function(k){ if(k in f) nw[k]=f[k]; }); nw.woNo=wo; wos[wo]=nw; woOrder.push(wo); added++; }
     else { var w=wos[wo]; LIVE.forEach(function(k){ if(k in f) w[k]=f[k]; }); w.stale=false; updated++; }
+    wos[wo].fromFeed=true;   // live data now comes from the current feed
+    // retain the fresh live values so a later plan import can be re-overlaid with them
+    var snap={}; LIVE.forEach(function(k){ if(k in wos[wo]) snap[k]=wos[wo][k]; }); lastFeed[wo]=snap;
   });
-  Object.keys(wos).forEach(function(wo){ if(!feedWos[wo]){ wos[wo].stale=true; staled++; } });
+  // A WO now absent from the latest feed keeps its last-known values but is flagged stale / not-from-feed.
+  Object.keys(wos).forEach(function(wo){ if(!feedWos[wo]){ wos[wo].stale=true; wos[wo].fromFeed=false; delete lastFeed[wo]; staled++; } });
   showStatus('feed-status','Loaded '+Object.keys(feed).length+' WOs — '+added+' new, '+updated+' updated'+(staled?', '+staled+' now stale':'')+'.','loaded');
   render();
 }
@@ -989,6 +1025,13 @@ function importState(rows){
   }
   locOrder=locRows.sort(function(a,b){return a.order-b.order;}).map(function(x){return x.id;});
   woOrder.sort(function(a,b){ return (woOrders[a]||0)-(woOrders[b]||0); });
+  // Feed-always-wins: the plan's live fields are only last-known. Wherever the most recent feed still
+  // has the WO, re-overlay its fresh live values (so import order can't downgrade live data); WOs the
+  // feed lacks stay "last known" and are flagged so stale numbers never masquerade as current.
+  Object.keys(wos).forEach(function(wo){
+    if(lastFeed && lastFeed[wo]){ var f=lastFeed[wo]; LIVE.forEach(function(k){ if(k in f) wos[wo][k]=f[k]; }); wos[wo].stale=false; wos[wo].fromFeed=true; }
+    else { wos[wo].fromFeed=false; if(lastFeed) wos[wo].stale=true; }
+  });
   // prune dangling assignments + tags
   Object.keys(assign).forEach(function(k){ var a=assign[k];
     if(!teams[a.teamId]||!wos[a.woNo]){ delete assign[k]; return; }
@@ -1002,11 +1045,11 @@ function importState(rows){
 // ============================== Snapshot (editable HTML) ==============================
 function snapshotState(){
   return { locations:locations, locOrder:locOrder, teams:teams, members:members, wos:wos, woOrder:woOrder,
-    assign:assign, feedOps:feedOps, nextLocId:nextLocId, nextTeamId:nextTeamId, nextMemberId:nextMemberId, viewMode:viewMode };
+    assign:assign, feedOps:feedOps, lastFeed:lastFeed, nextLocId:nextLocId, nextTeamId:nextTeamId, nextMemberId:nextMemberId, viewMode:viewMode };
 }
 function hydrate(s){
   locations=s.locations||{}; locOrder=s.locOrder||[]; teams=s.teams||{}; members=s.members||{};
-  wos=s.wos||{}; woOrder=s.woOrder||[]; assign=s.assign||{}; feedOps=s.feedOps||{};
+  wos=s.wos||{}; woOrder=s.woOrder||[]; assign=s.assign||{}; feedOps=s.feedOps||{}; lastFeed=s.lastFeed||null;
   nextLocId=s.nextLocId||0; nextTeamId=s.nextTeamId||0; nextMemberId=s.nextMemberId||0; viewMode=s.viewMode||'gate';
 }
 function saveSnapshot(){
