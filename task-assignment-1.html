@@ -111,6 +111,11 @@ h2{font-size:15px;margin:0 0 8px}
 .op-table tr.op-sel td{background:#eff6ff}
 .op-table tr.op-sel.dr td{background:#fde9c8}
 .op-table tr.op-claimed td{opacity:.55}
+.op-table tr.op-pending td{background:#f8fafc;color:var(--slate)}
+.op-table tr.op-pending.op-sel td{background:#eef4ff}
+.op-table td.op-none-cell{color:var(--muted);font-style:italic;text-align:center}
+.op-table tr.pend-toggle td{background:#fff;border-color:var(--line);padding:4px 6px}
+.badge.pend{background:#e2e8f0;color:#475569;font-weight:600}
 .claim-note{font-size:10px;color:var(--amber);font-weight:600}
 .op-none{font-size:12px;color:var(--muted);font-style:italic;margin-top:6px}
 
@@ -142,7 +147,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v3.1</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3.2</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -166,7 +171,7 @@ h2{font-size:15px;margin:0 0 8px}
     <button class="btn btn-view" id="view-btn" onclick="toggleView()">View: Gate names</button>
     <button class="btn btn-green" id="export-state-btn" onclick="exportStateCSV()" disabled>Export Plan CSV</button>
     <button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()" disabled>Save for Editing</button>
-    <button class="btn" onclick="printBoard()">Print</button>
+    <button class="btn btn-green" onclick="exportTeamPDF()">Export Team PDFs</button>
     <button class="btn btn-green" onclick="exportTeamPNGs()">Export Team PNGs</button>
     <button class="btn" style="background:#fef3c7;border:1px dashed #d97706;color:#92400e" onclick="previewArtifactHTML()">Temp: Preview artifact (HTML)</button>
     <button class="btn" onclick="expandAll()">Expand all</button>
@@ -214,7 +219,9 @@ var collapsedLoc  = {};   // locId -> true when collapsed (default expanded)
 var collapsedTeam = {};   // teamId -> false when expanded (default/undefined => collapsed)
 var poolExpanded  = {};   // transient: woNo -> true when an UNASSIGNED pool card's ops are expanded
                           //   (decoupled from the global view toggle; not persisted)
-var forceExpand   = false;// true during printBoard() so the printout shows everything
+var pendingExpanded = {}; // transient: woNo -> true when a WO's non-active (pending) ops are revealed
+                          //   (authors must intentionally reveal future work; not persisted)
+var forceExpand   = false;// reserved: force-expand all groups during a render (currently unused)
 var isSnapshot = false;
 // The feed OWNS every live MES field below; the plan CSV only carries them as a last-known fallback.
 // `lastFeed` retains the most recent feed's live values so it can be re-applied after ANY plan import
@@ -431,6 +438,10 @@ function toggleView(){
 }
 // Per-card ops expand for UNASSIGNED pool cards (decoupled from the global toggle; transient).
 function togglePoolOps(woNo){ poolExpanded[woNo]=!poolExpanded[woNo]; render(); }
+// Reveal a WO's non-active (pending / future) operations so they can be scheduled (transient).
+function togglePendingOps(woNo){ pendingExpanded[woNo]=!pendingExpanded[woNo]; render(); }
+// Operations shown by default = actively workable (ACTIVE / IN QUEUE); everything else open = "pending".
+function isActiveOp(o){ var s=(o.status||'').toUpperCase().trim(); return s==='ACTIVE'||s==='IN QUEUE'; }
 
 // ============================== On-time signal (feature 5) ==============================
 // Compares the actual weekly pace (from EHA velocity, carried in the feed) with the pace required to
@@ -508,11 +519,8 @@ var ARTIFACT_CSS =
 +'table.ops td{font-size:14px;padding:4px 8px;border-bottom:1px solid #e2e8f0}'
 +'table.ops tr.dr td{background:#fef2f2}'
 +'.gr-lab{font-size:16px;font-weight:700;color:#334155;margin-top:6px}'
-+'.gr-bar{display:flex;width:100%;height:40px;margin:4px 0;border-radius:4px;overflow:hidden}'
-+'.gr-seg{background:#1e3a5f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;'
-+'font-weight:700;border-right:2px solid #fff;overflow:hidden}'
-+'.gr-legend{display:flex;flex-wrap:wrap;gap:3px 18px;margin:2px 0 4px;font-size:14px;color:#334155}'
-+'.gr-item{white-space:nowrap}.gr-num{font-weight:700}'
++'.gr-legend{display:flex;flex-wrap:wrap;gap:3px 20px;margin:2px 0 4px;font-size:15px;color:#334155}'
++'.gr-item{white-space:nowrap}'
 +'.blk-goal{font-size:16px;font-style:italic;color:#166534;margin-top:8px}'
 +'.none{font-size:14px;font-style:italic;color:#94a3b8;margin:6px 0}';
 
@@ -524,22 +532,14 @@ function opsTableHTMLForArtifact(ops){
   });
   return h+'</tbody></table>';
 }
-// Circled number ①..⑳ so every gate segment gets a legible marker even when it's a thin sliver;
-// the authoritative name+hours live in the legend beneath, which never truncates.
-function circledNum(i){ return (i>=1 && i<=20) ? String.fromCharCode(0x2460+i-1) : '('+i+')'; }
+// Gates Remaining renders as a plain wrapping list of "name – hours" (no bar) — the list reads fine
+// on its own and never truncates.
 function gatesBarHTML(gates){
   var segs=gates.filter(function(g){ return parseFloat(g.hrs)>0; });
   if(!segs.length) return '';
-  var total=0; segs.forEach(function(g){ total+=parseFloat(g.hrs)||0; });
-  // Proportional bar carries the shape (each segment min-42px so tiny gates stay visible); a circled
-  // number marks each segment; the legend below carries the full "name – hours" text.
-  var bar='<div class="gr-bar">', leg='<div class="gr-legend">';
-  segs.forEach(function(g,i){
-    var hrs=parseFloat(g.hrs)||0, num=circledNum(i+1), lbl=esc(g.name)+' – '+fmtNum(g.hrs)+' h';
-    bar+='<div class="gr-seg" style="flex:'+hrs+' 0 42px" title="'+lbl.replace(/"/g,'')+'">'+num+'</div>';
-    leg+='<span class="gr-item"><span class="gr-num">'+num+'</span> '+lbl+'</span>';
-  });
-  return '<div class="gr-lab">Gates Remaining</div>'+bar+'</div>'+leg+'</div>';
+  var leg='<div class="gr-legend">';
+  segs.forEach(function(g){ leg+='<span class="gr-item">'+esc(g.name)+' – '+fmtNum(g.hrs)+' h</span>'; });
+  return '<div class="gr-lab">Gates Remaining</div>'+leg+'</div>';
 }
 function artifactSheetHTML(d){
   var h='<div class="sheet"><div class="sh-title">'+esc(d.loc)+' &middot; '+esc(d.team)+'</div>';
@@ -575,13 +575,13 @@ function aRR(ctx,x,y,w,h,r,fill,stroke){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx
 function aTrunc(ctx,t,maxW){ t=String(t==null?'':t); if(ctx.measureText(t).width<=maxW) return t;
   while(t.length && ctx.measureText(t+'…').width>maxW) t=t.slice(0,-1); return t+'…'; }
 // Fixed line heights make block height deterministic without a measuring pass.
-var BL={title:30,tech:22,meta:26,gap:6,opsHead:30,opRow:27,opsPad:10,noOps:26,grLab:24,grBar:42,grLegend:22,grPad:12,goal:28,blockGap:24};
+var BL={title:30,tech:22,meta:26,gap:6,opsHead:30,opRow:27,opsPad:10,noOps:26,grLab:24,grLegend:22,grPad:12,goal:28,blockGap:24};
 function blockHeight(b){
   var h=BL.title+BL.tech+BL.meta+BL.gap;
   h += b.ops.length ? (BL.opsHead + b.ops.length*BL.opRow + BL.opsPad) : BL.noOps;
   var segs=b.gates.filter(function(g){ return parseFloat(g.hrs)>0; });
-  // grBar + a legend estimated at ~4 gates/line (rough; only affects pagination packing).
-  h += segs.length ? (BL.grLab+BL.grBar+Math.ceil(segs.length/4)*BL.grLegend+BL.grPad) : 0;
+  // label + a gate list estimated at ~4 gates/line (rough; only affects pagination packing).
+  h += segs.length ? (BL.grLab+Math.ceil(segs.length/4)*BL.grLegend+BL.grPad) : 0;
   h += BL.goal + BL.blockGap;
   return h;
 }
@@ -611,21 +611,10 @@ function drawGatesBarCanvas(ctx,gates,x,y,w){
   var segs=gates.filter(function(g){ return parseFloat(g.hrs)>0; }); if(!segs.length) return y;
   ctx.font='bold 16px '+A_FONT; ctx.fillStyle='#334155'; ctx.textBaseline='top'; ctx.textAlign='left';
   ctx.fillText('Gates Remaining',x,y); y+=BL.grLab;
-  var total=0; segs.forEach(function(g){ total+=parseFloat(g.hrs)||0; });
-  // Proportional widths with a per-segment floor so tiny gates stay a visible band; a circled number
-  // labels each segment (always legible), full name+hours in the legend below.
-  var minW=44, flexW=Math.max(0, w-minW*segs.length), cx=x;
-  segs.forEach(function(g,i){ var sw=minW + flexW*((parseFloat(g.hrs)||0)/total);
-    ctx.fillStyle='#1e3a5f'; ctx.fillRect(cx,y,sw-2,BL.grBar);
-    ctx.fillStyle='#fff'; ctx.font='bold 18px '+A_FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.fillText(circledNum(i+1),cx+sw/2,y+BL.grBar/2);
-    cx+=sw;
-  });
-  y+=BL.grBar+4;
-  // Legend: word-wrap "① Name – X h" items across the width.
-  ctx.textAlign='left'; ctx.textBaseline='top'; ctx.font='14px '+A_FONT; ctx.fillStyle='#334155';
-  var cxl=x, gap=26;
-  segs.forEach(function(g,i){ var item=circledNum(i+1)+' '+g.name+' – '+fmtNum(g.hrs)+' h';
+  // Plain wrapping list of "Name – X h" items (no bar).
+  ctx.font='15px '+A_FONT; ctx.fillStyle='#334155';
+  var cxl=x, gap=28;
+  segs.forEach(function(g){ var item=g.name+' – '+fmtNum(g.hrs)+' h';
     var wItem=ctx.measureText(item).width;
     if(cxl>x && cxl+wItem>x+w){ cxl=x; y+=BL.grLegend; }
     ctx.fillText(item,cxl,y); cxl+=wItem+gap;
@@ -646,9 +635,10 @@ function drawBlockCanvas(ctx,b,x,y,w){
   ctx.font='italic 16px '+A_FONT; ctx.fillStyle='#166534'; ctx.fillText(aTrunc(ctx,woGoalLine(wo),w),x,y); y+=BL.goal;
   return y;
 }
-function drawTeamCanvas(d, blocks, pageNo, pageCount){
-  var cv=document.createElement('canvas'); cv.width=A_W; cv.height=A_H;
-  var ctx=cv.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,A_W,A_H);
+function drawTeamCanvas(d, blocks, pageNo, pageCount, scale){
+  scale = scale || 1;   // >1 renders at higher DPI for crisp PDF/print output (same logical layout)
+  var cv=document.createElement('canvas'); cv.width=A_W*scale; cv.height=A_H*scale;
+  var ctx=cv.getContext('2d'); ctx.scale(scale,scale); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,A_W,A_H);
   var x=A_PAD, w=A_W-A_PAD*2, y=A_PAD;
   // Header: team title + weekly goal
   ctx.textAlign='left'; ctx.textBaseline='top';
@@ -674,28 +664,83 @@ function downloadCanvasPNG(canvas, filename){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 function safeName(s){ return String(s||'').replace(/[^a-z0-9\-]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase()||'x'; }
-function exportTeamPNGs(){
-  var list=[];
-  locOrder.forEach(function(locId){ teamsOf(locId).forEach(function(t){ if(assignmentsOfTeam(t.id).length) list.push(t); }); });
-  if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
+function teamsWithWork(){ var list=[]; locOrder.forEach(function(locId){ teamsOf(locId).forEach(function(t){ if(assignmentsOfTeam(t.id).length) list.push(t); }); }); return list; }
+// Greedily pack a team's WO blocks into pages of the available canvas height (shared by PNG + PDF).
+function teamPages(d){
   var avail=A_H - (A_PAD + 42 + 36 + 16) - 30 - 10;   // header + footer reserved
+  var pages=[], cur=[], curH=0;
+  d.wos.forEach(function(b){ b._h=blockHeight(b)+10;   // +10 for the separator line
+    if(cur.length && curH+b._h>avail){ pages.push(cur); cur=[]; curH=0; }
+    cur.push(b); curH+=b._h; });
+  if(cur.length||!pages.length) pages.push(cur);
+  return pages;
+}
+function exportTeamPNGs(){
+  var list=teamsWithWork();
+  if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
   var count=0;
   list.forEach(function(t){
-    var d=teamArtifact(t);
-    // greedily pack WO blocks into pages of the available height
-    var pages=[], cur=[], curH=0;
-    d.wos.forEach(function(b){ b._h=blockHeight(b)+10;   // +10 for the separator line
-      if(cur.length && curH+b._h>avail){ pages.push(cur); cur=[]; curH=0; }
-      cur.push(b); curH+=b._h; });
-    if(cur.length||!pages.length) pages.push(cur);
+    var d=teamArtifact(t), pages=teamPages(d);
     pages.forEach(function(pg,i){
-      var cv=drawTeamCanvas(d,pg,i+1,pages.length);
+      var cv=drawTeamCanvas(d,pg,i+1,pages.length,1);
       var suffix=pages.length>1?('-p'+(i+1)):'';
       downloadCanvasPNG(cv,'task-'+safeName(d.loc)+'-'+safeName(d.team)+'-'+dateStr()+suffix+'.png');
       count++;
     });
   });
   showStatus('feed-status','Exported '+count+' team PNG'+(count===1?'':'s')+' ('+list.length+' team'+(list.length===1?'':'s')+').','loaded');
+}
+
+// ---- Direct, library-free PDF: one combined tabloid-landscape (17x11) doc, one page per team + spill ----
+function b64ToBytes(b64){ var bin=atob(b64), n=bin.length, out=new Uint8Array(n); for(var i=0;i<n;i++) out[i]=bin.charCodeAt(i); return out; }
+function strBytes(s){ var n=s.length, out=new Uint8Array(n); for(var i=0;i<n;i++) out[i]=s.charCodeAt(i)&0xff; return out; }
+// Assemble a minimal PDF: each page is a JPEG (DCTDecode) image XObject fit to a 17x11in landscape page.
+function buildTeamPDF(pageImages){
+  var N=pageImages.length, PW=1224, PH=792, M=18;   // 17x11 in at 72pt/in, 0.25in margin
+  var chunks=[], offset=0, xref={};
+  function push(b){ chunks.push(b); offset+=b.length; }
+  function pushStr(s){ push(strBytes(s)); }
+  function startObj(n){ xref[n]=offset; }
+  pushStr('%PDF-1.3\n%âãÏÓ\n');
+  startObj(1); pushStr('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  var kids=[]; for(var i=0;i<N;i++) kids.push((3+i*3)+' 0 R');
+  startObj(2); pushStr('2 0 obj\n<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+N+' >>\nendobj\n');
+  for(var i=0;i<N;i++){
+    var pg=pageImages[i], pageN=3+i*3, contentN=pageN+1, imgN=pageN+2;
+    var cW=PW-2*M, cH=PH-2*M, ar=pg.iw/pg.ih, drawW=cW, drawH=cW/ar;
+    if(drawH>cH){ drawH=cH; drawW=cH*ar; }
+    var tx=(PW-drawW)/2, ty=(PH-drawH)/2;
+    var content='q '+drawW.toFixed(2)+' 0 0 '+drawH.toFixed(2)+' '+tx.toFixed(2)+' '+ty.toFixed(2)+' cm /Im0 Do Q\n';
+    startObj(pageN); pushStr(pageN+' 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /XObject << /Im0 '+imgN+' 0 R >> >> /Contents '+contentN+' 0 R >>\nendobj\n');
+    startObj(contentN); pushStr(contentN+' 0 obj\n<< /Length '+content.length+' >>\nstream\n'+content+'endstream\nendobj\n');
+    startObj(imgN); pushStr(imgN+' 0 obj\n<< /Type /XObject /Subtype /Image /Width '+pg.iw+' /Height '+pg.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+pg.jpg.length+' >>\nstream\n');
+    push(pg.jpg); pushStr('\nendstream\nendobj\n');
+  }
+  var xrefOffset=offset, maxN=2+N*3, lines='xref\n0 '+(maxN+1)+'\n0000000000 65535 f \n';
+  for(var n=1;n<=maxN;n++){ lines+=String(xref[n]||0).padStart(10,'0')+' 00000 n \n'; }
+  pushStr(lines);
+  pushStr('trailer\n<< /Size '+(maxN+1)+' /Root 1 0 R >>\nstartxref\n'+xrefOffset+'\n%%EOF');
+  var out=new Uint8Array(offset), p=0; chunks.forEach(function(c){ out.set(c,p); p+=c.length; });
+  return out;
+}
+function exportTeamPDF(){
+  var list=teamsWithWork();
+  if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
+  var SCALE=2, pageImages=[], pageCount=0;
+  list.forEach(function(t){
+    var d=teamArtifact(t), pages=teamPages(d);
+    pages.forEach(function(pg,i){
+      var cv=drawTeamCanvas(d,pg,i+1,pages.length,SCALE);
+      var b64=cv.toDataURL('image/jpeg',0.92).split(',')[1];
+      pageImages.push({jpg:b64ToBytes(b64), iw:cv.width, ih:cv.height});
+      pageCount++;
+    });
+  });
+  var bytes=buildTeamPDF(pageImages);
+  var blob=new Blob([bytes],{type:'application/pdf'}), url=URL.createObjectURL(blob);
+  var a=document.createElement('a'); a.href=url; a.download='task-team-artifacts-'+dateStr()+'.pdf';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  showStatus('feed-status','Exported PDF — '+pageCount+' page'+(pageCount===1?'':'s')+' across '+list.length+' team'+(list.length===1?'':'s')+' (tabloid 17×11).','loaded');
 }
 
 // ============================== Collapse / expand (transient) ==============================
@@ -705,13 +750,6 @@ function toggleLoc(id){ collapsedLoc[id]=!isLocCollapsed(id); render(); }
 function toggleTeam(id){ collapsedTeam[id]=isTeamCollapsed(id) ? false : true; render(); }
 function expandAll(){ locOrder.forEach(function(l){ collapsedLoc[l]=false; }); Object.keys(teams).forEach(function(t){ collapsedTeam[t]=false; }); render(); }
 function collapseAll(){ locOrder.forEach(function(l){ collapsedLoc[l]=true; }); Object.keys(teams).forEach(function(t){ collapsedTeam[t]=true; }); render(); }
-// Print the assignment board: everything expanded, Operation view, only selected ops (existing print CSS).
-function printBoard(){
-  var pv=viewMode; forceExpand=true; viewMode='operation'; render();
-  window.print();
-  forceExpand=false; viewMode=pv; render();
-}
-
 // ============================== Render ==============================
 function render(){
   var hasPlan = locOrder.length>0 || woOrder.length>0;
@@ -848,27 +886,23 @@ function woCardHTML(w, teamId){
 function opTableHTML(w, teamId){
   // Operations come from the feed (feedOps), not the plan — so an imported plan never blanks them.
   if(!(w.woNo in feedOps)) return '<div class="op-none">No operations loaded &mdash; upload the current WO Assignment Feed to see this work order’s operations.</div>';
-  var ops=(feedOps[w.woNo]||[]).slice();
-  if(!ops.length) return '<div class="op-none">No active / in-queue operations.</div>';
-  // DR (7000-series) first, then ascending Op #
-  ops.sort(function(a,b){
+  var all=(feedOps[w.woNo]||[]).slice();
+  if(!all.length) return '<div class="op-none">No operations for this work order.</div>';
+  // DR (7000-series) first, then ascending Op # — within each group (active vs pending).
+  function sortOps(arr){ return arr.sort(function(a,b){
     var da=(a.isDr||isDrOp(a.operNo))?0:1, db=(b.isDr||isDrOp(b.operNo))?0:1;
-    if(da!==db) return da-db;
-    return (parseInt(a.operNo,10)||0)-(parseInt(b.operNo,10)||0);
-  });
+    if(da!==db) return da-db; return (parseInt(a.operNo,10)||0)-(parseInt(b.operNo,10)||0); }); }
+  // Shown by default = actively workable; pending (future / non-active) ops are revealed on demand.
+  var shown=sortOps(all.filter(isActiveOp)), pend=sortOps(all.filter(function(o){ return !isActiveOp(o); }));
+  var reveal=!!pendingExpanded[w.woNo];
   var a = teamId ? getAssign(w.woNo, teamId) : null;
   var sel = a ? (a.selectedOps||[]) : [];
-  var anySelVisible = a && ops.some(function(o){ return sel.indexOf(String(o.operNo))>=0; });
-  // On an assigned card with nothing selected yet, hide the whole table on the printout.
-  var tableCls='op-table'+(teamId && !anySelVisible ? ' print-hide' : '');
-  // On assigned cards the leader sees ALL ops; the "Include" checkboxes only curate the exported artifact.
-  var html = teamId ? '<div class="op-caption no-print">Tick operations to include on the printout / signage &mdash; none ticked = none shown on the artifact.</div>' : '';
-  html+='<table class="'+tableCls+'"><thead><tr>'+
-    (teamId?'<th class="sel no-print">Include</th>':'')+
-    '<th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned hrs</th></tr></thead><tbody>';
-  ops.forEach(function(o){
+  var anySel = a && all.some(function(o){ return sel.indexOf(String(o.operNo))>=0; });   // selected ops (incl. pending) drive the artifact
+  var tableCls='op-table'+(teamId && !anySel ? ' print-hide' : '');
+  var colspan = teamId ? 6 : 5;
+  function rowHTML(o, pending){
     var dr=o.isDr||isDrOp(o.operNo), opNo=String(o.operNo);
-    var rowCls=dr?'dr':'', cell='', claimNote='';
+    var rowCls=(dr?'dr':'')+(pending?' op-pending':''), cell='', claimNote='';
     if(teamId){
       var claimTeam=claimedByOther(w.woNo, opNo, teamId);
       var on=sel.indexOf(opNo)>=0;
@@ -881,11 +915,24 @@ function opTableHTML(w, teamId){
         cell='<td class="sel no-print"><input type="checkbox" '+(on?'checked':'')+' onclick="toggleOp(\''+esc(w.woNo)+'\',\''+teamId+'\',\''+esc(opNo)+'\')"></td>';
       }
     }
-    html+='<tr class="'+rowCls.trim()+'">'+cell+
-      '<td class="num">'+esc(opNo)+(dr?' <span class="badge dr">DR</span>':'')+'</td>'+
+    return '<tr class="'+rowCls.trim()+'">'+cell+
+      '<td class="num">'+esc(opNo)+(dr?' <span class="badge dr">DR</span>':'')+(pending?' <span class="badge pend">pending</span>':'')+'</td>'+
       '<td>'+esc(o.name||'')+claimNote+'</td><td>'+esc(o.gate||'')+'</td><td>'+esc(o.status||'')+'</td>'+
       '<td class="num">'+fmtNum(o.plannedHrs)+'</td></tr>';
-  });
+  }
+  // On assigned cards the leader sees ALL shown ops; the "Include" checkboxes only curate the exported artifact.
+  var html = teamId ? '<div class="op-caption no-print">Tick operations to include on the printout / signage &mdash; none ticked = none shown on the artifact.</div>' : '';
+  html+='<table class="'+tableCls+'"><thead><tr>'+
+    (teamId?'<th class="sel no-print">Include</th>':'')+
+    '<th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned hrs</th></tr></thead><tbody>';
+  if(!shown.length) html+='<tr class="op-emptyrow"><td colspan="'+colspan+'" class="op-none-cell">No active / in-queue operations.</td></tr>';
+  shown.forEach(function(o){ html+=rowHTML(o,false); });
+  // Pending / future ops: author must intentionally reveal them to schedule ahead.
+  if(pend.length){
+    html+='<tr class="pend-toggle no-print"><td colspan="'+colspan+'"><a class="linkbtn" onclick="togglePendingOps(\''+esc(w.woNo)+'\')">'+
+      (reveal?'&#8854; Hide pending operations':'&#8853; Expand Pending Operations ('+pend.length+')')+'</a></td></tr>';
+    if(reveal) pend.forEach(function(o){ html+=rowHTML(o,true); });
+  }
   html+='</tbody></table>';
   return html;
 }
@@ -993,7 +1040,7 @@ function importState(rows){
       iSerial=colIndex(h,'Serial'), iAvgWk=colIndex(h,'Avg Weekly Hours'), iReqWk=colIndex(h,'Required Weekly Hours');
   if(iType<0||iId<0){ showStatus('state-status','Error: not a saved plan (missing Type / Node ID columns).','error'); return; }
   locations={}; locOrder=[]; teams={}; members={}; wos={}; woOrder=[]; assign={};
-  collapsedLoc={}; collapsedTeam={}; poolExpanded={};   // transient view state resets on import (default: locs expanded, teams collapsed)
+  collapsedLoc={}; collapsedTeam={}; poolExpanded={}; pendingExpanded={};   // transient view state resets on import (default: locs expanded, teams collapsed)
   nextLocId=0; nextTeamId=0; nextMemberId=0;
   var locRows=[], woOrders={};
   for(var r=1;r<rows.length;r++){

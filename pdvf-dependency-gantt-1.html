@@ -374,7 +374,7 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.17</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.18</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -3078,7 +3078,10 @@ function exportAssignmentFeed() {
     }
 
     var activeOps = flat.filter(function(o){ var s=(o.status||'').toUpperCase().trim(); return s==='ACTIVE'||s==='IN QUEUE'; });
-    var drCount = activeOps.filter(function(o){ return isDrOp(o.operNo); }).length;
+    var drCount = activeOps.filter(function(o){ return isDrOp(o.operNo); }).length;   // Active DR count stays active-only
+    // OP rows now carry ALL open (not-complete) ops so authors can schedule pending/future work.
+    // The Task Assignment tool hides non-active ops behind a per-WO "Expand Pending Operations" reveal.
+    var openOps = flat.filter(function(o){ var s=(o.status||'').toUpperCase().trim(); return s && s!=='COMPLETE'; });
 
     // Actual weekly velocity (h/wk). Blank when no Hours Earned history for this WO, so a genuine
     // zero pace stays distinguishable from "no data" (mirrors the blank-% convention).
@@ -3105,13 +3108,13 @@ function exportAssignmentFeed() {
       csvQuote(n.serial||''), avgWk, reqWk, csvQuote(gatesRem),
       '','','','','',''].join(','));
 
-    // OP rows: Active + In Queue only; DR (7000-series) first, then ascending Op #.
-    activeOps.sort(function(a,b){
+    // OP rows: all open (not-complete) ops; DR (7000-series) first, then ascending Op #.
+    openOps.sort(function(a,b){
       var da = isDrOp(a.operNo) ? 0 : 1, db = isDrOp(b.operNo) ? 0 : 1;
       if (da !== db) return da - db;
       return (parseInt(a.operNo,10)||0) - (parseInt(b.operNo,10)||0);
     });
-    activeOps.forEach(function(o){
+    openOps.forEach(function(o){
       lines.push(['OP', csvQuote(n.woNo), '','','','','','','','','','','','','','','','',
         csvQuote(o.operNo), csvQuote(csvField(o.title||'')), csvQuote(gateNameForOp(o.operNo)),
         (o.planned||0).toFixed(1), csvQuote(o.status||''), isDrOp(o.operNo)?'Y':'N'].join(','));
