@@ -147,7 +147,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v3.4</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3.5</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -640,31 +640,139 @@ function exportTeamPNGs(){
 }
 
 // ---- Direct, library-free PDF: one combined tabloid-landscape (17x11) doc, one page per team + spill ----
-function b64ToBytes(b64){ var bin=atob(b64), n=bin.length, out=new Uint8Array(n); for(var i=0;i<n;i++) out[i]=bin.charCodeAt(i); return out; }
 function strBytes(s){ var n=s.length, out=new Uint8Array(n); for(var i=0;i<n;i++) out[i]=s.charCodeAt(i)&0xff; return out; }
-// Assemble a minimal PDF: each page is a JPEG (DCTDecode) image XObject fit to a 17x11in landscape page.
-function buildTeamPDF(pageImages){
-  var N=pageImages.length, PW=1224, PH=792, M=18;   // 17x11 in at 72pt/in, 0.25in margin
-  var chunks=[], offset=0, xref={};
+
+// ---- Native-text PDF export: real selectable/searchable text (Helvetica base-14, no font embedding),
+// ---- one combined tabloid-landscape (17x11) file, one page per team + spill. Reads the same teamArtifact
+// ---- model as the PNG so the information is equivalent (only the drawing backend differs). ----
+var PW=1224, PH=792, PM=40;   // page 17x11 in @72pt/in; 40pt margin
+var PL={title:18,tech:15,meta:16,gap:3,opsHead:16,opRow:14,opsPad:6,noOps:15,grLab:15,grLine:13,grPad:6,goal:16,blockGap:12,sep:8};
+function pdfContentW(){ return PW-2*PM; }
+// Offscreen 2D ctx for Helvetica width measurement — Arial/Helvetica share metrics, so px@N ≈ points@N.
+var _pmctx=null;
+function pdfMeasure(str,size,style){ if(!_pmctx){ _pmctx=document.createElement('canvas').getContext('2d'); }
+  _pmctx.font=(style==='bold'?'bold ':style==='italic'?'italic ':'')+size+'px Helvetica, Arial, sans-serif';
+  return _pmctx.measureText(String(str==null?'':str)).width; }
+function pdfTrunc(str,maxW,size,style){ str=String(str==null?'':str); if(pdfMeasure(str,size,style)<=maxW) return str;
+  while(str.length && pdfMeasure(str+'...',size,style)>maxW) str=str.slice(0,-1); return str+'...'; }
+// Map the few non-ASCII glyphs the artifact uses to WinAnsi bytes, then escape ( ) \ for a PDF literal string.
+var _winansi={'–':'\x96','—':'\x97','·':'\xb7','’':'\x92','‘':'\x91','“':'\x93','”':'\x94','…':'\x85','•':'\x95',' ':' '};
+function pdfEnc(s){ s=String(s==null?'':s); var out='';
+  for(var i=0;i<s.length;i++){ var ch=s[i], cc=s.charCodeAt(i);
+    if(_winansi[ch]!==undefined) ch=_winansi[ch];
+    else if(cc>0xff) ch='?';
+    if(ch==='\\'||ch==='('||ch===')') out+='\\'+ch; else out+=ch; }
+  return out; }
+function pdfRGB(hex){ hex=String(hex).replace('#',''); if(hex.length===3) hex=hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  return (parseInt(hex.slice(0,2),16)/255).toFixed(3)+' '+(parseInt(hex.slice(2,4),16)/255).toFixed(3)+' '+(parseInt(hex.slice(4,6),16)/255).toFixed(3); }
+// Per-page content builder. Coordinates are top-down (topY from page top); converted to PDF's
+// bottom-left origin at emit time. style: ''=Helvetica /F1, 'bold' /F2, 'italic' /F3.
+function pdfPage(){
+  var ops=[];
+  function fr(style){ return style==='bold'?'/F2':style==='italic'?'/F3':'/F1'; }
+  return {
+    text:function(x,topY,size,style,hex,str){ var yb=PH-topY-size*0.80;
+      ops.push('BT '+fr(style)+' '+size+' Tf '+pdfRGB(hex)+' rg '+x.toFixed(2)+' '+yb.toFixed(2)+' Td ('+pdfEnc(str)+') Tj ET'); return this; },
+    line:function(x1,topY1,x2,topY2,hex,wd){ ops.push((wd||1).toFixed(2)+' w '+pdfRGB(hex)+' RG '+x1.toFixed(2)+' '+(PH-topY1).toFixed(2)+' m '+x2.toFixed(2)+' '+(PH-topY2).toFixed(2)+' l S'); return this; },
+    rect:function(x,topY,w,h,fillHex,strokeHex){ var yb=PH-topY-h;
+      if(fillHex) ops.push(pdfRGB(fillHex)+' rg '+x.toFixed(2)+' '+yb.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+' re f');
+      if(strokeHex) ops.push('1 w '+pdfRGB(strokeHex)+' RG '+x.toFixed(2)+' '+yb.toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+' re S'); return this; },
+    str:function(){ return ops.join('\n')+'\n'; }
+  };
+}
+function pdfGateItems(gates){ return gates.filter(function(g){ return parseFloat(g.hrs)>0; }).map(function(g){ return g.name+' – '+fmtNum(g.hrs)+' h'; }); }
+function pdfWrapCount(items,w,size){ if(!items.length) return 0; var lines=1, cx=0, gap=18;
+  items.forEach(function(it){ var iw=pdfMeasure(it,size,''); if(cx>0 && cx+iw>w){ lines++; cx=0; } cx+=iw+gap; }); return lines; }
+function pdfBlockHeight(b){
+  var w=pdfContentW(), h=PL.sep+PL.title+PL.tech+PL.meta+PL.gap;
+  h += b.ops.length ? (PL.opsHead + b.ops.length*PL.opRow + PL.opsPad) : PL.noOps;
+  var items=pdfGateItems(b.gates);
+  h += items.length ? (PL.grLab + pdfWrapCount(items,w,10)*PL.grLine + PL.grPad) : 0;
+  return h + PL.goal + PL.blockGap;
+}
+function pdfTeamPages(d){
+  var headerH=26+18+24+10, avail=PH - PM - headerH - 28 - 10;   // title+roster+goalbox+gap; footer reserve
+  var pages=[], cur=[], curH=0;
+  d.wos.forEach(function(b){ b._ph=pdfBlockHeight(b);
+    if(cur.length && curH+b._ph>avail){ pages.push(cur); cur=[]; curH=0; }
+    cur.push(b); curH+=b._ph; });
+  if(cur.length||!pages.length) pages.push(cur);
+  return pages;
+}
+function pdfDrawOps(pg,ops,x,y,w){
+  var wOp=55, wGate=140, wStat=95, wPlan=85, wName=w-wOp-wGate-wStat-wPlan;
+  var xOp=x, xName=x+wOp, xGate=xName+wName, xStat=xGate+wGate, xPlan=xStat+wStat;
+  pg.rect(x,y,w,PL.opsHead,'#1e3a5f',null);
+  var ht=y+3;
+  pg.text(xOp+4,ht,10,'bold','#ffffff','Op #'); pg.text(xName+4,ht,10,'bold','#ffffff','Operation');
+  pg.text(xGate+4,ht,10,'bold','#ffffff','Gate'); pg.text(xStat+4,ht,10,'bold','#ffffff','Status');
+  pg.text(xPlan+4,ht,10,'bold','#ffffff','Planned Hours');
+  y+=PL.opsHead;
+  ops.forEach(function(o){ var dr=o.isDr||isDrOp(o.operNo), ty=y+3;
+    if(dr) pg.rect(x,y,w,PL.opRow,'#fef2f2',null);
+    pg.text(xOp+4,ty,10,'','#0f172a', pdfTrunc(o.operNo+(dr?' (DR)':''),wOp-8,10,''));
+    pg.text(xName+4,ty,10,'','#0f172a', pdfTrunc(o.name||'',wName-8,10,''));
+    pg.text(xGate+4,ty,10,'','#0f172a', pdfTrunc(o.gate||'',wGate-8,10,''));
+    pg.text(xStat+4,ty,10,'','#0f172a', pdfTrunc(o.status||'',wStat-8,10,''));
+    pg.text(xPlan+4,ty,10,'','#0f172a', pdfTrunc(fmtNum(o.plannedHrs),wPlan-8,10,''));
+    pg.line(x,y+PL.opRow,x+w,y+PL.opRow,'#e2e8f0',0.75);
+    y+=PL.opRow;
+  });
+  return y;
+}
+function pdfDrawBlock(pg,b,x,y,w){
+  var wo=b.w;
+  pg.text(x,y,13,'bold','#0f172a', pdfTrunc(woTitleLine(wo),w,13,'bold')); y+=PL.title;
+  // Technicians: label normal, responsible names in BOLD (tagged, or the whole team when none).
+  var lbl='Technicians assigned: '; pg.text(x,y,11,'','#334155',lbl);
+  var lblW=pdfMeasure(lbl,11,'');
+  pg.text(x+lblW,y,11,'bold','#0f172a', pdfTrunc((b.techs.length?b.techs.join(', '):'—'),w-lblW,11,'bold')); y+=PL.tech;
+  pg.text(x,y,11,'','#475569', pdfTrunc(woMetaLine(wo),w,11,'')); y+=PL.meta+PL.gap;
+  if(b.ops.length){ y=pdfDrawOps(pg,b.ops,x,y,w)+PL.opsPad; }
+  else { pg.text(x,y,10,'italic','#94a3b8','No operations selected for this team.'); y+=PL.noOps; }
+  var items=pdfGateItems(b.gates);
+  if(items.length){
+    pg.text(x,y,11,'bold','#334155','Gates Remaining'); y+=PL.grLab;
+    var cx=x, gap=18;
+    items.forEach(function(it){ var iw=pdfMeasure(it,10,''); if(cx>x && cx+iw>x+w){ cx=x; y+=PL.grLine; } pg.text(cx,y,10,'','#334155',it); cx+=iw+gap; });
+    y+=PL.grLine+PL.grPad;
+  }
+  pg.text(x,y,11,'italic','#166534', pdfTrunc(woGoalLine(wo),w,11,'italic')); y+=PL.goal;
+  return y;
+}
+function pdfRenderPage(d, blocks, pageNo, pageCount){
+  var pg=pdfPage(), x=PM, w=pdfContentW(), y=PM;
+  var ttl=d.loc+' · '+d.team + (pageCount>1?'  (page '+pageNo+' of '+pageCount+')':'');
+  pg.text(x,y,20,'bold','#0f172a', pdfTrunc(ttl,w,20,'bold')); y+=26;
+  pg.text(x,y,12,'','#334155', pdfTrunc('Team members: '+(d.roster&&d.roster.length?d.roster.join(', '):'— none —'),w,12,'')); y+=18;
+  var goalTxt='Weekly Goal: '+(d.goal||'— not set —')+(d.goalDate?'   (set '+d.goalDate+(d.goalStale?' · may be stale':'')+')':'');
+  pg.rect(x,y,w,24, d.goalStale?'#fef3c7':'#f1f5f9', d.goalStale?'#fde047':'#e2e8f0');
+  pg.text(x+8,y+6,13,'bold', d.goalStale?'#b45309':'#1e3a5f', pdfTrunc(goalTxt,w-16,13,'bold')); y+=24+10;
+  blocks.forEach(function(b){ pg.line(x,y,x+w,y,'#cbd5e1',1.5); y+=PL.sep; y=pdfDrawBlock(pg,b,x,y,w); y+=PL.blockGap; });
+  var ft='PROPRIETARY — Internal Use Only', fw=pdfMeasure(ft,9,'');
+  pg.line(x,PH-PM+4,x+w,PH-PM+4,'#e2e8f0',1);
+  pg.text((PW-fw)/2,PH-22,9,'','#92400e',ft);
+  return pg.str();
+}
+function buildTextPDF(pageContents){
+  var N=pageContents.length, chunks=[], offset=0, xref={};
   function push(b){ chunks.push(b); offset+=b.length; }
   function pushStr(s){ push(strBytes(s)); }
   function startObj(n){ xref[n]=offset; }
   pushStr('%PDF-1.3\n%âãÏÓ\n');
   startObj(1); pushStr('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
-  var kids=[]; for(var i=0;i<N;i++) kids.push((3+i*3)+' 0 R');
+  var kids=[]; for(var i=0;i<N;i++) kids.push((6+i*2)+' 0 R');
   startObj(2); pushStr('2 0 obj\n<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+N+' >>\nendobj\n');
+  startObj(3); pushStr('3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n');
+  startObj(4); pushStr('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n');
+  startObj(5); pushStr('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>\nendobj\n');
+  var RES='<< /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >>';
   for(var i=0;i<N;i++){
-    var pg=pageImages[i], pageN=3+i*3, contentN=pageN+1, imgN=pageN+2;
-    var cW=PW-2*M, cH=PH-2*M, ar=pg.iw/pg.ih, drawW=cW, drawH=cW/ar;
-    if(drawH>cH){ drawH=cH; drawW=cH*ar; }
-    var tx=(PW-drawW)/2, ty=(PH-drawH)/2;
-    var content='q '+drawW.toFixed(2)+' 0 0 '+drawH.toFixed(2)+' '+tx.toFixed(2)+' '+ty.toFixed(2)+' cm /Im0 Do Q\n';
-    startObj(pageN); pushStr(pageN+' 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /XObject << /Im0 '+imgN+' 0 R >> >> /Contents '+contentN+' 0 R >>\nendobj\n');
-    startObj(contentN); pushStr(contentN+' 0 obj\n<< /Length '+content.length+' >>\nstream\n'+content+'endstream\nendobj\n');
-    startObj(imgN); pushStr(imgN+' 0 obj\n<< /Type /XObject /Subtype /Image /Width '+pg.iw+' /Height '+pg.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+pg.jpg.length+' >>\nstream\n');
-    push(pg.jpg); pushStr('\nendstream\nendobj\n');
+    var pageN=6+i*2, contentN=pageN+1, cbytes=strBytes(pageContents[i]);
+    startObj(pageN); pushStr(pageN+' 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources '+RES+' /Contents '+contentN+' 0 R >>\nendobj\n');
+    startObj(contentN); pushStr(contentN+' 0 obj\n<< /Length '+cbytes.length+' >>\nstream\n'); push(cbytes); pushStr('\nendstream\nendobj\n');
   }
-  var xrefOffset=offset, maxN=2+N*3, lines='xref\n0 '+(maxN+1)+'\n0000000000 65535 f \n';
+  var xrefOffset=offset, maxN=5+N*2, lines='xref\n0 '+(maxN+1)+'\n0000000000 65535 f \n';
   for(var n=1;n<=maxN;n++){ lines+=String(xref[n]||0).padStart(10,'0')+' 00000 n \n'; }
   pushStr(lines);
   pushStr('trailer\n<< /Size '+(maxN+1)+' /Root 1 0 R >>\nstartxref\n'+xrefOffset+'\n%%EOF');
@@ -674,21 +782,16 @@ function buildTeamPDF(pageImages){
 function exportTeamPDF(){
   var list=teamsWithWork();
   if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
-  var SCALE=2, pageImages=[], pageCount=0;
+  var contents=[], pageCount=0;
   list.forEach(function(t){
-    var d=teamArtifact(t), pages=teamPages(d);
-    pages.forEach(function(pg,i){
-      var cv=drawTeamCanvas(d,pg,i+1,pages.length,SCALE);
-      var b64=cv.toDataURL('image/jpeg',0.92).split(',')[1];
-      pageImages.push({jpg:b64ToBytes(b64), iw:cv.width, ih:cv.height});
-      pageCount++;
-    });
+    var d=teamArtifact(t), pages=pdfTeamPages(d);
+    pages.forEach(function(blk,i){ contents.push(pdfRenderPage(d,blk,i+1,pages.length)); pageCount++; });
   });
-  var bytes=buildTeamPDF(pageImages);
+  var bytes=buildTextPDF(contents);
   var blob=new Blob([bytes],{type:'application/pdf'}), url=URL.createObjectURL(blob);
   var a=document.createElement('a'); a.href=url; a.download='task-team-artifacts-'+dateStr()+'.pdf';
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-  showStatus('feed-status','Exported PDF — '+pageCount+' page'+(pageCount===1?'':'s')+' across '+list.length+' team'+(list.length===1?'':'s')+' (tabloid 17×11).','loaded');
+  showStatus('feed-status','Exported PDF — '+pageCount+' page'+(pageCount===1?'':'s')+' across '+list.length+' team'+(list.length===1?'':'s')+' (tabloid 17×11, selectable text).','loaded');
 }
 
 // ============================== Collapse / expand (transient) ==============================
