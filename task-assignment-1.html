@@ -147,7 +147,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v3.3</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3.4</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -173,7 +173,6 @@ h2{font-size:15px;margin:0 0 8px}
     <button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()" disabled>Save for Editing</button>
     <button class="btn btn-green" onclick="exportTeamPDF()">Export Team PDFs</button>
     <button class="btn btn-green" onclick="exportTeamPNGs()">Export Team PNGs</button>
-    <button class="btn" style="background:#fef3c7;border:1px dashed #d97706;color:#92400e" onclick="previewArtifactHTML()">Temp: Preview artifact (HTML)</button>
     <button class="btn" onclick="expandAll()">Expand all</button>
     <button class="btn" onclick="collapseAll()">Collapse all</button>
     <input type="text" id="wo-filter" class="filter-input" oninput="setFilter(this.value)" placeholder="Filter unassigned by WO #, part name, or part #">
@@ -481,12 +480,16 @@ function artifactOpsFor(woNo, teamId){
 }
 function teamArtifact(t){
   var loc=locations[t.locId];
+  var roster=membersOf(t.id).map(function(m){return m.name;});
   var wolist=assignmentsOfTeam(t.id).map(function(a){
     var w=wos[a.woNo]; if(!w) return null;
-    var techs=(a.taggedMembers||[]).map(function(id){ return members[id]?members[id].name:null; }).filter(Boolean);
-    return { w:w, ops:artifactOpsFor(a.woNo,t.id), techs:techs, gates:parseGatesRemaining(w.gatesRemaining) };
+    var tagged=(a.taggedMembers||[]).map(function(id){ return members[id]?members[id].name:null; }).filter(Boolean);
+    // On the hook for this WO = the tagged members, or the WHOLE team when nobody is specifically tagged.
+    // These names are bolded on the artifact so it's clear who is responsible for what.
+    var techs = tagged.length ? tagged : roster.slice();
+    return { w:w, ops:artifactOpsFor(a.woNo,t.id), techs:techs, allTeam:(tagged.length===0), gates:parseGatesRemaining(w.gatesRemaining) };
   }).filter(Boolean);
-  return { loc:loc?loc.name:'', team:t.name, roster:membersOf(t.id).map(function(m){return m.name;}),
+  return { loc:loc?loc.name:'', team:t.name, roster:roster,
     goal:t.goal||'', goalDate:t.goalDate||'', goalStale:goalIsStale(t), wos:wolist };
 }
 function woTitleLine(w){
@@ -500,73 +503,6 @@ function woMetaLine(w){
 function woGoalLine(w){
   var r=w.requiredWeeklyHours; var rTxt=(r==null||r==='')?'—':fmtNum(r);
   return 'Close an average of '+rTxt+' hrs/week to complete work order by '+(w.plannedFinish||'—')+'.';
-}
-
-// ---- HTML preview (TEMP button): renders every team's sheet in a new tab for layout tuning ----
-var ARTIFACT_CSS =
- 'body{margin:0;background:#e2e8f0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:20px}'
-+'.sheet{width:1840px;min-height:1000px;background:#fff;margin:0 auto 30px;padding:40px;box-sizing:border-box;'
-+'border:1px solid #94a3b8;box-shadow:0 2px 8px rgba(0,0,0,.15)}'
-+'.sh-title{font-size:32px;font-weight:800;color:#0f172a}'
-+'.sh-roster{font-size:18px;color:#334155;margin:4px 0 2px}'
-+'.sh-goal{font-size:20px;color:#1e3a5f;margin:6px 0 4px;padding:8px 12px;background:#f1f5f9;border-radius:8px}'
-+'.sh-goal .d{font-size:14px;color:#64748b}'
-+'.sh-goal.stale{background:#fef3c7;border:1px solid #fde047} .sh-goal.stale .d{color:#b45309;font-weight:700}'
-+'.blk{border-top:2px solid #cbd5e1;padding:16px 0 8px}'
-+'.blk-title{font-size:22px;font-weight:700;color:#0f172a}'
-+'.blk-tech{font-size:16px;color:#334155;margin-top:2px}'
-+'.blk-meta{font-size:16px;color:#475569;margin-top:2px}'
-+'table.ops{width:100%;border-collapse:collapse;margin:8px 0}'
-+'table.ops th{background:#1e3a5f;color:#fff;font-size:14px;text-align:left;padding:5px 8px}'
-+'table.ops td{font-size:14px;padding:4px 8px;border-bottom:1px solid #e2e8f0}'
-+'table.ops tr.dr td{background:#fef2f2}'
-+'.gr-lab{font-size:16px;font-weight:700;color:#334155;margin-top:6px}'
-+'.gr-legend{display:flex;flex-wrap:wrap;gap:3px 20px;margin:2px 0 4px;font-size:15px;color:#334155}'
-+'.gr-item{white-space:nowrap}'
-+'.blk-goal{font-size:16px;font-style:italic;color:#166534;margin-top:8px}'
-+'.none{font-size:14px;font-style:italic;color:#94a3b8;margin:6px 0}';
-
-function opsTableHTMLForArtifact(ops){
-  if(!ops.length) return '<div class="none">No operations selected for this team.</div>';
-  var h='<table class="ops"><thead><tr><th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned Hours</th></tr></thead><tbody>';
-  ops.forEach(function(o){ var dr=o.isDr||isDrOp(o.operNo);
-    h+='<tr class="'+(dr?'dr':'')+'"><td>'+esc(o.operNo)+(dr?' (DR)':'')+'</td><td>'+esc(o.name||'')+'</td><td>'+esc(o.gate||'')+'</td><td>'+esc(o.status||'')+'</td><td>'+fmtNum(o.plannedHrs)+'</td></tr>';
-  });
-  return h+'</tbody></table>';
-}
-// Gates Remaining renders as a plain wrapping list of "name – hours" (no bar) — the list reads fine
-// on its own and never truncates.
-function gatesBarHTML(gates){
-  var segs=gates.filter(function(g){ return parseFloat(g.hrs)>0; });
-  if(!segs.length) return '';
-  var leg='<div class="gr-legend">';
-  segs.forEach(function(g){ leg+='<span class="gr-item">'+esc(g.name)+' – '+fmtNum(g.hrs)+' h</span>'; });
-  return '<div class="gr-lab">Gates Remaining</div>'+leg+'</div>';
-}
-function artifactSheetHTML(d){
-  var h='<div class="sheet"><div class="sh-title">'+esc(d.loc)+' &middot; '+esc(d.team)+'</div>';
-  h+='<div class="sh-roster"><b>Team members:</b> '+(d.roster&&d.roster.length?esc(d.roster.join(', ')):'<i>— none —</i>')+'</div>';
-  h+='<div class="sh-goal'+(d.goalStale?' stale':'')+'"><b>Weekly Goal:</b> '+(d.goal?esc(d.goal):'<i>— not set —</i>')+
-     (d.goalDate?' <span class="d">(set '+esc(d.goalDate)+(d.goalStale?' · may be stale':'')+')</span>':'')+'</div>';
-  if(!d.wos.length) h+='<div class="none">No work orders assigned to this team.</div>';
-  d.wos.forEach(function(b){ var w=b.w;
-    h+='<div class="blk"><div class="blk-title">'+esc(woTitleLine(w))+'</div>'+
-       '<div class="blk-tech">Technicians assigned: '+(b.techs.length?esc(b.techs.join(', ')):'—')+'</div>'+
-       '<div class="blk-meta">'+esc(woMetaLine(w))+'</div>'+
-       opsTableHTMLForArtifact(b.ops)+ gatesBarHTML(b.gates)+
-       '<div class="blk-goal">'+esc(woGoalLine(w))+'</div></div>';
-  });
-  return h+'</div>';
-}
-function previewArtifactHTML(){
-  var list=[];
-  locOrder.forEach(function(locId){ teamsOf(locId).forEach(function(t){ if(assignmentsOfTeam(t.id).length) list.push(t); }); });
-  if(!list.length){ alert('No teams with assigned work orders yet — assign at least one WO first.'); return; }
-  var body=''; list.forEach(function(t){ body+=artifactSheetHTML(teamArtifact(t)); });
-  var doc='<!DOCTYPE html><html><head><meta charset="utf-8"><title>Team Artifacts Preview</title><style>'+ARTIFACT_CSS+'</style></head><body>'+body+'</body></html>';
-  var win=window.open('','_blank');
-  if(!win){ alert('Popup blocked — allow popups for this page to preview the artifacts.'); return; }
-  win.document.open(); win.document.write(doc); win.document.close();
 }
 
 // ---- Canvas PNG export: one 1920x1080 PNG per team, auto-paginated (models Gate Tracker signage) ----
@@ -628,8 +564,14 @@ function drawBlockCanvas(ctx,b,x,y,w){
   var wo=b.w;
   ctx.textAlign='left'; ctx.textBaseline='top';
   ctx.font='bold 22px '+A_FONT; ctx.fillStyle='#0f172a'; ctx.fillText(aTrunc(ctx,woTitleLine(wo),w),x,y); y+=BL.title;
-  ctx.font='16px '+A_FONT; ctx.fillStyle='#334155';
-  ctx.fillText(aTrunc(ctx,'Technicians assigned: '+(b.techs.length?b.techs.join(', '):'—'),w),x,y); y+=BL.tech;
+  // Technicians line: label in normal weight, the responsible names in BOLD (tagged, or the whole team
+  // when none are tagged) so it's clear who is on the hook for this WO.
+  ctx.fillStyle='#334155';
+  var techLbl='Technicians assigned: ';
+  ctx.font='16px '+A_FONT; ctx.fillText(techLbl,x,y);
+  var techLblW=ctx.measureText(techLbl).width;
+  ctx.font='bold 16px '+A_FONT;
+  ctx.fillText(aTrunc(ctx,(b.techs.length?b.techs.join(', '):'—'),w-techLblW),x+techLblW,y); y+=BL.tech;
   ctx.fillStyle='#475569'; ctx.fillText(aTrunc(ctx,woMetaLine(wo),w),x,y); y+=BL.meta+BL.gap;
   if(b.ops.length){ y=drawOpsTableCanvas(ctx,b.ops,x,y,w)+BL.opsPad; }
   else { ctx.font='italic 14px '+A_FONT; ctx.fillStyle='#94a3b8'; ctx.fillText('No operations selected for this team.',x,y); y+=BL.noOps; }
