@@ -147,7 +147,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v3.2</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3.3</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -486,7 +486,8 @@ function teamArtifact(t){
     var techs=(a.taggedMembers||[]).map(function(id){ return members[id]?members[id].name:null; }).filter(Boolean);
     return { w:w, ops:artifactOpsFor(a.woNo,t.id), techs:techs, gates:parseGatesRemaining(w.gatesRemaining) };
   }).filter(Boolean);
-  return { loc:loc?loc.name:'', team:t.name, goal:t.goal||'', goalDate:t.goalDate||'', goalStale:goalIsStale(t), wos:wolist };
+  return { loc:loc?loc.name:'', team:t.name, roster:membersOf(t.id).map(function(m){return m.name;}),
+    goal:t.goal||'', goalDate:t.goalDate||'', goalStale:goalIsStale(t), wos:wolist };
 }
 function woTitleLine(w){
   var woLabel=String(w.woNo||'').replace(/^WO[\s\-]*/i,'');   // avoid "WO WO-5001" when the id already carries the prefix
@@ -507,6 +508,7 @@ var ARTIFACT_CSS =
 +'.sheet{width:1840px;min-height:1000px;background:#fff;margin:0 auto 30px;padding:40px;box-sizing:border-box;'
 +'border:1px solid #94a3b8;box-shadow:0 2px 8px rgba(0,0,0,.15)}'
 +'.sh-title{font-size:32px;font-weight:800;color:#0f172a}'
++'.sh-roster{font-size:18px;color:#334155;margin:4px 0 2px}'
 +'.sh-goal{font-size:20px;color:#1e3a5f;margin:6px 0 4px;padding:8px 12px;background:#f1f5f9;border-radius:8px}'
 +'.sh-goal .d{font-size:14px;color:#64748b}'
 +'.sh-goal.stale{background:#fef3c7;border:1px solid #fde047} .sh-goal.stale .d{color:#b45309;font-weight:700}'
@@ -543,6 +545,7 @@ function gatesBarHTML(gates){
 }
 function artifactSheetHTML(d){
   var h='<div class="sheet"><div class="sh-title">'+esc(d.loc)+' &middot; '+esc(d.team)+'</div>';
+  h+='<div class="sh-roster"><b>Team members:</b> '+(d.roster&&d.roster.length?esc(d.roster.join(', ')):'<i>— none —</i>')+'</div>';
   h+='<div class="sh-goal'+(d.goalStale?' stale':'')+'"><b>Weekly Goal:</b> '+(d.goal?esc(d.goal):'<i>— not set —</i>')+
      (d.goalDate?' <span class="d">(set '+esc(d.goalDate)+(d.goalStale?' · may be stale':'')+')</span>':'')+'</div>';
   if(!d.wos.length) h+='<div class="none">No work orders assigned to this team.</div>';
@@ -645,6 +648,9 @@ function drawTeamCanvas(d, blocks, pageNo, pageCount, scale){
   ctx.font='bold 32px '+A_FONT; ctx.fillStyle='#0f172a';
   var ttl=d.loc+' · '+d.team + (pageCount>1?'  (page '+pageNo+' of '+pageCount+')':'');
   ctx.fillText(aTrunc(ctx,ttl,w),x,y); y+=42;
+  // Team roster line
+  ctx.font='18px '+A_FONT; ctx.fillStyle='#334155';
+  ctx.fillText(aTrunc(ctx,'Team members: '+(d.roster&&d.roster.length?d.roster.join(', '):'— none —'),w),x,y); y+=26;
   var goalTxt='Weekly Goal: '+(d.goal||'— not set —')+(d.goalDate?'  (set '+d.goalDate+(d.goalStale?' · may be stale':'')+')':'');
   aRR(ctx,x,y,w,36,6, d.goalStale?'#fef3c7':'#f1f5f9', d.goalStale?'#fde047':'#e2e8f0');
   ctx.font='bold 18px '+A_FONT; ctx.fillStyle=d.goalStale?'#b45309':'#1e3a5f'; ctx.textBaseline='middle';
@@ -667,7 +673,7 @@ function safeName(s){ return String(s||'').replace(/[^a-z0-9\-]+/gi,'-').replace
 function teamsWithWork(){ var list=[]; locOrder.forEach(function(locId){ teamsOf(locId).forEach(function(t){ if(assignmentsOfTeam(t.id).length) list.push(t); }); }); return list; }
 // Greedily pack a team's WO blocks into pages of the available canvas height (shared by PNG + PDF).
 function teamPages(d){
-  var avail=A_H - (A_PAD + 42 + 36 + 16) - 30 - 10;   // header + footer reserved
+  var avail=A_H - (A_PAD + 42 + 26 + 36 + 16) - 30 - 10;   // header (title + roster + goal) + footer reserved
   var pages=[], cur=[], curH=0;
   d.wos.forEach(function(b){ b._h=blockHeight(b)+10;   // +10 for the separator line
     if(cur.length && curH+b._h>avail){ pages.push(cur); cur=[]; curH=0; }
@@ -1102,9 +1108,13 @@ function hydrate(s){
 function saveSnapshot(){
   var json=JSON.stringify(snapshotState()).replace(/</g,'\\u003c');
   var inject='<script id="snapshot-data">window.__SNAPSHOT_STATE__ = JSON.parse('+JSON.stringify(json)+');<\/script>\n';
+  // Drop any prior snapshot-data via the DOM (re-save case) instead of a regex. A regex on the source
+  // would match the literal snapshot-data script-open text inside THIS function and delete through the
+  // app script's real closing tag, truncating (and breaking) the whole snapshot.
+  var ex=document.getElementById('snapshot-data'); if(ex&&ex.parentNode) ex.parentNode.removeChild(ex);
   var docHtml='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
-  docHtml=docHtml.replace(/<script id="snapshot-data">[\s\S]*?<\/script>\s*/,'');
-  docHtml=docHtml.replace('</head>', inject+'</head>');
+  // Function replacement so any '$' in the serialized state can't be treated as a replacement pattern.
+  docHtml=docHtml.replace('</head>', function(){ return inject+'</head>'; });
   downloadFile(docHtml,'task-assignment-plan-'+dateStr()+'.html','text/html');
 }
 
