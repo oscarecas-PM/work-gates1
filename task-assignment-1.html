@@ -107,6 +107,9 @@ h2{font-size:15px;margin:0 0 8px}
 .op-table td.num{text-align:right;font-variant-numeric:tabular-nums}
 .op-table td.sel,.op-table th.sel{text-align:center;white-space:nowrap}
 .op-caption{font-size:11px;color:var(--muted);font-style:italic;margin:6px 0 2px}
+.op-bulk{font-style:normal;margin-left:8px;white-space:nowrap}
+.op-caption-sep{color:var(--line)}
+.pend-selnote{font-size:11px;color:var(--blue);font-weight:700;font-style:normal}
 .op-table tr.dr td{background:var(--amber-bg)}
 .op-table tr.op-sel td{background:#eff6ff}
 .op-table tr.op-sel.dr td{background:#fde9c8}
@@ -147,7 +150,7 @@ h2{font-size:15px;margin:0 0 8px}
 </style>
 </head>
 <body>
-<h1>Task Assignment Builder <span id="ver">v3.5</span></h1>
+<h1>Task Assignment Builder <span id="ver">v3.6</span></h1>
 <div class="banner">PROPRIETARY — all processing is client-side. No data leaves this browser; nothing is stored or transmitted.</div>
 
 <div class="wrap">
@@ -411,6 +414,28 @@ function toggleOp(woNo, teamId, operNo){
   if(!a.selectedOps) a.selectedOps=[];
   var i=a.selectedOps.indexOf(operNo);
   if(i>=0) a.selectedOps.splice(i,1); else a.selectedOps.push(operNo);
+  render();
+}
+// Ops the author can act on RIGHT NOW for this WO card: active always; pending only when revealed
+// (mirrors opTableHTML's shown/pend split); claimed-by-another-team ops are never selectable here.
+function visibleSelectableOpNos(woNo, teamId){
+  var reveal=!!pendingExpanded[woNo];
+  return (feedOps[woNo]||[]).filter(function(o){
+    if(!isActiveOp(o) && !reveal) return false;               // pending & collapsed → out of scope
+    return !claimedByOther(woNo, o.operNo, teamId);           // locked by another team → skip
+  }).map(function(o){ return String(o.operNo); });
+}
+// Select all: union the currently-visible selectable ops into the selection (collapse-aware).
+function selectAllOps(woNo, teamId){
+  var a=getAssign(woNo,teamId); if(!a) return;
+  if(!a.selectedOps) a.selectedOps=[];
+  visibleSelectableOpNos(woNo,teamId).forEach(function(op){ if(a.selectedOps.indexOf(op)<0) a.selectedOps.push(op); });
+  render();
+}
+// Deselect all: clean slate for this WO card — clears every selection, including collapsed pending ops.
+function deselectAllOps(woNo, teamId){
+  var a=getAssign(woNo,teamId); if(!a) return;
+  a.selectedOps=[];
   render();
 }
 function toggleTag(woNo, teamId, memberId){
@@ -972,7 +997,17 @@ function opTableHTML(w, teamId){
       '<td class="num">'+fmtNum(o.plannedHrs)+'</td></tr>';
   }
   // On assigned cards the leader sees ALL shown ops; the "Include" checkboxes only curate the exported artifact.
-  var html = teamId ? '<div class="op-caption no-print">Tick operations to include on the printout / signage &mdash; none ticked = none shown on the artifact.</div>' : '';
+  var html = '';
+  if(teamId){
+    // Collapse-aware bulk controls: "Select all" acts only on what's currently visible; "Deselect all" wipes the card.
+    var vis=visibleSelectableOpNos(w.woNo, teamId);
+    var anyUnsel=vis.some(function(op){ return sel.indexOf(op)<0; });
+    var bulk='';
+    if(anyUnsel) bulk+='<a class="linkbtn" onclick="selectAllOps(\''+esc(w.woNo)+'\',\''+teamId+'\')">Select all</a>';
+    if(anySel) bulk+=(bulk?' <span class="op-caption-sep">&middot;</span> ':'')+'<a class="linkbtn" onclick="deselectAllOps(\''+esc(w.woNo)+'\',\''+teamId+'\')">Deselect all</a>';
+    html+='<div class="op-caption no-print">Tick operations to include on the printout / signage &mdash; none ticked = none shown on the artifact.'+
+      (bulk?' <span class="op-bulk">'+bulk+'</span>':'')+'</div>';
+  }
   html+='<table class="'+tableCls+'"><thead><tr>'+
     (teamId?'<th class="sel no-print">Include</th>':'')+
     '<th>Op #</th><th>Operation</th><th>Gate</th><th>Status</th><th>Planned hrs</th></tr></thead><tbody>';
@@ -980,8 +1015,11 @@ function opTableHTML(w, teamId){
   shown.forEach(function(o){ html+=rowHTML(o,false); });
   // Pending / future ops: author must intentionally reveal them to schedule ahead.
   if(pend.length){
+    // When collapsed, surface any hidden pending selections so a selected-but-unseen state is never silent.
+    var pendSel = a ? pend.filter(function(o){ return sel.indexOf(String(o.operNo))>=0; }).length : 0;
+    var pendSelNote = (!reveal && pendSel) ? ' <span class="pend-selnote">&middot; '+pendSel+' selected</span>' : '';
     html+='<tr class="pend-toggle no-print"><td colspan="'+colspan+'"><a class="linkbtn" onclick="togglePendingOps(\''+esc(w.woNo)+'\')">'+
-      (reveal?'&#8854; Hide pending operations':'&#8853; Expand Pending Operations ('+pend.length+')')+'</a></td></tr>';
+      (reveal?'&#8854; Hide pending operations':'&#8853; Expand Pending Operations ('+pend.length+')')+'</a>'+pendSelNote+'</td></tr>';
     if(reveal) pend.forEach(function(o){ html+=rowHTML(o,true); });
   }
   html+='</tbody></table>';
