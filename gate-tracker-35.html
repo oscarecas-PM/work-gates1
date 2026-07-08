@@ -265,7 +265,7 @@
 </head>
 <body>
 
-<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v36</span></h1>
+<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v37</span></h1>
 <p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
 
 <div class="file-inputs">
@@ -4274,7 +4274,11 @@ function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabody
   var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
 
   // Per-canvas interactive state.
-  var state = canvas._plotState || { hiddenGroups: new Set(), zoom: null };
+  // Closed WOs are hidden by DEFAULT — this only takes effect on the first render (later
+  // renders reuse canvas._plotState), so any subsequent user toggle of the Closed group is
+  // preserved. A part with only closed WOs therefore opens blank but is restorable by
+  // clicking the Closed legend header (empty-state path handles that).
+  var state = canvas._plotState || { hiddenGroups: new Set(['closed']), zoom: null };
   canvas._plotState = state;
 
   function toRgba(hex, alpha) {
@@ -4520,20 +4524,61 @@ function renderVacPlot(canvas, partNo, orderNos, vacHistory, evmResults, peabody
     ctx.setLineDash([]);
   }
 
-  // X-axis date labels
-  var uniqueDates = []; var seen = {};
-  for (var di = 0; di < allDates.length; di++) {
-    var dk = allDates[di];
-    if (!seen[dk]) { seen[dk] = true; uniqueDates.push(dk); }
-  }
-  uniqueDates.sort(function(a, b) { return a - b; });
+  // X-axis date labels — adaptive granularity keyed on the VISIBLE (zoom-aware) span and the
+  // available pixel width. Wide/crowded spans collapse to calendar-aligned MONTHLY labels;
+  // box-zooming into a narrow window automatically reveals finer weekly/daily M/D labels (#2).
+  // Every tick is clamped to the plot rectangle so no label renders past a border (#3) — this
+  // fixes the old behavior where labels for out-of-range dates spilled to the right of the plot.
   ctx.fillStyle = '#666'; ctx.font = '10px Arial'; ctx.textAlign = 'center';
-  var maxLabels = Math.min(uniqueDates.length, 12);
-  var step = Math.max(1, Math.floor(uniqueDates.length / maxLabels));
-  for (var xi = 0; xi < uniqueDates.length; xi += step) {
-    var xd = new Date(uniqueDates[xi]);
-    var xlabel = (xd.getMonth() + 1) + '/' + xd.getDate();
-    ctx.fillText(xlabel, xPos(uniqueDates[xi]), H - PAD_B + 18);
+  var MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var _labelY = H - PAD_B + 18;
+  var _spanDays = (maxDate - minDate) / 86400000;
+  var _maxLabels = Math.max(2, Math.floor(plotW / 60)); // ~60px per label
+  function _fmtMD(ms) { var d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate(); }
+  function _drawXLabel(ms, text) {
+    var x = xPos(ms);
+    if (x < PAD_L - 1 || x > PAD_L + plotW + 1) return; // #3: never draw outside the plot border
+    ctx.fillText(text, x, _labelY);
+  }
+
+  if (_spanDays <= 92) {
+    // Fine mode (≤ ~1 quarter visible): label the real data-point dates as M/D, decimated to
+    // fit. If the zoom window contains no data points, fall back to the two endpoints.
+    var uniqueDates = []; var seen = {};
+    for (var di = 0; di < allDates.length; di++) {
+      var dk = allDates[di];
+      if (dk < minDate || dk > maxDate) continue; // visible points only
+      if (!seen[dk]) { seen[dk] = true; uniqueDates.push(dk); }
+    }
+    uniqueDates.sort(function(a, b) { return a - b; });
+    if (uniqueDates.length === 0) {
+      _drawXLabel(minDate, _fmtMD(minDate));
+      _drawXLabel(maxDate, _fmtMD(maxDate));
+    } else {
+      var step = Math.max(1, Math.ceil(uniqueDates.length / _maxLabels));
+      for (var xi = 0; xi < uniqueDates.length; xi += step) {
+        _drawXLabel(uniqueDates[xi], _fmtMD(uniqueDates[xi]));
+      }
+    }
+  } else {
+    // Coarse mode (> ~1 quarter visible): calendar-aligned MONTHLY ticks, stepping by k months
+    // to stay within _maxLabels. Year suffix ('YY) added when the window crosses a year.
+    var months = [];
+    var _my = new Date(minDate).getFullYear(), _mm = new Date(minDate).getMonth();
+    var _cursor = new Date(_my, _mm, 1).getTime();
+    while (_cursor <= maxDate) {
+      months.push(_cursor);
+      _mm++; if (_mm > 11) { _mm = 0; _my++; }
+      _cursor = new Date(_my, _mm, 1).getTime();
+    }
+    var monthStep = Math.max(1, Math.ceil(months.length / _maxLabels));
+    var crossesYear = new Date(minDate).getFullYear() !== new Date(maxDate).getFullYear();
+    for (var mi = 0; mi < months.length; mi += monthStep) {
+      var md = new Date(months[mi]);
+      var lbl = MONTH_ABBR[md.getMonth()];
+      if (crossesYear) lbl += " '" + String(md.getFullYear()).slice(-2);
+      _drawXLabel(months[mi], lbl);
+    }
   }
 
   // Axes — left + bottom always; right spine if CPI overlay is drawn
