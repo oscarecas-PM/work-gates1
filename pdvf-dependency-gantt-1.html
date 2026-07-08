@@ -94,13 +94,11 @@ body.milestone-mode .btn-milestone { background: #b91c1c; box-shadow: 0 0 0 2px 
 .group-bar .group-bar-cap { font-size: 0.66rem; font-weight: bold; color: #fff; padding: 0 7px; white-space: nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.3); }
 .grp-sel { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; accent-color: #4f46e5; }
 body.milestone-mode .group-bar { filter: saturate(0.6) brightness(0.95); }
-/* Cousin group row — cross-family summary (same top assembly, different parents). Teal to distinguish
-   from the indigo collector-group row. */
-.gantt-row.cousin-row { background: #ecfeff; border-bottom: 1px solid #a5f3fc; }
-.cousin-badge { font-size: 0.62rem; font-weight: 900; letter-spacing: 0.04em; color: #0e7490; background: #cffafe; border: 1px solid #a5f3fc; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
-.cousin-bar { position: absolute; top: 8px; bottom: 8px; min-width: 8px; background: repeating-linear-gradient(90deg, #0891b2 0 10px, #06b6d4 10px 20px); border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); display: flex; align-items: center; overflow: hidden; }
-.cousin-sel { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; accent-color: #0891b2; }
-body.milestone-mode .cousin-bar { filter: saturate(0.6) brightness(0.95); }
+/* Cousin group row — cross-family summary (same top assembly, different parents). Reuses the collector
+   .group-row / .group-bar / .group-badge styling for visual consistency; only the badge icon (⧉) differs.
+   .cousin-badge widens the padding slightly so the standalone icon reads as a badge, no color change. */
+.cousin-badge { padding: 1px 6px; }
+.cousin-sel { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; accent-color: #4f46e5; }
 /* Join-gate selector — feeder declares the parent gate it must be ready for. Fixed narrow width
    (independent of gate-name length); a chain icon shows linked state; the title carries the mapping;
    the open dropdown still lists full gate names. */
@@ -374,6 +372,10 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 #board:not(.compact) .family-comment-row .fc-label { width: 440px; }
 .family-comment-cell { flex: 1 1 auto; padding: 5px 8px; }
 .family-comment { width: 100%; min-height: 30px; resize: vertical; border: 1px solid #e5d8b0; border-radius: 4px; padding: 4px 7px; font-size: 0.78rem; font-family: inherit; background: #fffdf5; }
+/* Collapsed family-takeaway: a slim add-note affordance shown until a note exists (or the box is opened). */
+.family-comment-row.fc-collapsed { padding: 2px 8px; }
+.fc-add { background: none; border: none; color: #a1885a; font-size: 0.72rem; font-weight: bold; cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+.fc-add:hover { background: #f3ead0; color: #7a5f2a; }
 </style>
 </head>
 <body>
@@ -381,7 +383,7 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.19</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.20</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -514,7 +516,9 @@ var gStart = '', gMax = '';  // computed axis domain per render
 var _dateRenderTimer = null; // debounce handle for date-input edits (see scheduleDateRender)
 var dragSrcId = null;        // node id currently being dragged (family/child reorder)
 var loadExpand = {};         // Gate Loading collapsible state: key ('lab'|prog|prog+':gate'|prog+':wo') -> true when expanded
+var takeawayOpen = {};       // transient: rootId -> true when an empty family-takeaway box has been opened for typing
 var _opsCache = {}, _progCache = {}; // per-render memo caches for resolveOps / computeWOProgress (reset at render() top)
+var _cousinLcaCache = {};    // per-render memo: cousin group id -> lowest-common-ancestor node id (reset at render() top)
 var _childIndex = null;      // per-render parentId -> [childNodes] index; null outside a render pass
 var _savedScroll = 0;        // horizontal scroll position carried across a re-render
 // Collector groups — MS-Project-style summary bars that roll up a contiguous run of sibling branches
@@ -1290,6 +1294,9 @@ function identToken(n) { return n.isPlaceholder ? 'TBD' : nodeIdent(n); }
 
 function setProgramLabel(prog, val) { programLabels[prog] = (val || '').slice(0, 20); }
 function setFamilyComment(rootId, val) { familyComments[rootId] = val || ''; }
+// Expand a collapsed family-takeaway box so the user can type; transient (an empty box re-collapses on reload,
+// but any note entered persists via familyComments and stays expanded). Focus the textarea after re-render.
+function openTakeaway(rootId) { takeawayOpen[rootId] = true; render(); var ta = document.querySelector('.family-comment[data-root="' + rootId + '"]'); if (ta) ta.focus(); }
 
 function setZoom(v) {
   var z = parseFloat(v); if (!(z > 0)) z = 1;
@@ -2330,6 +2337,25 @@ function cousinNeedDate(group) {
   });
   return best || '';
 }
+// The node the cousin summary row is anchored under: the lowest common ancestor of all members (deepest node
+// whose subtree contains every member). Falls back to the shared top-assembly root when members span it fully.
+// Memoized per render (_cousinLcaCache, reset at render() top).
+function ancestorChainOf(id) { var out = [], n = nodes[id], g = 0; while (n && g++ < 60) { out.push(n.id); n = n.parentId ? nodes[n.parentId] : null; } return out; }
+function cousinLcaId(group) {
+  if (_cousinLcaCache[group.id]) return _cousinLcaCache[group.id];
+  var members = group.memberIds.filter(function(m){ return nodes[m]; }), lca;
+  if (!members.length) lca = group.rootId;
+  else {
+    var common = ancestorChainOf(members[0]);   // deepest -> root
+    for (var i = 1; i < members.length && common.length; i++) {
+      var set = {}; ancestorChainOf(members[i]).forEach(function(a){ set[a] = true; });
+      common = common.filter(function(a){ return set[a]; });
+    }
+    lca = common.length ? common[0] : group.rootId;   // first surviving = deepest common ancestor
+  }
+  _cousinLcaCache[group.id] = lca;
+  return lca;
+}
 function renderCousinRow(g, lvl) {
   var span = cousinSpan(g);
   var bar = '';
@@ -2340,15 +2366,16 @@ function renderCousinRow(g, lvl) {
     var w = Math.max(ep - sp, 0);
     var need = cousinNeedDate(g);
     var tip = g.name + (need ? ' — need by ' + need : '') + ' (' + span.startISO + ' → ' + span.endISO + ')';
-    bar = '<div class="bar-wrap"><div class="cousin-bar" style="left:' + sp.toFixed(2) + '%;width:' + w.toFixed(2) + '%" title="' + esc(tip) + '"><span class="group-bar-cap">' + esc(g.name) + '</span></div></div>';
+    // Reuse the regular collector-group bar (same indigo + cap font/color) — only the badge icon differs.
+    bar = '<div class="bar-wrap"><div class="group-bar" style="left:' + sp.toFixed(2) + '%;width:' + w.toFixed(2) + '%" title="' + esc(tip) + '"><span class="group-bar-cap">' + esc(g.name) + '</span></div></div>';
   }
   var woCount = 0;
   g.memberIds.forEach(function(m){ if (nodes[m]) collectSubtree(m, []).forEach(function(id){ if (nodes[id] && nodes[id].woNo && !nodes[id].isPlaceholder) woCount++; }); });
-  var html = '<div class="gantt-row cousin-row">';
+  var html = '<div class="gantt-row group-row">';
   html += '<div class="task-col" style="padding-left:' + (8 + lvl * 14) + 'px">';
   html += '<div class="tc-line1">';
   html += '<span class="caret" title="Collapse / expand cousin group" onclick="toggleCousinCollapse(\'' + g.id + '\')">' + (g.collapsed ? '▸' : '▾') + '</span>';
-  html += '<span class="cousin-badge">⧉ COUSINS</span>';
+  html += '<span class="group-badge cousin-badge" title="Cousin group (cross-family, same top assembly)">⧉</span>';
   html += '<input class="group-name-input" value="' + esc(g.name) + '" maxlength="60" title="Rename cousin group" onchange="setCousinName(\'' + g.id + '\', this.value)">';
   html += '<span class="group-meta">' + g.memberIds.length + ' cousin' + (g.memberIds.length === 1 ? '' : 's') + (woCount ? ' · ' + woCount + ' WO' + (woCount === 1 ? '' : 's') : '') + '</span>';
   html += '<button class="row-btn del" title="Ungroup (the parent/child hierarchy is left untouched)" onclick="removeCousin(\'' + g.id + '\')">×</button>';
@@ -2420,14 +2447,15 @@ function renderShortfallPanel() {
 function buildRows(rootId, level, acc) {
   var n = nodes[rootId];
   acc.push({ node: n, level: level });
-  // Cousin group summaries sit just below their family root, milestone-sorted (earliest need on top = waterfall).
-  if (!n.parentId) {
-    cousinGroups.filter(function(g){ return g.rootId === rootId; })
-      .sort(function(a, b){ var da = cousinNeedDate(a) || '9999-99', db = cousinNeedDate(b) || '9999-99';
-                            return da < db ? -1 : da > db ? 1 : (a.name < b.name ? -1 : 1); })
-      .forEach(function(g){ acc.push({ cousin: g, level: level + 1 }); });
-  }
   if (!n.collapsed) {
+    // Cousin summaries anchored here (this node is their members' lowest common ancestor), milestone-sorted
+    // (earliest need on top = waterfall). Rendered as a pseudo-child just below this node, above its real kids.
+    if (cousinGroups.length) {
+      cousinGroups.filter(function(g){ return cousinLcaId(g) === n.id; })
+        .sort(function(a, b){ var da = cousinNeedDate(a) || '9999-99', db = cousinNeedDate(b) || '9999-99';
+                              return da < db ? -1 : da > db ? 1 : (a.name < b.name ? -1 : 1); })
+        .forEach(function(g){ acc.push({ cousin: g, level: level + 1 }); });
+    }
     var kids = getChildren(rootId).sort(_byOrder);
     var headerDone = {};
     kids.forEach(function(c) {
@@ -2448,7 +2476,7 @@ function render() {
   updateButtons();
   // Per-render memo caches + children index (pure-in-data within a render pass). Reset here only;
   // every data-mutating path ends in render(), so this always covers a real change.
-  _opsCache = {}; _progCache = {};
+  _opsCache = {}; _progCache = {}; _cousinLcaCache = {};
   _childIndex = {};
   Object.keys(nodes).forEach(function(k){ var p = nodes[k].parentId; (_childIndex[p] = _childIndex[p] || []).push(nodes[k]); });
   var lg = document.getElementById('legend'); if (lg) lg.innerHTML = legendHTML(globalView);
@@ -2640,9 +2668,16 @@ function render() {
         // reveal strip
         if (n.opsExpanded || Object.keys(n.expandedGates).length) html += renderRevealStrip(n);
       });
-      html += '<div class="family-comment-row"><div class="fc-label">Takeaway</div><div class="family-comment-cell">' +
-        '<textarea class="family-comment" data-root="' + rid + '" oninput="setFamilyComment(this.dataset.root, this.value)" placeholder="Family takeaway…">' +
-        esc(familyComments[rid] || '') + '</textarea></div></div>';
+      // Family takeaway — collapsed to a compact "+ Family takeaway" button by default; expanded to the
+      // textarea only once a note has been entered (persists via familyComments) or the user opens it to type.
+      var fcTxt = (familyComments[rid] || '');
+      if (fcTxt.trim() || takeawayOpen[rid]) {
+        html += '<div class="family-comment-row"><div class="fc-label">Takeaway</div><div class="family-comment-cell">' +
+          '<textarea class="family-comment" data-root="' + rid + '" oninput="setFamilyComment(this.dataset.root, this.value)" placeholder="Family takeaway…">' +
+          esc(fcTxt) + '</textarea></div></div>';
+      } else {
+        html += '<div class="family-comment-row fc-collapsed"><button class="fc-add" title="Add a family takeaway note" onclick="openTakeaway(\'' + rid + '\')">+ Family takeaway</button></div>';
+      }
     });
     html += '</div></div></div>'; // gantt, gantt-wrap, prog-section
   });
@@ -3481,8 +3516,8 @@ function saveSnapshot() {
   html += 'var whatIfHiddenRoots = {};\n';   // transient what-if state — always starts empty in a snapshot
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var renameId = null; var gStart = "", gMax = "", maxZoom = 15;\n';
-  html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {};\n';
-  html += 'var _opsCache = {}, _progCache = {}; var _childIndex = null; var _savedScroll = 0;\n';
+  html += 'var _dateRenderTimer = null; var dragSrcId = null; var loadExpand = {}; var takeawayOpen = {};\n';
+  html += 'var _opsCache = {}, _progCache = {}; var _cousinLcaCache = {}; var _childIndex = null; var _savedScroll = 0;\n';
   // Module-scope constants used by serialized functions (velocity/forecast math, CSV parsing) —
   // not functions, so they must be re-declared here or the snapshot would ReferenceError at runtime.
   html += 'var WEEKS_PER_MONTH = ' + WEEKS_PER_MONTH + ', DAYS_PER_MONTH = ' + DAYS_PER_MONTH + ', CSV_MAX_FIELD_LEN = ' + CSV_MAX_FIELD_LEN + ', CASCADE_MAX_ITERS = ' + CASCADE_MAX_ITERS + ';\n';
@@ -3493,7 +3528,7 @@ function saveSnapshot() {
     reorderSibling, onRowDragStart, onRowDragOver, onRowDragLeave, onRowDragEnd, onRowDrop,
     bindNodeFields, woInUse, newNode, newPlaceholderNode, addSelectionAsNodes, addPlaceholder, addPlaceholderFromForm, deleteNode,
     openSearch, closeSearch, searchProgram, renderSearchResults, toggleWoSel, confirmSearch,
-    nodeIdent, identToken, setProgramLabel, setFamilyComment, computeWOProgress, _computeWOProgress, setZoom, setCompactMode, onGanttWheel,
+    nodeIdent, identToken, setProgramLabel, setFamilyComment, openTakeaway, computeWOProgress, _computeWOProgress, setZoom, setCompactMode, onGanttWheel,
     isoWeekOf, monthMidISO, parseEHA, trailingWeeks, calcVelocityFor, computeFleetVelocity, projectForecast,
     computeGateDates, computeCascade, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
     setLookback, promptVelocity, resetVelocity, setJoinGate, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, drawConnectors,
@@ -3505,7 +3540,7 @@ function saveSnapshot() {
     _byOrder, groupById, groupOfNode, toggleGroupSel, refreshGroupBtn, toggleGroupMode, createGroupFromSelection,
     toggleGroupCollapse, setGroupName, removeGroup, groupSpan, renderGroupRow,
     cousinById, cousinGroupOfNode, toggleCousinSel, refreshCousinBtn, toggleCousinMode, createCousinFromSelection,
-    toggleCousinCollapse, setCousinName, removeCousin, cousinSpan, cousinNeedDate, renderCousinRow,
+    toggleCousinCollapse, setCousinName, removeCousin, cousinSpan, cousinNeedDate, ancestorChainOf, cousinLcaId, renderCousinRow,
     requiredVelocity, toggleMilestoneMode, computeShortfall, renderShortfallPanel,
     csvQuote, dateStr, downloadFile, exportHierarchyCSV, isDrOp, exportAssignmentFeed, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
