@@ -94,6 +94,13 @@ body.milestone-mode .btn-milestone { background: #b91c1c; box-shadow: 0 0 0 2px 
 .group-bar .group-bar-cap { font-size: 0.66rem; font-weight: bold; color: #fff; padding: 0 7px; white-space: nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.3); }
 .grp-sel { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; accent-color: #4f46e5; }
 body.milestone-mode .group-bar { filter: saturate(0.6) brightness(0.95); }
+/* Cousin group row — cross-family summary (same top assembly, different parents). Teal to distinguish
+   from the indigo collector-group row. */
+.gantt-row.cousin-row { background: #ecfeff; border-bottom: 1px solid #a5f3fc; }
+.cousin-badge { font-size: 0.62rem; font-weight: 900; letter-spacing: 0.04em; color: #0e7490; background: #cffafe; border: 1px solid #a5f3fc; border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
+.cousin-bar { position: absolute; top: 8px; bottom: 8px; min-width: 8px; background: repeating-linear-gradient(90deg, #0891b2 0 10px, #06b6d4 10px 20px); border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); display: flex; align-items: center; overflow: hidden; }
+.cousin-sel { margin: 0 2px 0 0; cursor: pointer; flex-shrink: 0; accent-color: #0891b2; }
+body.milestone-mode .cousin-bar { filter: saturate(0.6) brightness(0.95); }
 /* Join-gate selector — feeder declares the parent gate it must be ready for. Fixed narrow width
    (independent of gate-name length); a chain icon shows linked state; the title carries the mapping;
    the open dropdown still lists full gate names. */
@@ -374,7 +381,7 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.18</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.19</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -413,6 +420,8 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
   <button class="btn btn-milestone" id="milestone-btn" title="Toggle between past-performance Estimation and required-rate Milestone view" onclick="toggleMilestoneMode()">Mode: Estimation</button>
   <button class="btn btn-mode" id="group-mode-btn" title="Show checkboxes to roll a run of sibling branches into a collector group" onclick="toggleGroupMode()">Group rows: Off</button>
   <button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>
+  <button class="btn btn-mode" id="cousin-mode-btn" title="Show checkboxes to group same-top-assembly cousin work orders (same part, different next-higher assemblies)" onclick="toggleCousinMode()">Cousin group: Off</button>
+  <button class="btn btn-green" id="cousin-sel-btn" style="display:none" disabled onclick="createCousinFromSelection()">Group Cousins</button>
   <span class="zoom-ctrl"><span class="zoom-cap">Zoom</span>
     <input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)">
     <span id="zoom-label" class="zoom-label">1.00×</span></span>
@@ -514,6 +523,14 @@ var groups = [];             // [ { id, name, parentId, memberIds:[childId...], 
 var nextGroupId = 0;         // monotonic id source for new groups (persisted)
 var groupMode = false;       // transient: when true, eligible child rows show a grouping checkbox
 var groupSel = {};           // transient: childId -> true (rows checked for the next "Group Selected")
+// Cousin groups — same/similar part-number WOs that tier into DIFFERENT next-higher assemblies within one
+// top-assembly family. Unlike collector groups (single parent, contiguous siblings), cousins cross parents;
+// they share only a top-assembly root (rootIdOf). Rendered as a summary row just below the family root,
+// milestone-sorted (earliest need on top = "waterfall"); members stay in place and only vanish when collapsed.
+var cousinGroups = [];       // [ { id, name, rootId, memberIds:[nodeId...], collapsed } ]  (persisted)
+var nextCousinId = 0;        // monotonic id source for new cousin groups (persisted)
+var cousinMode = false;      // transient: when true, eligible WO rows show a cousin-grouping checkbox
+var cousinSel = {};          // transient: nodeId -> true (rows checked for the next "Group Cousins")
 // What-if family toggle — a hidden top-assembly root (and its whole subtree) is dropped from the board
 // AND from every calculation (fleet velocity, gate loading, shortfall, axis). Purely transient scenario
 // state: never written to CSV or the snapshot, so a reload / re-open starts with all families visible.
@@ -2174,6 +2191,7 @@ function refreshGroupBtn() {
 }
 function toggleGroupMode() {
   groupMode = !groupMode;
+  if (groupMode && cousinMode) toggleCousinMode();   // mutually exclusive with cousin-group mode
   if (!groupMode) groupSel = {};
   var b = document.getElementById('group-mode-btn'); if (b) b.textContent = 'Group rows: ' + (groupMode ? 'On' : 'Off');
   var gs = document.getElementById('group-sel-btn'); if (gs) gs.style.display = groupMode ? '' : 'none';
@@ -2246,6 +2264,100 @@ function renderGroupRow(g, lvl) {
   return html;
 }
 
+// ============================== Cousin groups (cross-family, same top assembly) ==============================
+// A cousin group collects same/similar-PN WOs sitting under DIFFERENT parents within one top-assembly family.
+// Boundary = shared rootIdOf (validated on create + CSV import). Overlay only: never touches parentId. The
+// summary row renders just below the family root; members stay in place and only hide when the group collapses.
+function cousinById(id) { for (var i = 0; i < cousinGroups.length; i++) { if (cousinGroups[i].id === id) return cousinGroups[i]; } return null; }
+function cousinGroupOfNode(id) { for (var i = 0; i < cousinGroups.length; i++) { if (cousinGroups[i].memberIds.indexOf(id) >= 0) return cousinGroups[i]; } return null; }
+function toggleCousinSel(id, on) { if (on) cousinSel[id] = true; else delete cousinSel[id]; refreshCousinBtn(); }
+function refreshCousinBtn() {
+  var btn = document.getElementById('cousin-sel-btn'); if (!btn) return;
+  var k = Object.keys(cousinSel).length;
+  btn.disabled = k < 2;
+  btn.textContent = 'Group Cousins' + (k ? ' (' + k + ')' : '');
+}
+function toggleCousinMode() {
+  cousinMode = !cousinMode;
+  if (cousinMode && groupMode) toggleGroupMode();   // mutually exclusive with collector-group mode
+  if (!cousinMode) cousinSel = {};
+  var b = document.getElementById('cousin-mode-btn'); if (b) b.textContent = 'Cousin group: ' + (cousinMode ? 'On' : 'Off');
+  var cs = document.getElementById('cousin-sel-btn'); if (cs) cs.style.display = cousinMode ? '' : 'none';
+  render();
+}
+// Create a cousin group from the checked rows: they must all belong to the same top-assembly root, be real
+// (non-root) nodes, and none already in a cousin group. No contiguity requirement — cousins are scattered.
+function createCousinFromSelection() {
+  var ids = Object.keys(cousinSel).filter(function(x){ return nodes[x]; });
+  if (ids.length < 2) { alert('Select at least two work orders to group as cousins.'); return; }
+  var root = rootIdOf(nodes[ids[0]]);
+  for (var i = 0; i < ids.length; i++) {
+    if (nodes[ids[i]].parentId == null) { alert('A top-assembly root can’t be a cousin member — pick work orders inside a family.'); return; }
+    if (rootIdOf(nodes[ids[i]]) !== root) { alert('All cousins must belong to the same top assembly.'); return; }
+    if (cousinGroupOfNode(ids[i])) { alert('A selected work order is already in a cousin group. Ungroup it first.'); return; }
+  }
+  var name = (prompt('Name this cousin group:', 'Cousins ' + (cousinGroups.length + 1)) || '').trim();
+  if (!name) return;
+  cousinGroups.push({ id: 'c' + (nextCousinId++), name: name, rootId: root, memberIds: ids.slice(), collapsed: false });
+  cousinSel = {};
+  render();
+}
+function toggleCousinCollapse(id) { var g = cousinById(id); if (g) { g.collapsed = !g.collapsed; render(); } }
+function setCousinName(id, val) { var g = cousinById(id); if (g) g.name = (val || '').slice(0, 60); }
+function removeCousin(id) { cousinGroups = cousinGroups.filter(function(g){ return g.id !== id; }); render(); }
+// Earliest start -> latest milestone/forecast across every node in every member branch (full subtree rollup).
+function cousinSpan(group) {
+  var startISO = null, endISO = null;
+  group.memberIds.forEach(function(mid) {
+    if (!nodes[mid]) return;
+    collectSubtree(mid, []).forEach(function(id) {
+      var n = nodes[id]; if (!n) return;
+      var s = n.startDate || gStart;
+      if (s && (startISO === null || s < startISO)) startISO = s;
+      var e = n.completion || (fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[id] : null);
+      if (e && (endISO === null || e > endISO)) endISO = e;
+    });
+  });
+  return { startISO: startISO, endISO: endISO };
+}
+// Waterfall sort key: the group's earliest member need/milestone date (fallback forecast end). '' when none.
+function cousinNeedDate(group) {
+  var best = null;
+  group.memberIds.forEach(function(mid) {
+    var n = nodes[mid]; if (!n) return;
+    var e = n.completion || (fleetCache && fleetCache.forecast ? fleetCache.forecast.forecastEnd[mid] : null);
+    if (e && (best === null || e < best)) best = e;
+  });
+  return best || '';
+}
+function renderCousinRow(g, lvl) {
+  var span = cousinSpan(g);
+  var bar = '';
+  if (span.startISO && span.endISO) {
+    var sp = pctOfDate(span.startISO), ep = pctOfDate(span.endISO);
+    if (!isFinite(sp)) sp = 0; if (!isFinite(ep)) ep = 0;
+    sp = Math.max(0, Math.min(100, sp)); ep = Math.max(0, Math.min(100, ep));
+    var w = Math.max(ep - sp, 0);
+    var need = cousinNeedDate(g);
+    var tip = g.name + (need ? ' — need by ' + need : '') + ' (' + span.startISO + ' → ' + span.endISO + ')';
+    bar = '<div class="bar-wrap"><div class="cousin-bar" style="left:' + sp.toFixed(2) + '%;width:' + w.toFixed(2) + '%" title="' + esc(tip) + '"><span class="group-bar-cap">' + esc(g.name) + '</span></div></div>';
+  }
+  var woCount = 0;
+  g.memberIds.forEach(function(m){ if (nodes[m]) collectSubtree(m, []).forEach(function(id){ if (nodes[id] && nodes[id].woNo && !nodes[id].isPlaceholder) woCount++; }); });
+  var html = '<div class="gantt-row cousin-row">';
+  html += '<div class="task-col" style="padding-left:' + (8 + lvl * 14) + 'px">';
+  html += '<div class="tc-line1">';
+  html += '<span class="caret" title="Collapse / expand cousin group" onclick="toggleCousinCollapse(\'' + g.id + '\')">' + (g.collapsed ? '▸' : '▾') + '</span>';
+  html += '<span class="cousin-badge">⧉ COUSINS</span>';
+  html += '<input class="group-name-input" value="' + esc(g.name) + '" maxlength="60" title="Rename cousin group" onchange="setCousinName(\'' + g.id + '\', this.value)">';
+  html += '<span class="group-meta">' + g.memberIds.length + ' cousin' + (g.memberIds.length === 1 ? '' : 's') + (woCount ? ' · ' + woCount + ' WO' + (woCount === 1 ? '' : 's') : '') + '</span>';
+  html += '<button class="row-btn del" title="Ungroup (the parent/child hierarchy is left untouched)" onclick="removeCousin(\'' + g.id + '\')">×</button>';
+  html += '</div></div>';
+  html += '<div class="time-col">' + bar + '</div>';
+  html += '</div>';
+  return html;
+}
+
 // ============================== Milestone Mode + lab-wide shortfall ==============================
 // Rate (h/mo) a WO needs to finish its remaining hours by its milestone. null = no milestone / not a real
 // WO (keep its estimate); Infinity = milestone already passed (unattainable); 0 = already complete.
@@ -2308,6 +2420,13 @@ function renderShortfallPanel() {
 function buildRows(rootId, level, acc) {
   var n = nodes[rootId];
   acc.push({ node: n, level: level });
+  // Cousin group summaries sit just below their family root, milestone-sorted (earliest need on top = waterfall).
+  if (!n.parentId) {
+    cousinGroups.filter(function(g){ return g.rootId === rootId; })
+      .sort(function(a, b){ var da = cousinNeedDate(a) || '9999-99', db = cousinNeedDate(b) || '9999-99';
+                            return da < db ? -1 : da > db ? 1 : (a.name < b.name ? -1 : 1); })
+      .forEach(function(g){ acc.push({ cousin: g, level: level + 1 }); });
+  }
   if (!n.collapsed) {
     var kids = getChildren(rootId).sort(_byOrder);
     var headerDone = {};
@@ -2317,6 +2436,8 @@ function buildRows(rootId, level, acc) {
         if (!headerDone[g.id]) { headerDone[g.id] = true; acc.push({ group: g, level: level + 1 }); }
         if (g.collapsed) return;   // collector collapsed -> hide the whole member branch
       }
+      var cg = cousinGroupOfNode(c.id);
+      if (cg && cg.collapsed) return;   // hide this cousin member (and its subtree) in place while collapsed
       buildRows(c.id, level + 1, acc);
     });
   }
@@ -2396,6 +2517,7 @@ function render() {
     byProg[prog].forEach(function(rid) {
       var rows = buildRows(rid, 0, []);
       rows.forEach(function(rw) {
+        if (rw.cousin) { html += renderCousinRow(rw.cousin, rw.level); return; }
         if (rw.group) { html += renderGroupRow(rw.group, rw.level); return; }
         var n = rw.node, lvl = rw.level;
         var kids = getChildren(n.id);
@@ -2417,6 +2539,10 @@ function render() {
         // Grouping checkbox — only in Group-rows mode, only for ungrouped child rows (groups are child-level).
         if (groupMode && n.parentId && !groupOfNode(n.id)) {
           html += '<input type="checkbox" class="grp-sel" title="Select to group with adjacent siblings"' + (groupSel[n.id] ? ' checked' : '') + ' onclick="event.stopPropagation();toggleGroupSel(\'' + n.id + '\', this.checked)">';
+        }
+        // Cousin grouping checkbox — only in Cousin-group mode, for real (non-root) WO rows not already a cousin.
+        if (cousinMode && n.parentId && n.partNo && !cousinGroupOfNode(n.id)) {
+          html += '<input type="checkbox" class="cousin-sel" title="Select to group with same-top-assembly cousins"' + (cousinSel[n.id] ? ' checked' : '') + ' onclick="event.stopPropagation();toggleCousinSel(\'' + n.id + '\', this.checked)">';
         }
         var ident = identToken(n);
         var tip = [ (n.serial ? 'SN ' + String(n.serial).trim().replace(/^S\/?N[\s-]?/i, '') : ''), n.woNo, n.partNo, n.partDesc ].filter(Boolean).join(' · ');
@@ -2526,6 +2652,7 @@ function render() {
   syncFloatingAxis();
   syncEmpControls();
   refreshGroupBtn();
+  refreshCousinBtn();
   drawConnectors();
   _childIndex = null;
 }
@@ -2987,7 +3114,7 @@ function downloadFile(content, filename, type) {
 }
 
 function exportHierarchyCSV() {
-  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order,Excluded,Add Employees,Group Id,Group Name,Group Collapsed'];
+  var lines = ['Node ID,Parent ID,Level,Program,Program Label,WO,Part Number,Part Description,Serial,Placeholder,Parent WO,Parent Part Number,Milestone Date,Manual Date Flag,Family Comment,Join Gate,Override Velocity,Override Lab Total,Lookback Weeks,Start Date,Order,Excluded,Add Employees,Group Id,Group Name,Group Collapsed,Cousin Id,Cousin Name,Cousin Collapsed'];
   var labCapStr = (overrideLabTotal == null ? '' : String(overrideLabTotal));
   // Sync each root's order field to its rootIds position so the exported Order column reflects the
   // current (possibly drag-reordered) family sequence and round-trips on import.
@@ -3000,6 +3127,8 @@ function exportHierarchyCSV() {
     var jg = (n.joinGate == null ? '' : String(n.joinGate));
     // Group columns carry only on a group's DIRECT member rows (branch roots), so import can rebuild groups[].
     var grp = groupOfNode(id);
+    // Cousin columns carry on each cousin member row, so import can rebuild cousinGroups[] (rootId re-derived).
+    var csn = cousinGroupOfNode(id);
     lines.push([csvQuote(n.id), csvQuote(parent ? parent.id : ''), lvl, csvQuote(n.program),
       csvQuote(programLabels[n.program] || ''), csvQuote(n.woNo), csvQuote(n.partNo), csvQuote(n.partDesc),
       csvQuote(n.serial), n.isPlaceholder ? 'Y' : 'N', csvQuote(parent ? parent.woNo : ''), csvQuote(parent ? parent.partNo : ''),
@@ -3007,7 +3136,8 @@ function exportHierarchyCSV() {
       csvQuote(jg), csvQuote(ovStr), csvQuote(labCapStr), String(lookbackWeeks),
       csvQuote(n.startDate || ''), String(n.order == null ? '' : n.order),
       n.excluded ? 'Y' : 'N', String(addEmployees),
-      csvQuote(grp ? grp.id : ''), csvQuote(grp ? grp.name : ''), grp ? (grp.collapsed ? 'Y' : 'N') : ''].join(','));
+      csvQuote(grp ? grp.id : ''), csvQuote(grp ? grp.name : ''), grp ? (grp.collapsed ? 'Y' : 'N') : '',
+      csvQuote(csn ? csn.id : ''), csvQuote(csn ? csn.name : ''), csn ? (csn.collapsed ? 'Y' : 'N') : ''].join(','));
     getChildren(id).sort(function(a,b){ return (a.order - b.order) || ((+a.id.slice(1)) - (+b.id.slice(1))); }).forEach(function(c){ walk(c.id); });
   }
   rootIds.forEach(walk);
@@ -3150,6 +3280,9 @@ function importHierarchy(rows) {
   var iGId = colIndex(h, 'Group Id');
   var iGName = colIndex(h, 'Group Name');
   var iGCol = colIndex(h, 'Group Collapsed');
+  var iCId = colIndex(h, 'Cousin Id');
+  var iCName = colIndex(h, 'Cousin Name');
+  var iCCol = colIndex(h, 'Cousin Collapsed');
   var byId = (iId >= 0 && iPid >= 0);
   if (!byId && (iWO < 0 || iPWO < 0)) {
     showStatus('hier-status', 'Error: hierarchy CSV needs Node ID/Parent ID (or WO/Parent WO) columns.', 'error'); return;
@@ -3157,6 +3290,7 @@ function importHierarchy(rows) {
 
   nodes = {}; rootIds = []; nextNodeId = 0; programLabels = {}; familyComments = {};
   groups = []; nextGroupId = 0; groupSel = {};   // collector groups rebuilt from the Group Id column below
+  cousinGroups = []; nextCousinId = 0; cousinSel = {};   // cousin groups rebuilt from the Cousin Id column below
   overrideLabTotal = null; addEmployees = 0;   // refresh: import will pick up the first non-empty value below
   var byWO = {}, maxNum = -1, pending = [], badDates = 0;
   for (var r = 1; r < rows.length; r++) {
@@ -3250,12 +3384,35 @@ function importHierarchy(rows) {
       if (ok && g.memberIds.length) groups.push(g); else groupsDropped++;
     });
   }
+  // Rebuild cousin groups from the Cousin Id column. Bucket member rows, re-derive rootId from the first
+  // member, then validate every member shares that top-assembly root; drop (with a warning) any broken group.
+  var cousinsDropped = 0;
+  if (byId && iCId >= 0) {
+    var cOrder = [], cObj = {};
+    for (var rc = 1; rc < rows.length; rc++) {
+      var cid = (rows[rc][iCId] || '').trim(); if (!cid) continue;
+      var cnid = (rows[rc][iId] || '').trim(); if (!cnid || !nodes[cnid]) continue;
+      if (!cObj[cid]) {
+        cObj[cid] = { id: cid, name: (iCName >= 0 ? (rows[rc][iCName] || '').trim() : '') || cid,
+          rootId: rootIdOf(nodes[cnid]), memberIds: [], collapsed: iCCol >= 0 ? /^y/i.test((rows[rc][iCCol] || '').trim()) : false };
+        cOrder.push(cid);
+      }
+      cObj[cid].memberIds.push(cnid);
+      var cm = /^c(\d+)$/.exec(cid); if (cm) nextCousinId = Math.max(nextCousinId, (+cm[1]) + 1);
+    }
+    cOrder.forEach(function(cid) {
+      var g = cObj[cid];
+      var ok = g.memberIds.length >= 1 && g.memberIds.every(function(m){ return nodes[m] && nodes[m].parentId != null && rootIdOf(nodes[m]) === g.rootId; });
+      if (ok) cousinGroups.push(g); else cousinsDropped++;
+    });
+  }
   if (!scheduleStart) scheduleStart = todayISO();
   normalizeDates();
-  var okMsg = 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)' + (groups.length ? ', ' + groups.length + ' group(s)' : '') + '). Re-upload a Daily Upload to refresh status.';
+  var okMsg = 'Imported ' + Object.keys(nodes).length + ' nodes (' + rootIds.length + ' tree(s)' + (groups.length ? ', ' + groups.length + ' group(s)' : '') + (cousinGroups.length ? ', ' + cousinGroups.length + ' cousin group(s)' : '') + '). Re-upload a Daily Upload to refresh status.';
   if (groupsDropped) okMsg += ' ⚠ ' + groupsDropped + ' group(s) skipped (members no longer a contiguous run).';
+  if (cousinsDropped) okMsg += ' ⚠ ' + cousinsDropped + ' cousin group(s) skipped (members no longer share one top assembly).';
   if (badDates > 0) showStatus('hier-status', okMsg + ' ⚠ ' + badDates + ' date(s) were unreadable and left blank — expected yyyy-mm-dd.', 'warning');
-  else showStatus('hier-status', okMsg, groupsDropped ? 'warning' : 'loaded');
+  else showStatus('hier-status', okMsg, (groupsDropped || cousinsDropped) ? 'warning' : 'loaded');
   render();
 }
 
@@ -3269,7 +3426,8 @@ function saveSnapshot() {
                 zoomFactor: zoomFactor, compactMode: compactMode,
                 weeklyEarned: weeklyEarned, lookbackWeeks: lookbackWeeks, overrideLabTotal: overrideLabTotal,
                 hrsPerEmployee: hrsPerEmployee, addEmployees: addEmployees,
-                groups: groups, nextGroupId: nextGroupId, milestoneMode: milestoneMode };
+                groups: groups, nextGroupId: nextGroupId, milestoneMode: milestoneMode,
+                cousinGroups: cousinGroups, nextCousinId: nextCousinId };
   var stateJson = JSON.stringify(state).replace(/\x3c/g, '\\u003c');
 
   var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n';
@@ -3291,6 +3449,8 @@ function saveSnapshot() {
   html += '<button class="btn btn-milestone" id="milestone-btn" onclick="toggleMilestoneMode()">Mode: Estimation</button>';
   html += '<button class="btn btn-mode" id="group-mode-btn" onclick="toggleGroupMode()">Group rows: Off</button>';
   html += '<button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>';
+  html += '<button class="btn btn-mode" id="cousin-mode-btn" onclick="toggleCousinMode()">Cousin group: Off</button>';
+  html += '<button class="btn btn-green" id="cousin-sel-btn" style="display:none" disabled onclick="createCousinFromSelection()">Group Cousins</button>';
   html += '<span class="zoom-ctrl"><span class="zoom-cap">Zoom</span><input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)"><span id="zoom-label" class="zoom-label">1.00×</span></span>';
   html += '<span class="vel-ctrl"><span class="vel-cap">Lookback</span><input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>';
   html += '<span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span><input type="number" id="hrs-per-emp" min="0" step="1" placeholder="&mdash;" onchange="setHrsPerEmployee(this.value)"></span>';
@@ -3317,6 +3477,7 @@ function saveSnapshot() {
   html += 'var addEmployees = snapshotState.addEmployees || 0;\n';
   html += 'var groups = snapshotState.groups || [], nextGroupId = snapshotState.nextGroupId || 0, milestoneMode = !!snapshotState.milestoneMode;\n';
   html += 'var groupMode = false, groupSel = {};\n';
+  html += 'var cousinGroups = snapshotState.cousinGroups || [], nextCousinId = snapshotState.nextCousinId || 0, cousinMode = false, cousinSel = {};\n';
   html += 'var whatIfHiddenRoots = {};\n';   // transient what-if state — always starts empty in a snapshot
   html += 'var fleetCache = null;\n';
   html += 'var pendingSearch = null; var renameId = null; var gStart = "", gMax = "", maxZoom = 15;\n';
@@ -3343,6 +3504,8 @@ function saveSnapshot() {
     toggleWhatIfFamily, restoreWhatIfFamily, restoreAllWhatIf, whatIfLabel, renderWhatIfStrip,
     _byOrder, groupById, groupOfNode, toggleGroupSel, refreshGroupBtn, toggleGroupMode, createGroupFromSelection,
     toggleGroupCollapse, setGroupName, removeGroup, groupSpan, renderGroupRow,
+    cousinById, cousinGroupOfNode, toggleCousinSel, refreshCousinBtn, toggleCousinMode, createCousinFromSelection,
+    toggleCousinCollapse, setCousinName, removeCousin, cousinSpan, cousinNeedDate, renderCousinRow,
     requiredVelocity, toggleMilestoneMode, computeShortfall, renderShortfallPanel,
     csvQuote, dateStr, downloadFile, exportHierarchyCSV, isDrOp, exportAssignmentFeed, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
