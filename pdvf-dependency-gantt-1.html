@@ -33,8 +33,39 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .btn-primary { background: #2563eb; color: #fff; } .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
 .btn-green { background: #16a34a; color: #fff; } .btn-green:hover:not(:disabled) { background: #15803d; }
 .btn-slate { background: #334155; color: #fff; } .btn-slate:hover:not(:disabled) { background: #1e293b; }
-.btn-view { background: #7c3aed; color: #fff; min-width: 150px; } .btn-view:hover { background: #6d28d9; }
-.btn-mode { background: #b45309; color: #fff; min-width: 110px; } .btn-mode:hover { background: #92400e; }
+/* ── Toolbar: 4-role semantic color (color = meaning, not decoration) ──
+   primary (.btn-primary, blue)  = the create action + active segment
+   neutral (.tb-neutral, outline) = every toggle / menu trigger at rest
+   commit  (.btn-green, green)   = writes new data; contextual only
+   alarm   (.seg .alarm, red)    = the one "requirement not estimate" state (Milestone) */
+.tb-neutral { background: #fff; border: 1px solid #c2ccda; border-radius: 6px; color: #33445a; font-weight: bold; font-size: 0.8rem; padding: 6px 11px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; }
+.tb-neutral:hover:not(:disabled) { border-color: #1e3a5f; color: #1e3a5f; }
+.tb-neutral:disabled { opacity: 0.4; cursor: default; }
+.tb-neutral .car { font-size: 0.6rem; opacity: 0.65; }
+/* Cluster: a labeled, bordered group of related controls */
+.cluster { display: inline-flex; align-items: center; gap: 7px; padding: 5px 9px; border: 1px solid #dbe2ec; border-radius: 9px; background: #fbfcfe; position: relative; }
+.cluster > .clab { font-size: 0.58rem; letter-spacing: 0.13em; text-transform: uppercase; color: #94a3b8; font-weight: 800; }
+.cluster > .divider { width: 1px; align-self: stretch; background: #e2e8f0; margin: 1px 0; }
+/* Segmented control: current state is visible; one click to any option */
+.seg { display: inline-flex; background: #e7ecf3; border-radius: 7px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; color: #5b6b80; font-weight: bold; font-size: 0.76rem; padding: 5px 10px; border-radius: 5px; cursor: pointer; font-family: inherit; }
+.seg button[aria-pressed="true"] { background: #1e3a5f; color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.18); }
+.seg button.alarm[aria-pressed="true"] { background: #b91c1c; color: #fff; box-shadow: 0 0 0 2px rgba(185,28,28,0.30); }
+.seg button:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+/* Dropdown menu (Group ▾ / Export ▾ / Params ▾) */
+.tb-menu { position: absolute; top: calc(100% + 6px); left: 6px; z-index: 30; min-width: 236px; background: #fff; border: 1px solid #c2ccda; border-radius: 9px; box-shadow: 0 6px 22px rgba(20,36,58,0.16); padding: 6px; display: none; }
+.tb-menu.open { display: block; }
+.tb-menu.pcol { display: none; }
+.tb-menu.pcol.open { display: flex; flex-direction: column; gap: 6px; }
+.tb-menu .mi { display: flex; gap: 10px; align-items: flex-start; padding: 8px 9px; border-radius: 6px; cursor: pointer; background: none; border: 0; width: 100%; text-align: left; font-family: inherit; }
+.tb-menu .mi:hover:not(:disabled) { background: #f1f5fb; }
+.tb-menu .mi:disabled { opacity: 0.4; cursor: default; }
+.tb-menu .mi .ic { width: 20px; text-align: center; font-size: 0.9rem; flex-shrink: 0; color: #1e3a5f; margin-top: 1px; }
+.tb-menu .mi b { display: block; font-size: 0.8rem; color: #14243a; }
+.tb-menu .mi small { color: #5b6b80; font-size: 0.7rem; line-height: 1.35; }
+.tb-menu .mi[aria-pressed="true"] { background: #eef2ff; }
+.tb-menu .mi[aria-pressed="true"] b::after { content: " ✓"; color: #2563eb; }
+.tb-menu .msep { height: 1px; background: #e2e8f0; margin: 5px 6px; }
 .zoom-ctrl { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff; font-size: 0.78rem; color: #475569; }
 .zoom-ctrl .zoom-cap { font-weight: bold; }
 .zoom-ctrl input[type="range"] { width: 140px; }
@@ -63,8 +94,7 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .vel-reset { display: inline-block; padding: 0 4px; font-size: 0.85rem; font-weight: bold; color: #7c3aed; cursor: pointer; vertical-align: middle; user-select: none; }
 .vel-reset:hover { color: #5b21b6; }
 /* Milestone Mode — required-rate chips + the toolbar toggle + the alarm ribbon. */
-.btn-milestone { background: #0e7490; color: #fff; min-width: 130px; } .btn-milestone:hover { background: #155e75; }
-body.milestone-mode .btn-milestone { background: #b91c1c; box-shadow: 0 0 0 2px rgba(185,28,28,0.35); } body.milestone-mode .btn-milestone:hover { background: #991b1b; }
+/* (Milestone-active state now shown by the red .seg .alarm segment, not a standalone button.) */
 .vel-chip.req { background: #b91c1c; cursor: default; }
 .vel-chip.req.unatt { background: #7f1d1d; outline: 1px solid #fca5a5; }
 .milestone-ribbon { background: #7f1d1d; color: #fff; font-weight: bold; font-size: 0.82rem; padding: 8px 14px; border-radius: 5px; margin-bottom: 0.9rem; border: 2px solid #fca5a5; box-shadow: 0 2px 6px rgba(127,29,29,0.3); }
@@ -383,7 +413,7 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.20</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.21</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -416,29 +446,72 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 </div>
 
 <div class="action-bar" id="action-bar">
-  <button class="btn btn-primary" id="add-root-btn" disabled onclick="openSearch('root', null)">+ Add Top Assembly</button>
-  <button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>
-  <button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>
-  <button class="btn btn-milestone" id="milestone-btn" title="Toggle between past-performance Estimation and required-rate Milestone view" onclick="toggleMilestoneMode()">Mode: Estimation</button>
-  <button class="btn btn-mode" id="group-mode-btn" title="Show checkboxes to roll a run of sibling branches into a collector group" onclick="toggleGroupMode()">Group rows: Off</button>
-  <button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>
-  <button class="btn btn-mode" id="cousin-mode-btn" title="Show checkboxes to group same-top-assembly cousin work orders (same part, different next-higher assemblies)" onclick="toggleCousinMode()">Cousin group: Off</button>
-  <button class="btn btn-green" id="cousin-sel-btn" style="display:none" disabled onclick="createCousinFromSelection()">Group Cousins</button>
-  <span class="zoom-ctrl"><span class="zoom-cap">Zoom</span>
-    <input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)">
-    <span id="zoom-label" class="zoom-label">1.00×</span></span>
-  <span class="vel-ctrl"><span class="vel-cap">Lookback</span>
-    <input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>
-  <span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span>
-    <input type="number" id="hrs-per-emp" min="0" step="1" placeholder="—" onchange="setHrsPerEmployee(this.value)"></span>
-  <span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span>
-    <button class="emp-step" title="Remove a tech" onclick="bumpEmployees(-1)">&minus;</button>
-    <input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)">
-    <button class="emp-step" title="Add a tech" onclick="bumpEmployees(1)">+</button>
-    <span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>
-  <button class="btn btn-green" id="export-csv-btn" disabled onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>
-  <button class="btn btn-green" id="assign-feed-btn" disabled onclick="exportAssignmentFeed()">Export WO Assignment Feed</button>
-  <button class="btn btn-slate" id="save-btn" disabled onclick="saveSnapshot()">Save for Editing</button>
+  <!-- Build -->
+  <span class="cluster"><span class="clab">Build</span>
+    <button class="btn btn-primary" id="add-root-btn" disabled onclick="openSearch('root', null)">+ Add Top Assembly</button>
+  </span>
+  <!-- View -->
+  <span class="cluster"><span class="clab">View</span>
+    <span class="seg" id="seg-view" role="group" aria-label="Board view">
+      <button data-view="bars" aria-pressed="false" onclick="setView('bars')">Bars</button>
+      <button data-view="gateblocks" aria-pressed="true" onclick="setView('gateblocks')">Gates</button>
+      <button data-view="chips" aria-pressed="false" onclick="setView('chips')">Chips</button>
+    </span>
+    <span class="divider"></span>
+    <span class="seg" id="seg-mode" role="group" aria-label="Detail level">
+      <button data-mode="edit" aria-pressed="true" onclick="setCompactMode(false)">Edit</button>
+      <button data-mode="review" aria-pressed="false" onclick="setCompactMode(true)">Review</button>
+    </span>
+    <span class="divider"></span>
+    <span class="zoom-ctrl" style="border:0;background:transparent;padding:0 2px"><span class="zoom-cap">Zoom</span>
+      <input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)">
+      <span id="zoom-label" class="zoom-label">1.00×</span></span>
+  </span>
+  <!-- Forecast -->
+  <span class="cluster"><span class="clab">Forecast</span>
+    <span class="seg" id="seg-forecast" role="group" aria-label="Rate basis">
+      <button data-fc="est" aria-pressed="true" onclick="setForecastMode(false)">Estimation</button>
+      <button class="alarm" data-fc="milestone" aria-pressed="false" title="Show the rate each WO REQUIRES to hit its milestone (a need, not a past-performance estimate)" onclick="setForecastMode(true)">Milestone</button>
+    </span>
+    <span style="position:relative">
+      <button class="tb-neutral" id="params-btn" title="Velocity & staffing inputs" onclick="toggleMenu('tb-params', event)">Params <span class="car">▾</span></button>
+      <div class="tb-menu pcol" id="tb-params">
+        <span class="vel-ctrl"><span class="vel-cap">Lookback</span>
+          <input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>
+        <span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span>
+          <input type="number" id="hrs-per-emp" min="0" step="1" placeholder="—" onchange="setHrsPerEmployee(this.value)"></span>
+        <span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span>
+          <button class="emp-step" title="Remove a tech" onclick="bumpEmployees(-1)">&minus;</button>
+          <input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)">
+          <button class="emp-step" title="Add a tech" onclick="bumpEmployees(1)">+</button>
+          <span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>
+      </div>
+    </span>
+  </span>
+  <!-- Group -->
+  <span class="cluster"><span class="clab">Group</span>
+    <span style="position:relative">
+      <button class="tb-neutral" id="group-btn" onclick="toggleMenu('tb-group', event)">Group <span class="car">▾</span></button>
+      <div class="tb-menu" id="tb-group">
+        <button class="mi" id="mi-collector" onclick="closeMenus();toggleGroupMode()"><span class="ic">▦</span><span><b>Collector group</b><small>Roll up a run of sibling branches under one parent</small></span></button>
+        <button class="mi" id="mi-cousin" onclick="closeMenus();toggleCousinMode()"><span class="ic">⧉</span><span><b>Cousin group</b><small>Same-part WOs across different next-higher assemblies</small></span></button>
+      </div>
+    </span>
+    <button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>
+    <button class="btn btn-green" id="cousin-sel-btn" style="display:none" disabled onclick="createCousinFromSelection()">Group Cousins</button>
+  </span>
+  <!-- Export -->
+  <span class="cluster"><span class="clab">Export</span>
+    <span style="position:relative">
+      <button class="tb-neutral" id="export-menu-btn" disabled onclick="toggleMenu('tb-export', event)">Export <span class="car">▾</span></button>
+      <div class="tb-menu" id="tb-export">
+        <button class="mi" onclick="closeMenus();exportHierarchyCSV()"><span class="ic">⤓</span><span><b>Hierarchy CSV</b><small>Re-importable tree with all overlays</small></span></button>
+        <button class="mi" onclick="closeMenus();exportAssignmentFeed()"><span class="ic">⤓</span><span><b>WO Assignment Feed</b><small>Per-WO feed for the Task Assignment tool</small></span></button>
+        <div class="msep"></div>
+        <button class="mi" onclick="closeMenus();saveSnapshot()"><span class="ic">▣</span><span><b>Save for Editing</b><small>Self-contained HTML snapshot</small></span></button>
+      </div>
+    </span>
+  </span>
 </div>
 
 <div class="legend" id="legend">
@@ -695,6 +768,8 @@ function wireInputs() {
   if (ehaInput) ehaInput.addEventListener('change', function() {
     loadCSV(this.files[0], parseEHA, 'eha-status');
   });
+  // Close any open toolbar menu on an outside click (a click inside a menu/trigger stops propagation).
+  document.addEventListener('click', function(e) { if (!e.target.closest('.tb-menu, [id$="-btn"][onclick*="toggleMenu"]')) closeMenus(); });
 }
 
 // ============================== Parse Daily Upload ==============================
@@ -1185,11 +1260,35 @@ function toggleWoSel(wo, on) { if (on) pendingSearch.selected[wo] = true; else d
 function confirmSearch() { if (addSelectionAsNodes()) { closeSearch(); render(); } }
 
 // ============================== View cycle ==============================
-function cycleView() {
-  globalView = globalView === 'bars' ? 'gateblocks' : (globalView === 'gateblocks' ? 'chips' : 'bars');
-  var label = globalView === 'bars' ? 'Bars' : (globalView === 'gateblocks' ? 'Gate blocks' : 'Chips');
-  document.getElementById('view-btn').textContent = 'View: ' + label;
+// Board view is a segmented control now (Bars / Gates / Chips) — set the value directly; syncToolbar()
+// reflects the active segment on every render.
+function setView(v) {
+  if (v !== 'bars' && v !== 'gateblocks' && v !== 'chips') return;
+  globalView = v;
   render();
+}
+// ── Toolbar menus (Group ▾ / Export ▾ / Params ▾) ──
+function closeMenus() { var ms = document.querySelectorAll('.tb-menu.open'); for (var i = 0; i < ms.length; i++) ms[i].classList.remove('open'); }
+function toggleMenu(id, ev) {
+  if (ev) ev.stopPropagation();
+  var m = document.getElementById(id); if (!m) return;
+  var willOpen = !m.classList.contains('open');
+  closeMenus();
+  if (willOpen) m.classList.add('open');
+}
+// Reflect current toolbar state into the segmented controls + menu markers. Called at the end of render(),
+// so every state change (which ends in render()) keeps the bar in sync — no per-handler DOM label updates.
+function syncToolbar() {
+  function press(segId, attr, val) {
+    var seg = document.getElementById(segId); if (!seg) return;
+    var btns = seg.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) btns[i].setAttribute('aria-pressed', btns[i].getAttribute(attr) === val ? 'true' : 'false');
+  }
+  press('seg-view', 'data-view', globalView);
+  press('seg-mode', 'data-mode', compactMode ? 'review' : 'edit');
+  press('seg-forecast', 'data-fc', milestoneMode ? 'milestone' : 'est');
+  var mc = document.getElementById('mi-collector'); if (mc) mc.setAttribute('aria-pressed', groupMode ? 'true' : 'false');
+  var mk = document.getElementById('mi-cousin'); if (mk) mk.setAttribute('aria-pressed', cousinMode ? 'true' : 'false');
 }
 function toggleCollapse(id) { nodes[id].collapsed = !nodes[id].collapsed; render(); }
 function toggleOps(id) { nodes[id].opsExpanded = !nodes[id].opsExpanded; if (!nodes[id].opsExpanded) nodes[id].expandedGates = {}; render(); }
@@ -1319,8 +1418,7 @@ function onGanttWheel(e) {
 }
 function setCompactMode(on) {
   compactMode = !!on;
-  var b = document.getElementById('compact-btn'); if (b) b.textContent = 'Mode: ' + (compactMode ? 'Review' : 'Edit');
-  document.body.classList.toggle('compact-mode', compactMode);
+  document.body.classList.toggle('compact-mode', compactMode);   // Edit/Review segment reflected by syncToolbar
   render();
 }
 
@@ -2200,9 +2298,8 @@ function toggleGroupMode() {
   groupMode = !groupMode;
   if (groupMode && cousinMode) toggleCousinMode();   // mutually exclusive with cousin-group mode
   if (!groupMode) groupSel = {};
-  var b = document.getElementById('group-mode-btn'); if (b) b.textContent = 'Group rows: ' + (groupMode ? 'On' : 'Off');
   var gs = document.getElementById('group-sel-btn'); if (gs) gs.style.display = groupMode ? '' : 'none';
-  render();
+  render();   // Collector menu item's on-state reflected by syncToolbar
 }
 // Create a collector from the checked rows: they must be a contiguous run of one parent's children,
 // none already grouped. The true parent/child hierarchy is never modified.
@@ -2288,9 +2385,8 @@ function toggleCousinMode() {
   cousinMode = !cousinMode;
   if (cousinMode && groupMode) toggleGroupMode();   // mutually exclusive with collector-group mode
   if (!cousinMode) cousinSel = {};
-  var b = document.getElementById('cousin-mode-btn'); if (b) b.textContent = 'Cousin group: ' + (cousinMode ? 'On' : 'Off');
   var cs = document.getElementById('cousin-sel-btn'); if (cs) cs.style.display = cousinMode ? '' : 'none';
-  render();
+  render();   // Cousin menu item's on-state reflected by syncToolbar
 }
 // Create a cousin group from the checked rows: they must all belong to the same top-assembly root, be real
 // (non-root) nodes, and none already in a cousin group. No contiguity requirement — cousins are scattered.
@@ -2398,9 +2494,9 @@ function requiredVelocity(node) {
   if (months <= 0.0001) months = currentMonthRemainderMonths();   // past-due -> finish within the current month
   return rem / months;
 }
-function toggleMilestoneMode() {
-  milestoneMode = !milestoneMode;
-  var b = document.getElementById('milestone-btn'); if (b) b.textContent = 'Mode: ' + (milestoneMode ? 'Milestone (needs)' : 'Estimation');
+// Estimation / Milestone is a segmented control now — set the value directly (segment reflected by syncToolbar).
+function setForecastMode(on) {
+  milestoneMode = !!on;
   document.body.classList.toggle('milestone-mode', milestoneMode);
   render();
 }
@@ -2688,6 +2784,7 @@ function render() {
   syncEmpControls();
   refreshGroupBtn();
   refreshCousinBtn();
+  syncToolbar();
   drawConnectors();
   _childIndex = null;
 }
@@ -3133,9 +3230,7 @@ function renderLoadingTable() {
 
 function updateButtons() {
   var has = rootIds.length > 0;
-  document.getElementById('export-csv-btn').disabled = !has;
-  var af = document.getElementById('assign-feed-btn'); if (af) af.disabled = !has;
-  document.getElementById('save-btn').disabled = !has;
+  var ex = document.getElementById('export-menu-btn'); if (ex) ex.disabled = !has;   // Export ▾ (holds CSV / Feed / Save)
   document.getElementById('add-root-btn').disabled = Object.keys(woMeta).length === 0;
 }
 
@@ -3478,21 +3573,38 @@ function saveSnapshot() {
   html += '<div class="file-group"><label>Add Decoder Ring CSV(s)</label><input type="file" id="ring-file" accept=".csv,.txt" multiple><div class="status" id="ring-status"></div></div>';
   html += '<div class="file-group"><label>Import Hierarchy CSV</label><input type="file" id="hier-file" accept=".csv,.txt"><div class="status" id="hier-status"></div></div>';
   html += '<div class="file-group"><label>Refresh EHA Hours Earned</label><input type="file" id="eha-file" accept=".csv,.txt"><div class="status" id="eha-status"></div></div></div>\n';
-  html += '<div class="action-bar"><button class="btn btn-primary" id="add-root-btn" onclick="openSearch(\'root\', null)">+ Add Top Assembly</button>';
-  html += '<button class="btn btn-view" id="view-btn" onclick="cycleView()">View: Gate blocks</button>';
-  html += '<button class="btn btn-mode" id="compact-btn" onclick="setCompactMode(!compactMode)">Mode: Edit</button>';
-  html += '<button class="btn btn-milestone" id="milestone-btn" onclick="toggleMilestoneMode()">Mode: Estimation</button>';
-  html += '<button class="btn btn-mode" id="group-mode-btn" onclick="toggleGroupMode()">Group rows: Off</button>';
-  html += '<button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>';
-  html += '<button class="btn btn-mode" id="cousin-mode-btn" onclick="toggleCousinMode()">Cousin group: Off</button>';
-  html += '<button class="btn btn-green" id="cousin-sel-btn" style="display:none" disabled onclick="createCousinFromSelection()">Group Cousins</button>';
-  html += '<span class="zoom-ctrl"><span class="zoom-cap">Zoom</span><input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)"><span id="zoom-label" class="zoom-label">1.00×</span></span>';
-  html += '<span class="vel-ctrl"><span class="vel-cap">Lookback</span><input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>';
-  html += '<span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span><input type="number" id="hrs-per-emp" min="0" step="1" placeholder="&mdash;" onchange="setHrsPerEmployee(this.value)"></span>';
-  html += '<span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span><button class="emp-step" onclick="bumpEmployees(-1)">&minus;</button><input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)"><button class="emp-step" onclick="bumpEmployees(1)">+</button><span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>';
-  html += '<button class="btn btn-green" id="export-csv-btn" onclick="exportHierarchyCSV()">Export Hierarchy CSV</button>';
-  html += '<button class="btn btn-green" id="assign-feed-btn" onclick="exportAssignmentFeed()">Export WO Assignment Feed</button>';
-  html += '<button class="btn btn-slate" id="save-btn" onclick="saveSnapshot()">Save for Editing</button></div>\n';
+  html += '<div class="action-bar" id="action-bar">';
+  html += '<span class="cluster"><span class="clab">Build</span><button class="btn btn-primary" id="add-root-btn" onclick="openSearch(\'root\', null)">+ Add Top Assembly</button></span>';
+  html += '<span class="cluster"><span class="clab">View</span>';
+  html +=   '<span class="seg" id="seg-view" role="group" aria-label="Board view"><button data-view="bars" aria-pressed="false" onclick="setView(\'bars\')">Bars</button><button data-view="gateblocks" aria-pressed="true" onclick="setView(\'gateblocks\')">Gates</button><button data-view="chips" aria-pressed="false" onclick="setView(\'chips\')">Chips</button></span>';
+  html +=   '<span class="divider"></span>';
+  html +=   '<span class="seg" id="seg-mode" role="group" aria-label="Detail level"><button data-mode="edit" aria-pressed="true" onclick="setCompactMode(false)">Edit</button><button data-mode="review" aria-pressed="false" onclick="setCompactMode(true)">Review</button></span>';
+  html +=   '<span class="divider"></span>';
+  html +=   '<span class="zoom-ctrl" style="border:0;background:transparent;padding:0 2px"><span class="zoom-cap">Zoom</span><input type="range" id="zoom-slider" min="0.25" max="15" step="0.05" value="1" oninput="setZoom(this.value)"><span id="zoom-label" class="zoom-label">1.00&#215;</span></span>';
+  html += '</span>';
+  html += '<span class="cluster"><span class="clab">Forecast</span>';
+  html +=   '<span class="seg" id="seg-forecast" role="group" aria-label="Rate basis"><button data-fc="est" aria-pressed="true" onclick="setForecastMode(false)">Estimation</button><button class="alarm" data-fc="milestone" aria-pressed="false" onclick="setForecastMode(true)">Milestone</button></span>';
+  html +=   '<span style="position:relative"><button class="tb-neutral" id="params-btn" onclick="toggleMenu(\'tb-params\', event)">Params <span class="car">&#9662;</span></button>';
+  html +=     '<div class="tb-menu pcol" id="tb-params">';
+  html +=       '<span class="vel-ctrl"><span class="vel-cap">Lookback</span><input type="number" id="lookback-input" min="1" max="52" step="1" value="4" onchange="setLookback(this.value)"> wks</span>';
+  html +=       '<span class="vel-ctrl"><span class="vel-cap">h/mo per emp</span><input type="number" id="hrs-per-emp" min="0" step="1" placeholder="&mdash;" onchange="setHrsPerEmployee(this.value)"></span>';
+  html +=       '<span class="vel-ctrl" id="emp-adjust-ctrl" style="display:none"><span class="vel-cap">Add/Remove Staff</span><button class="emp-step" onclick="bumpEmployees(-1)">&minus;</button><input type="number" id="add-emp-input" step="1" value="0" onchange="setAddEmployees(this.value)"><button class="emp-step" onclick="bumpEmployees(1)">+</button><span id="emp-adjust-hint" class="vel-cap" style="color:#475569;font-weight:normal"></span></span>';
+  html +=     '</div></span>';
+  html += '</span>';
+  html += '<span class="cluster"><span class="clab">Group</span>';
+  html +=   '<span style="position:relative"><button class="tb-neutral" id="group-btn" onclick="toggleMenu(\'tb-group\', event)">Group <span class="car">&#9662;</span></button>';
+  html +=     '<div class="tb-menu" id="tb-group"><button class="mi" id="mi-collector" onclick="closeMenus();toggleGroupMode()"><span class="ic">&#9638;</span><span><b>Collector group</b><small>Roll up a run of sibling branches under one parent</small></span></button>';
+  html +=       '<button class="mi" id="mi-cousin" onclick="closeMenus();toggleCousinMode()"><span class="ic">&#10697;</span><span><b>Cousin group</b><small>Same-part WOs across different next-higher assemblies</small></span></button></div></span>';
+  html +=   '<button class="btn btn-green" id="group-sel-btn" style="display:none" disabled onclick="createGroupFromSelection()">Group Selected</button>';
+  html +=   '<button class="btn btn-green" id="cousin-sel-btn" style="display:none" disabled onclick="createCousinFromSelection()">Group Cousins</button>';
+  html += '</span>';
+  html += '<span class="cluster"><span class="clab">Export</span>';
+  html +=   '<span style="position:relative"><button class="tb-neutral" id="export-menu-btn" onclick="toggleMenu(\'tb-export\', event)">Export <span class="car">&#9662;</span></button>';
+  html +=     '<div class="tb-menu" id="tb-export"><button class="mi" onclick="closeMenus();exportHierarchyCSV()"><span class="ic">&#10515;</span><span><b>Hierarchy CSV</b><small>Re-importable tree with all overlays</small></span></button>';
+  html +=       '<button class="mi" onclick="closeMenus();exportAssignmentFeed()"><span class="ic">&#10515;</span><span><b>WO Assignment Feed</b><small>Per-WO feed for the Task Assignment tool</small></span></button>';
+  html +=       '<div class="msep"></div><button class="mi" onclick="closeMenus();saveSnapshot()"><span class="ic">&#9635;</span><span><b>Save for Editing</b><small>Self-contained HTML snapshot</small></span></button></div></span>';
+  html += '</span>';
+  html += '</div>\n';
   html += '<div class="legend" id="legend">' + document.getElementById('legend').innerHTML + '</div>\n';
   html += '<div id="board"></div>\n';
   html += '<div id="loading"></div>\n';
@@ -3533,7 +3645,7 @@ function saveSnapshot() {
     computeGateDates, computeCascade, isOnHold, holdReason, requiredRateInfo, noProgressInfo,
     setLookback, promptVelocity, resetVelocity, setJoinGate, pctOfDate, renderMilestone, taskColPx, syncFloatingAxis, drawConnectors,
     setHrsPerEmployee, setAddEmployees, bumpEmployees, syncEmpControls,
-    cycleView, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
+    setView, toggleMenu, closeMenus, syncToolbar, toggleCollapse, toggleOps, toggleGate, resolveOps, opTooltip,
     barWidthPct, barStartPct, gateSegPcts, gateSegTip, gateWaitHTML, noForecast, solidBarHTML, renderBar, renderRevealStrip, revealOpLine, axisTicksHTML, buildRows, render, updateButtons,
     monthList, gateRemaining, simulateLoad, computeGateLoading, toggleLoadExpand, toggleExclude, renderReconciliation, renderLoadingTable,
     toggleWhatIfFamily, restoreWhatIfFamily, restoreAllWhatIf, whatIfLabel, renderWhatIfStrip,
@@ -3541,19 +3653,16 @@ function saveSnapshot() {
     toggleGroupCollapse, setGroupName, removeGroup, groupSpan, renderGroupRow,
     cousinById, cousinGroupOfNode, toggleCousinSel, refreshCousinBtn, toggleCousinMode, createCousinFromSelection,
     toggleCousinCollapse, setCousinName, removeCousin, cousinSpan, cousinNeedDate, ancestorChainOf, cousinLcaId, renderCousinRow,
-    requiredVelocity, toggleMilestoneMode, computeShortfall, renderShortfallPanel,
+    requiredVelocity, setForecastMode, computeShortfall, renderShortfallPanel,
     csvQuote, dateStr, downloadFile, exportHierarchyCSV, isDrOp, exportAssignmentFeed, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
   html += 'wireInputs();\n';
-  html += 'document.getElementById("view-btn").textContent = "View: " + (globalView==="bars"?"Bars":(globalView==="gateblocks"?"Gate blocks":"Chips"));\n';
   html += 'document.getElementById("zoom-slider").value = zoomFactor;\n';
   html += 'document.getElementById("zoom-label").textContent = (+zoomFactor).toFixed(2) + "\\u00d7";\n';
-  html += 'document.getElementById("compact-btn").textContent = "Mode: " + (compactMode ? "Review" : "Edit");\n';
-  html += 'document.body.classList.toggle("compact-mode", compactMode);\n';
   html += 'document.getElementById("lookback-input").value = lookbackWeeks;\n';
+  html += 'document.body.classList.toggle("compact-mode", compactMode);\n';
   html += 'document.body.classList.toggle("milestone-mode", milestoneMode);\n';
-  html += 'document.getElementById("milestone-btn").textContent = "Mode: " + (milestoneMode ? "Milestone (needs)" : "Estimation");\n';
-  html += 'render();\n';
+  html += 'render();\n';   // render() -> syncToolbar() reflects the View / Edit-Review / Estimation-Milestone segments
   html += '<\/script>\n</body>\n</html>';
 
   // Self-check: every inline handler referenced in the LIVE DOM must be serialized in fns[], or the
