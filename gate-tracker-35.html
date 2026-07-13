@@ -265,7 +265,7 @@
 </head>
 <body>
 
-<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v37</span></h1>
+<h1>Gate Tracker <span style="font-size:0.5em;color:#999;font-weight:normal;">v38</span></h1>
 <p class="description">Load the Gate Decoder Ring and Daily Upload CSV files, then click Process.</p>
 
 <div class="file-inputs">
@@ -317,7 +317,8 @@
     <p>Accepts either schema (auto-detected):<br>
       &bull; <strong>Tableau export</strong>: <code>Order No, Last Day in Gate, Location Name, Days in Gate</code><br>
       &bull; <strong>Legacy asset-mgmt export</strong>: <code>Work Order ID, Date Time, Location</code><br>
-      Each upload <strong>appends</strong> to the existing pool (all files in a session must share one schema). Click <em>Clear</em> to reset.</p>
+      Each upload <strong>appends</strong> to the existing pool (all files in a session must share one schema). Click <em>Clear</em> to reset.<br>
+      <span style="font-size:0.9em;color:#666;">Tableau locations drop the campus prefix, so a leading <code>SP-</code>/<code>MB-</code> on Master Gates locations is auto-ignored when matching &mdash; keep the true prefixed name in Master Gates.</span></p>
     <input type="file" id="scan-data-input" accept=".csv" multiple>
     <div id="scan-data-status" class="status"></div>
   </div>
@@ -1495,13 +1496,14 @@ function parseMasterGates(rows) {
   var gateToScannedLoc = {};   // gate number → scanned location string (gate→many: last write wins; diagnostics only)
   var scannedLocType = {};     // scanned location (lower) → 'WIP' | 'QUEUE'
   var scannedLocTech = {};     // scanned location (lower) → technician(s) at that location (joined)
+  var scannedLocStripped = {}; // campus-prefix-stripped location (lower) → canonical prefixed key (Tableau prefix-insensitive match)
   var gateNumIdx = colIndex(headers, 'Gate Number');
   var gateNameIdx = colIndex(headers, 'Gate Name');
   var scannedLocIdx = colIndex(headers, 'Scanned Location');
   var locTypeIdx = colIndex(headers, 'Location Type');
   if (gateNumIdx < 0 || gateNameIdx < 0) {
     errors.push({ file: 'Master Gates', row: null, message: 'Missing required column(s): ' + (gateNumIdx < 0 ? '"Gate Number" ' : '') + (gateNameIdx < 0 ? '"Gate Name"' : '') });
-    return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, scannedLocType: scannedLocType, scannedLocTech: scannedLocTech, errors: errors, warnings: warnings };
+    return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, scannedLocType: scannedLocType, scannedLocTech: scannedLocTech, scannedLocStripped: scannedLocStripped, errors: errors, warnings: warnings };
   }
   // Detect Technician 1-10 columns
   var techColIdxs = [];
@@ -1560,6 +1562,8 @@ function parseMasterGates(rows) {
       if (scannedLoc) {
         rowLocKey = scannedLoc.toLowerCase();
         scannedLocToGate[rowLocKey] = rawGateNum;
+        var strippedLoc = stripCampusPrefix(rowLocKey);
+        if (strippedLoc !== rowLocKey) scannedLocStripped[strippedLoc] = rowLocKey;  // alias for Tableau bare-name match
         gateToScannedLoc[rawGateNum] = scannedLoc;  // gate\u2192many: last write wins (diagnostics only)
         if (locTypeIdx >= 0) {
           var ltRaw = (row[locTypeIdx] || '').trim().toUpperCase();
@@ -1625,7 +1629,7 @@ function parseMasterGates(rows) {
   } else {
     warnings.push({ file: 'Master Gates', row: null, message: 'DIAGNOSTIC: No "Scanned Location" column found in headers. Columns found: ' + headers.map(function(h, i) { return i + '="' + h.trim() + '"'; }).join(', ') });
   }
-  return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, scannedLocType: scannedLocType, scannedLocTech: scannedLocTech, errors: errors, warnings: warnings };
+  return { techsByGate: techsByGate, gateNames: gateNames, gateOrder: gateOrder, masterGateSet: masterGateSet, allTechNames: allTechNames, techsByGateMap: techsByGateMap, scannedLocToGate: scannedLocToGate, gateToScannedLoc: gateToScannedLoc, scannedLocType: scannedLocType, scannedLocTech: scannedLocTech, scannedLocStripped: scannedLocStripped, errors: errors, warnings: warnings };
 }
 
 function validateDecoderVsMaster(gatesByPart, masterGateSet) {
@@ -1807,6 +1811,25 @@ function gvCardSort(a, b) {
 
 function cleanLocation(s) {
   return s.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF\u00AD\u00A0\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Campus prefixes (SP-/MB-) are part of the true Master Gates location name but are absent from
+// the Tableau ("new") scan export. Strip a single leading SP-/MB- (case-insensitive) so Tableau
+// locations still match the prefixed Master Gates keys. Legacy scans keep the prefix + match directly.
+function stripCampusPrefix(loc) {
+  return String(loc || '').replace(/^(?:SP|MB)-/i, '');
+}
+
+// Resolve a scan-file location (lowercased, cleaned) to its canonical Master Gates key.
+// Direct hit first (legacy prefixed scans + any exact match). Tableau ("new") schema falls back to
+// prefix-insensitive matching so bare Location Names match prefixed Master Gates keys.
+function resolveScanLocKey(locLower, locToGate, strippedMap) {
+  if (Object.prototype.hasOwnProperty.call(locToGate, locLower)) return locLower;
+  if (scanDataSchema === 'new' && strippedMap) {
+    var bare = stripCampusPrefix(locLower);
+    if (Object.prototype.hasOwnProperty.call(strippedMap, bare)) return strippedMap[bare];
+  }
+  return null;
 }
 
 function parseScanDateTime(raw) {
@@ -2004,6 +2027,7 @@ function process() {
   let scannedLocToGate = {};
   let scannedLocType = {};
   let scannedLocTech = {};
+  let scannedLocStripped = {};
   let allMasterTechNames = new Set();
   let techsByGateMap = {};
   let techFileLoaded = false;
@@ -2021,6 +2045,7 @@ function process() {
     scannedLocToGate = mgResult.scannedLocToGate || {};
     scannedLocType = mgResult.scannedLocType || {};
     scannedLocTech = mgResult.scannedLocTech || {};
+    scannedLocStripped = mgResult.scannedLocStripped || {};
     techFileLoaded = mgResult.errors.length === 0 && mgResult.gateOrder.length > 0;
     for (var vi = 0; vi < mgResult.errors.length; vi++) allValidationIssues.push({ severity: 'error', file: mgResult.errors[vi].file, row: mgResult.errors[vi].row, message: mgResult.errors[vi].message });
     for (var wi = 0; wi < mgResult.warnings.length; wi++) allValidationIssues.push({ severity: 'warning', file: mgResult.warnings[wi].file, row: mgResult.warnings[wi].row, message: mgResult.warnings[wi].message });
@@ -2462,7 +2487,8 @@ function process() {
       // Group by WO
       for (var spg = 0; spg < spRenderArr.length; spg++) {
         var spEnt = spRenderArr[spg];
-        var mappedG = scannedLocToGate[spEnt.location.toLowerCase()];
+        var spMgKey = resolveScanLocKey(spEnt.location.toLowerCase(), scannedLocToGate, scannedLocStripped);
+        var mappedG = spMgKey ? scannedLocToGate[spMgKey] : undefined;
         var locLabel;
         if (mappedG) {
           locLabel = mappedG.toUpperCase().startsWith('HOLD')
@@ -3378,7 +3404,8 @@ function process() {
 
         for (var ei = 0; ei < entries.length; ei++) {
           var entry = entries[ei];
-          var mappedGate = scannedLocToGate[entry.location.toLowerCase()];
+          var mgKey = resolveScanLocKey(entry.location.toLowerCase(), scannedLocToGate, scannedLocStripped);
+          var mappedGate = mgKey ? scannedLocToGate[mgKey] : undefined;
 
           if (mappedGate) {
             // Mapped location → place in gate bucket
@@ -3405,8 +3432,8 @@ function process() {
               hasDrOps: daily ? daily.hasDrOps : false,
               hasQaOps: daily ? daily.hasQaOps : false,
               missing: isMissing,
-              techName: scannedLocTech[entry.location.toLowerCase()] || '',
-              locationType: scannedLocType[entry.location.toLowerCase()] || 'QUEUE',
+              techName: mgKey ? (scannedLocTech[mgKey] || '') : '',
+              locationType: mgKey ? (scannedLocType[mgKey] || 'QUEUE') : 'QUEUE',
               scanLocation: entry.location
             };
             if (useFileDaysInGate) {
