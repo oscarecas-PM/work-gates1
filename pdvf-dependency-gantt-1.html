@@ -350,7 +350,14 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 .lt-recon .lt-recon-num { font-weight: bold; font-variant-numeric: tabular-nums; }
 .lt-recon .lt-recon-item { white-space: nowrap; }
 .lt-recon .lt-recon-warn { color: #b45309; font-weight: bold; }
+.lt-recon .lt-recon-assumed { color: #1d4ed8; font-weight: bold; cursor: help; }
 .lt-recon .lt-recon-sep { color: #cbd5e1; }
+/* Pace-basis decomposition line — sits below the main reconciliation strip, lighter weight. */
+.lt-recon-pace { padding-top: 2px; border-bottom: 1px solid #e2e8f0; }
+.lt-recon-pace .lt-recon-warn { cursor: help; }
+/* Placeholder "assumed pace" cues: a neutral pill on the WO row + italic Pace figure. */
+.lt-assumed-pill { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 0.62rem; font-weight: bold; color: #fff; background: #1d4ed8; margin-left: 6px; white-space: nowrap; cursor: help; }
+tr.lt-wo-assumed .lt-pace { font-style: italic; }
 @media print { .lt-scroll { overflow: visible; } }
 /* What-if family toggle — the per-root hide button + the restore strip above the board. */
 .whatif-hide { margin-left: 4px; border: 1px solid #cbd5e1; background: #fff; color: #64748b; border-radius: 3px; font-size: 0.62rem; font-weight: bold; padding: 0 5px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
@@ -413,7 +420,7 @@ th.lt-later-col { background: #fbf7ef; color: #92722a; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.21</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.22</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -2961,7 +2968,10 @@ function computeGateLoading() {
   var ehaLoaded = Object.keys(weeklyEarned).length > 0;
   var recon = { shownHrs:0, notMappedHrs:0, notMappedCount:0, excludedHrs:0, excludedCount:0,
                 heldHrs:0, heldCount:0, noMsHrs:0, noMsCount:0, pastDueHrs:0, pastDueCount:0,
-                ehaMissHrs:0, ehaMissCount:0, ehaLoaded: ehaLoaded };
+                ehaMissHrs:0, ehaMissCount:0, ehaLoaded: ehaLoaded,
+                // Pace-basis attribution (why a remaining hour does / doesn't have a Pace forecast).
+                measuredPaceHrs:0, assumedPaceHrs:0, assumedPaceCount:0, assumedPaceParts:[],
+                pacelessHrs:0, pacelessCount:0, pacelessParts:[] };
 
   function blankSub(){ return {}; }
   function addSub(store, mk, field, hrs){ if (!store[mk]) store[mk] = { plan:0, pace:0 }; store[mk][field] += hrs; }
@@ -3029,14 +3039,24 @@ function computeGateLoading() {
       if (rr && rr.required != null) { required = rr.required;
         planCurve = simulateLoad(gates, required, todayDay, months, monthRange); }
     }
-    // ----- Pace (at current velocity) -----
-    var paceCurve = null, eff = null;
-    if (!n.isPlaceholder && fleetCache && fleetCache.fleet) {
+    // ----- Pace (at current velocity; assumed for placeholders) -----
+    var paceCurve = null, eff = null, assumedPace = false;
+    if (n.isPlaceholder) {
+      // Placeholders have no measured velocity. Assume the required-to-hit-milestone rate (= Plan) so the
+      // Pace forecast isn't silently 100% short for planned work. Flagged assumed, not measured.
+      if (planCurve) { paceCurve = planCurve; eff = required; assumedPace = true; }
+    } else if (fleetCache && fleetCache.fleet) {
       eff = fleetCache.fleet.eff[id];
       if (eff != null && eff > 0) paceCurve = simulateLoad(gates, eff, todayDay, months, monthRange);
     }
 
     accumulate(store, planCurve, 'plan'); accumulate(store, paceCurve, 'pace');
+
+    // Pace-basis attribution: measured (real velocity) / assumed (placeholder required rate) / unknown
+    // (real WO with no forecastable Pace). Feeds the reconciliation "Pace basis" decomposition + tooltips.
+    if (assumedPace) { recon.assumedPaceHrs += totalRem; recon.assumedPaceCount++; recon.assumedPaceParts.push({ pn: pnsn, hrs: totalRem }); }
+    else if (paceCurve) { recon.measuredPaceHrs += totalRem; }
+    else if (!n.isPlaceholder) { recon.pacelessHrs += totalRem; recon.pacelessCount++; recon.pacelessParts.push({ pn: pnsn, hrs: totalRem }); }
 
     // Behind? + catch-up. Only real WOs can be "behind" — placeholders have no velocity and are
     // planned work, not stalled, so they never get a red flag.
@@ -3056,21 +3076,22 @@ function computeGateLoading() {
     var remHrs = totalRem;
     store.wos.push({ id:id, label:label, idTag:idTag, pn:n.partNo, sn:n.serial, woNo:n.woNo,
       isPlaceholder:n.isPlaceholder, planMissing: !planCurve, paceMissing: !paceCurve, held: held,
+      assumedPace: assumedPace,
       behind: behind, catchup: catchup, required: required, eff: eff, months: wm,
       planSum: planSum, paceSum: paceSum, remHrs: remHrs });
   });
 
   // Roll WO coverage up to program + lab. Only included WOs count (excluded/no-ring are intentional).
-  lab.cov = { planSum: 0, paceSum: 0, rem: 0, anyPlan: false, anyPace: false };
+  lab.cov = { planSum: 0, paceSum: 0, assumedSum: 0, rem: 0, anyPlan: false, anyPace: false };
   programs.forEach(function(p){
     var st = byProg[p]; if (!st) return;
-    st.cov = { planSum: 0, paceSum: 0, rem: 0, anyPlan: false, anyPace: false };
+    st.cov = { planSum: 0, paceSum: 0, assumedSum: 0, rem: 0, anyPlan: false, anyPace: false };
     st.wos.forEach(function(w){
       st.cov.rem += w.remHrs;
       if (!w.planMissing) { st.cov.planSum += w.planSum; st.cov.anyPlan = true; }
-      if (!w.paceMissing) { st.cov.paceSum += w.paceSum; st.cov.anyPace = true; }
+      if (!w.paceMissing) { st.cov.paceSum += w.paceSum; st.cov.anyPace = true; if (w.assumedPace) st.cov.assumedSum += w.paceSum; }
     });
-    lab.cov.rem += st.cov.rem; lab.cov.planSum += st.cov.planSum; lab.cov.paceSum += st.cov.paceSum;
+    lab.cov.rem += st.cov.rem; lab.cov.planSum += st.cov.planSum; lab.cov.paceSum += st.cov.paceSum; lab.cov.assumedSum += st.cov.assumedSum;
     lab.cov.anyPlan = lab.cov.anyPlan || st.cov.anyPlan; lab.cov.anyPace = lab.cov.anyPace || st.cov.anyPace;
   });
 
@@ -3103,6 +3124,22 @@ function renderReconciliation(gl) {
   var html = '<div class="lt-recon">' + items.join('<span class="lt-recon-sep">·</span>');
   if (flags.length) html += '<span class="lt-recon-sep">&#124;</span>' + flags.join('<span class="lt-recon-sep">·</span>');
   html += '</div>';
+
+  // Pace-basis decomposition — where the Pace forecast's hours come from, so a high Pa "missing %"
+  // is diagnosable: measured velocity vs assumed (placeholder required rate) vs unknown (no forecast).
+  // Contributing part numbers live in tooltips to keep the line uncluttered.
+  function partsTip(parts, count){
+    var sorted = parts.slice().sort(function(a,b){ return b.hrs - a.hrs; });
+    var shown = sorted.slice(0, 20).map(function(pp){ return pp.pn + ' — ' + n1(pp.hrs) + ' h'; });
+    if (count > shown.length) shown.push('+' + (count - shown.length) + ' more');
+    return shown.join('\n');
+  }
+  var pace = [];
+  if (r.measuredPaceHrs > 0.05) pace.push('<span class="lt-recon-item">measured <span class="lt-recon-num">' + n1(r.measuredPaceHrs) + ' h</span></span>');
+  if (r.assumedPaceCount) pace.push('<span class="lt-recon-item lt-recon-assumed" title="Placeholders have no measured velocity — Pace assumed = required rate to hit the milestone (matches Plan).\n\n' + esc(partsTip(r.assumedPaceParts, r.assumedPaceCount)) + '">&#8776; assumed ' + n1(r.assumedPaceHrs) + ' h (' + woN(r.assumedPaceCount) + ')</span>');
+  if (r.pacelessCount) pace.push('<span class="lt-recon-item lt-recon-warn" title="Real work orders with no forecastable Pace (no measured velocity / no EHA history) — these hours are the residual missing from the Pace forecast.\n\n' + esc(partsTip(r.pacelessParts, r.pacelessCount)) + '">&#9888; unknown ' + n1(r.pacelessHrs) + ' h (' + woN(r.pacelessCount) + ')</span>');
+  if (pace.length) html += '<div class="lt-recon lt-recon-pace"><span class="lt-recon-item"><span class="lt-recon-cap">Pace basis:</span></span>' + pace.join('<span class="lt-recon-sep">·</span>') + '</div>';
+
   return html;
 }
 
@@ -3169,10 +3206,11 @@ function renderLoadingTable() {
     var h = '';
     wos.forEach(function(w){
       var flag = w.behind ? '<span class="lt-behind-flag" title="Behind schedule — must speed up to hit target">▾ needs +' + (w.catchup != null ? w.catchup.toFixed(1) : '?') + ' h/mo</span>' : '';
-      var cov = covBadge({ planSum: w.planSum, paceSum: w.paceSum, rem: w.remHrs, anyPlan: !w.planMissing, anyPace: !w.paceMissing });
+      var cov = covBadge({ planSum: w.planSum, paceSum: w.paceSum, assumedSum: w.assumedPace ? w.paceSum : 0, rem: w.remHrs, anyPlan: !w.planMissing, anyPace: !w.paceMissing });
       var heldPill = w.held ? ' <span class="lt-held-pill" title="On hold — Plan hours are hatched (can\'t be worked while held); Pace is blank (no recent velocity)">&#9208; held</span>' : '';
-      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + cov + esc(w.label) + heldPill + flag + '</th>';
-      h += subRow(head, w.months, false, 'lt-sub lt-wo', w.held);
+      var assumedPill = w.assumedPace ? ' <span class="lt-assumed-pill" title="Placeholder — no measured velocity. Pace assumed = required rate to hit the milestone (matches Plan).">&#8776; assumed pace</span>' : '';
+      var head = '<th class="lt-rowhead lt-sub-head"><span class="lt-excl" title="Exclude this line from the calculation" onclick="event.stopPropagation();toggleExclude(\'' + w.id + '\')">&#10005;</span> ' + cov + esc(w.label) + heldPill + assumedPill + flag + '</th>';
+      h += subRow(head, w.months, false, 'lt-sub lt-wo' + (w.assumedPace ? ' lt-wo-assumed' : ''), w.held);
     });
     return h;
   }
@@ -3190,7 +3228,8 @@ function renderLoadingTable() {
     var warn = ((cov.anyPlan && (cov.rem - cov.planSum) / cov.rem >= 0.10) || (cov.anyPace && (cov.rem - cov.paceSum) / cov.rem >= 0.10) || (!cov.anyPlan && !cov.anyPace));
     var tip = 'Coverage vs ' + cov.rem.toFixed(1) + ' h remaining. % = remaining hours NOT represented in the table (0% = all accounted). ' +
       'Plan: ' + cov.planSum.toFixed(1) + ' h shown' + (cov.anyPlan ? '' : ' (no milestone → no Plan)') + '. ' +
-      'Pace: ' + cov.paceSum.toFixed(1) + ' h shown' + (cov.anyPace ? (cov.rem - cov.paceSum > 0.5 ? ' (' + (cov.rem - cov.paceSum).toFixed(1) + ' h fall beyond the chart)' : '') : ' (no velocity → no Pace)') + '.';
+      'Pace: ' + cov.paceSum.toFixed(1) + ' h shown' + (cov.anyPace ? (cov.rem - cov.paceSum > 0.5 ? ' (' + (cov.rem - cov.paceSum).toFixed(1) + ' h not in the Pace forecast — see Pace basis)' : '') : ' (no velocity → no Pace)') +
+      ((cov.assumedSum && cov.assumedSum > 0.5) ? ' (incl. ' + cov.assumedSum.toFixed(1) + ' h assumed pace for placeholders)' : '') + '.';
     return '<span class="lt-cov" title="' + esc(tip) + '">' + (warn ? '&#9888; ' : '') + part(cov.planSum, cov.anyPlan, 'P', 'lt-plan') + ' ' + part(cov.paceSum, cov.anyPace, 'Pa', 'lt-pace') + '</span>';
   }
 
