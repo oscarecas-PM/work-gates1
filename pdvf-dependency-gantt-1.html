@@ -421,7 +421,7 @@ tr.lt-wo-assumed .lt-pace { font-style: italic; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.23</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.24</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -515,6 +515,7 @@ tr.lt-wo-assumed .lt-pace { font-style: italic; }
       <div class="tb-menu" id="tb-export">
         <button class="mi" onclick="closeMenus();exportHierarchyCSV()"><span class="ic">⤓</span><span><b>Hierarchy CSV</b><small>Re-importable tree with all overlays</small></span></button>
         <button class="mi" onclick="closeMenus();exportAssignmentFeed()"><span class="ic">⤓</span><span><b>WO Assignment Feed</b><small>Per-WO feed for the Task Assignment tool</small></span></button>
+        <button class="mi" onclick="closeMenus();exportMilestoneBoard()"><span class="ic">🖶</span><span><b>Milestone Board (HTML)</b><small>Bare-bones printable view of the current on-screen board</small></span></button>
         <div class="msep"></div>
         <button class="mi" onclick="closeMenus();saveSnapshot()"><span class="ic">▣</span><span><b>Save for Editing</b><small>Self-contained HTML snapshot</small></span></button>
       </div>
@@ -3603,6 +3604,122 @@ function importHierarchy(rows) {
   render();
 }
 
+// ============================== Export: Milestone Board (static HTML) ==============================
+// A bare-bones, format-locked HTML of the board EXACTLY as displayed: current collapse/expand state,
+// and only the slice of the calendar currently on screen (derived from the live scroll + zoom). Solid
+// bar per WO (no gate segments), group/cousin summary bars, left column trimmed to name + completion
+// date, a month header above each program. Static (no script) so the format survives; users print it.
+function exportMilestoneBoard() {
+  if (!rootIds.length) { alert('Nothing to export yet — add some work orders first.'); return; }
+
+  // 1) Visible date window from the live DOM. Scroll is synced across programs (syncFloatingAxis), so the
+  // first .gantt-wrap is representative. Coordinate basis matches the axis track: bars live in the
+  // [taskColPx()+6 .. ganttWidth-6] band, i.e. the .time-col width minus the 6px .bar-wrap inset each side.
+  var win = null;
+  var wrap = document.querySelector('.gantt-wrap');
+  var tc = wrap && wrap.querySelector('.time-col');
+  if (tc) {
+    var barWrapW = tc.getBoundingClientRect().width - 12;
+    var taskW = taskColPx(), total = daysBetween(gStart, gMax) || 1;
+    var dateAtX = function(X) { var f = (X - (taskW + 6)) / barWrapW; if (f < 0) f = 0; if (f > 1) f = 1; return addDays(gStart, Math.round(f * total)); };
+    win = { start: dateAtX(wrap.scrollLeft), end: dateAtX(wrap.scrollLeft + wrap.clientWidth) };
+  }
+  if (!win) win = { start: gStart, end: gMax };
+  if (!win.start || !win.end || win.end <= win.start) win = { start: gStart, end: addDays(gStart, Math.max(1, daysBetween(gStart, gMax))) };
+
+  // Local helpers (nested so they serialize with this fn — nothing extra to register in fns[]).
+  function clampPct(p) { if (!isFinite(p)) return null; if (p < 0) p = 0; if (p > 100) p = 100; return p; }
+  function fmtMDY(isoStr) { if (!isoStr) return ''; var p = String(isoStr).split('-'); return p.length === 3 ? (p[1] + '/' + p[2] + '/' + p[0]) : isoStr; }
+  function monthHeader(a, b) {
+    var tot = daysBetween(a, b) || 1, ticks = '';
+    var d = parseISO(a); var cur = new Date(d.getFullYear(), d.getMonth(), 1), guard = 0;
+    while (iso(cur) <= b && guard++ < 240) {
+      var pos = daysBetween(a, iso(cur)) / tot * 100;
+      if (pos >= -1 && pos <= 101) {
+        var label = cur.toLocaleString('en-US', { month: 'short' }) + " '" + pad(cur.getFullYear() % 100);
+        ticks += '<div class="exp-mtick" style="left:' + pos.toFixed(3) + '%"></div><div class="exp-mlabel" style="left:' + pos.toFixed(3) + '%">' + esc(label) + '</div>';
+      }
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+    return '<div class="exp-monthhdr"><div class="exp-mh-spacer"></div><div class="exp-mh-track">' + ticks + '</div></div>';
+  }
+  function renderExpRow(rw) {
+    var lvl = rw.level || 0, pad2 = 8 + lvl * 14;
+    if (rw.group || rw.cousin) {
+      var g = rw.group || rw.cousin;
+      var span = rw.group ? groupSpan(g) : cousinSpan(g);
+      var sp = clampPct(pctOfDate(span.startISO)), ep = clampPct(pctOfDate(span.endISO));
+      var gbar = '';
+      if (sp != null && ep != null && ep - sp > 0) gbar = '<div class="exp-gbar" style="left:' + sp + '%;width:' + (ep - sp) + '%">' + esc(g.name || '') + '</div>';
+      return '<div class="exp-row exp-grow"><div class="exp-task" style="padding-left:' + pad2 + 'px"><span class="exp-gname">' + (rw.cousin ? '&#10697; ' : '&#9638; ') + esc(g.name || 'Group') + '</span></div><div class="exp-time">' + gbar + '</div></div>';
+    }
+    var n = rw.node;
+    var name = esc(identToken(n)) + (n.partNo ? ' &middot; ' + esc(n.partNo) : '') + (n.partDesc ? ' ' + esc(n.partDesc) : '');
+    var sp2 = barStartPct(n);
+    var end = n.completion ? pctOfDate(n.completion) : barWidthPct(n);
+    end = clampPct(end); if (sp2 == null) sp2 = 0; if (!isFinite(sp2)) sp2 = 0;
+    var w = (end == null) ? 0 : Math.max(0, end - sp2);
+    var mapped = !!ringByPart[n.partNo];
+    var bar = (w > 0) ? '<div class="exp-bar ' + (mapped ? 'exp-bar-g' : 'exp-bar-x') + '" style="left:' + sp2 + '%;width:' + w + '%">' + esc(identToken(n)) + '</div>' : '';
+    return '<div class="exp-row"><div class="exp-task" style="padding-left:' + pad2 + 'px"><span class="exp-name">' + name + '</span>' +
+      (n.completion ? '<span class="exp-date">' + esc(fmtMDY(n.completion)) + '</span>' : '') + '</div><div class="exp-time">' + bar + '</div></div>';
+  }
+  function buildBody() {
+    var byProg = {}, progOrder = [];
+    rootIds.forEach(function(rid) { if (whatIfHiddenRoots[rid]) return; var p = nodes[rid].program || '(no program)'; if (!byProg[p]) { byProg[p] = []; progOrder.push(p); } byProg[p].push(rid); });
+    var out = '';
+    progOrder.forEach(function(prog) {
+      var lbl = programLabels[prog] ? (esc(programLabels[prog]) + ' &mdash; ' + esc(prog)) : esc(prog);
+      out += '<section class="exp-section"><div class="exp-ptitle">' + lbl + '</div>' + monthHeader(gStart, gMax);
+      byProg[prog].forEach(function(rid) { buildRows(rid, 0, []).forEach(function(rw) { out += renderExpRow(rw); }); });
+      out += '</section>';
+    });
+    return out;
+  }
+
+  // 2) Swap the axis domain to the visible window so every position helper (pctOfDate / barStartPct /
+  // barWidthPct / groupSpan / cousinSpan) re-maps to it; restore afterward no matter what.
+  var s0 = gStart, m0 = gMax, body;
+  gStart = win.start; gMax = win.end;
+  try { body = buildBody(); } finally { gStart = s0; gMax = m0; }
+
+  var css =
+    'body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:16px 20px;color:#1e293b;background:#fff;}' +
+    '.exp-banner{background:#fef3c7;border:2px solid #f59e0b;padding:6px 12px;text-align:center;font-weight:bold;font-size:0.85rem;color:#92400e;border-radius:4px;margin-bottom:12px;}' +
+    '.exp-h1{font-size:1.25rem;margin:0 0 2px;}.exp-h1 span{font-weight:normal;color:#64748b;font-size:0.95rem;}' +
+    '.exp-sub{margin:0 0 16px;color:#94a3b8;font-size:0.75rem;}' +
+    '.exp-section{border:1px solid #cbd5e1;border-radius:6px;margin-bottom:18px;overflow:hidden;}' +
+    '.exp-ptitle{background:#1e3a5f;color:#fff;font-weight:bold;padding:6px 12px;font-size:0.9rem;}' +
+    '.exp-monthhdr{display:flex;border-bottom:1px solid #cbd5e1;background:#f8fafc;height:22px;}' +
+    '.exp-mh-spacer{width:300px;flex:0 0 300px;border-right:1px solid #e2e8f0;}' +
+    '.exp-mh-track{flex:1 1 auto;position:relative;}' +
+    '.exp-mtick{position:absolute;top:0;bottom:0;width:1px;background:#cbd5e1;}' +
+    '.exp-mlabel{position:absolute;top:4px;font-size:0.68rem;color:#475569;font-weight:600;transform:translateX(3px);white-space:nowrap;}' +
+    '.exp-row{display:flex;align-items:center;min-height:26px;border-bottom:1px solid #eef2f7;}' +
+    '.exp-grow{background:#f1f5f9;}' +
+    '.exp-task{width:300px;flex:0 0 300px;padding:3px 8px 3px 8px;border-right:1px solid #e2e8f0;box-sizing:border-box;}' +
+    '.exp-name{display:block;font-size:0.76rem;font-weight:600;line-height:1.15;}' +
+    '.exp-gname{display:block;font-size:0.76rem;font-weight:700;color:#3730a3;}' +
+    '.exp-date{display:block;font-size:0.7rem;color:#64748b;font-variant-numeric:tabular-nums;}' +
+    '.exp-time{flex:1 1 auto;position:relative;height:22px;overflow:hidden;}' +
+    '.exp-bar{position:absolute;top:3px;bottom:3px;border-radius:3px;color:#fff;font-size:0.66rem;line-height:16px;padding:0 5px;overflow:hidden;white-space:nowrap;text-overflow:clip;box-sizing:border-box;}' +
+    '.exp-bar-g{background:#16a34a;}.exp-bar-x{background:#9ca3af;}' +
+    '.exp-gbar{position:absolute;top:3px;bottom:3px;border-radius:3px;color:#fff;font-size:0.64rem;line-height:16px;padding:0 6px;overflow:hidden;white-space:nowrap;box-sizing:border-box;background:repeating-linear-gradient(45deg,#4f46e5,#4f46e5 6px,#6366f1 6px,#6366f1 12px);}' +
+    '@media print{@page{size:landscape;margin:10mm;}.exp-section,.exp-row{break-inside:avoid;}.exp-banner{position:static;}}';
+
+  var range = fmtMDY(win.start) + ' – ' + fmtMDY(win.end);
+  var stamp = new Date().toLocaleString();
+  var doc = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' \'unsafe-inline\';">' +
+    '<title>PDVF Milestone Board</title><style>\n' + css + '\n</style></head><body>' +
+    '<div class="exp-banner">Proprietary &mdash; Internal Use Only</div>' +
+    '<h1 class="exp-h1">Milestone Board <span>' + esc(range) + '</span></h1>' +
+    '<p class="exp-sub">Generated ' + esc(stamp) + ' &middot; ' + (milestoneMode ? 'Milestone' : 'Estimation') + ' mode &middot; window reflects the on-screen zoom &amp; scroll</p>' +
+    body + '</body></html>';
+  downloadFile(doc, 'milestone-board-' + dateStr() + '.html', 'text/html');
+}
+
 // ============================== Save snapshot ==============================
 function saveSnapshot() {
   var css = document.querySelector('style').textContent;
@@ -3659,6 +3776,7 @@ function saveSnapshot() {
   html +=   '<span style="position:relative"><button class="tb-neutral" id="export-menu-btn" onclick="toggleMenu(\'tb-export\', event)">Export <span class="car">&#9662;</span></button>';
   html +=     '<div class="tb-menu" id="tb-export"><button class="mi" onclick="closeMenus();exportHierarchyCSV()"><span class="ic">&#10515;</span><span><b>Hierarchy CSV</b><small>Re-importable tree with all overlays</small></span></button>';
   html +=       '<button class="mi" onclick="closeMenus();exportAssignmentFeed()"><span class="ic">&#10515;</span><span><b>WO Assignment Feed</b><small>Per-WO feed for the Task Assignment tool</small></span></button>';
+  html +=       '<button class="mi" onclick="closeMenus();exportMilestoneBoard()"><span class="ic">&#128438;</span><span><b>Milestone Board (HTML)</b><small>Bare-bones printable view of the current on-screen board</small></span></button>';
   html +=       '<div class="msep"></div><button class="mi" onclick="closeMenus();saveSnapshot()"><span class="ic">&#9635;</span><span><b>Save for Editing</b><small>Self-contained HTML snapshot</small></span></button></div></span>';
   html += '</span>';
   html += '</div>\n';
@@ -3711,7 +3829,7 @@ function saveSnapshot() {
     cousinById, cousinGroupOfNode, toggleCousinSel, refreshCousinBtn, toggleCousinMode, createCousinFromSelection,
     toggleCousinCollapse, setCousinName, removeCousin, cousinSpan, cousinNeedDate, ancestorChainOf, cousinLcaId, renderCousinRow,
     requiredVelocity, setForecastMode, computeShortfall, renderShortfallPanel,
-    csvQuote, dateStr, downloadFile, exportHierarchyCSV, isDrOp, exportAssignmentFeed, importHierarchy, saveSnapshot];
+    csvQuote, dateStr, downloadFile, exportHierarchyCSV, isDrOp, exportAssignmentFeed, exportMilestoneBoard, importHierarchy, saveSnapshot];
   for (var fi = 0; fi < fns.length; fi++) html += fns[fi].toString() + '\n\n';
   html += 'wireInputs();\n';
   html += 'document.getElementById("zoom-slider").value = zoomFactor;\n';
