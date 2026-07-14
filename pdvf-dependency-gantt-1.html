@@ -84,6 +84,7 @@ h1 { margin: 0 0 0.2rem 0; font-size: 1.4rem; color: #1e3a5f; } h1 span { font-s
 .wo-rem { background: #e0e7ff; color: #1e3a5f; }
 .wo-pct.pct-done { background: #16a34a; }
 .wo-pct.pct-plan { background: #cbd5e1; color: #475569; }
+.wo-warn { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; white-space: nowrap; margin-left: 4px; vertical-align: middle; background: #fef3c7; color: #92400e; cursor: help; }
 .vel-chip { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 0.7rem; font-weight: bold; white-space: nowrap; margin-left: 4px; vertical-align: middle; background: #0d9488; color: #fff; cursor: pointer; }
 .vel-chip.overridden { background: #7c3aed; }
 .vel-chip:hover { filter: brightness(1.1); }
@@ -420,7 +421,7 @@ tr.lt-wo-assumed .lt-pace { font-style: italic; }
 <!-- Global floating calendar — populated by render() with the current axis + width, synced to .gantt-wrap scrollLeft. -->
 <div id="floating-axis"><div class="fa-spacer">Work Order / Part &mdash; target completion</div><div class="fa-clip"><div class="fa-track"></div></div></div>
 
-<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.22</span></h1>
+<h1>PDVF — Dependency Gantt Builder <span>Phase 1 v1.23</span></h1>
 <p class="subtitle">Build a work-order dependency tree from a Daily Upload, schedule target completion dates, and view it as a program-grouped Gantt with gate / operation status — plus a gate-loading-by-month table at the bottom.</p>
 
 <div class="snapshot-notice" id="snapshot-notice">Loaded from a saved snapshot. Continue editing; re-upload a Daily Upload to refresh status, or export.</div>
@@ -1669,11 +1670,15 @@ function computeFleetVelocity() {
 // Month-by-month projection with same-partNo redistribution when a WO finishes early.
 // Returns { forecastEnd: { id: ISO|null }, monthsTaken: { id: # } }.
 function projectForecast(fleet) {
-  var remaining = {}, rate = {}, partOf = {}, idsByPart = {};
+  var remaining = {}, rate = {}, partOf = {}, idsByPart = {}, noHours = {};
   fleet.ids.forEach(function(id) {
     var n = nodes[id];
     rate[id] = fleet.eff[id];
-    remaining[id] = computeWOProgress(n).remainHrs || 0;
+    // A ringed WO whose ring carries no labor hours has no hours basis: computeWOProgress returns null.
+    // Guard it (don't dereference) and flag it so it takes the no-forecast path below rather than crashing.
+    var prog = computeWOProgress(n);
+    remaining[id] = prog ? (prog.remainHrs || 0) : 0;
+    noHours[id] = !prog;
     partOf[id] = n.partNo || '';
     if (!idsByPart[partOf[id]]) idsByPart[partOf[id]] = [];
     idsByPart[partOf[id]].push(id);
@@ -1681,9 +1686,10 @@ function projectForecast(fleet) {
   var todayD = parseISO(todayISO());
   var forecastEnd = {}, monthsTaken = {};
   var inProgress = fleet.ids.filter(function(id){ return remaining[id] > 0.01 && rate[id] > 0; });
-  // Mark anything already complete or with no velocity
+  // Mark anything already complete, un-forecastable (no ring hours), or with no velocity
   fleet.ids.forEach(function(id) {
-    if (remaining[id] <= 0.01) { forecastEnd[id] = iso(todayD); monthsTaken[id] = 0; }
+    if (noHours[id]) { forecastEnd[id] = null; monthsTaken[id] = Infinity; }   // no hours basis -> no computable forecast
+    else if (remaining[id] <= 0.01) { forecastEnd[id] = iso(todayD); monthsTaken[id] = 0; }
     else if (rate[id] <= 0) { forecastEnd[id] = null; monthsTaken[id] = Infinity; }
   });
   var month = 0, MAX_MONTHS = 60;
@@ -2692,6 +2698,9 @@ function render() {
           var pcls = n.isPlaceholder ? 'pct-plan' : (woProg.woPct >= 99.5 ? 'pct-done' : '');
           chipsHTML += '<span class="wo-pct ' + pcls + '" title="Hours-based: (planned − remaining) / planned">' + woProg.woPct.toFixed(0) + '%</span>' +
                   '<span class="wo-rem" title="Sum of planned hours for ops currently open in the daily upload">' + woProg.remainHrs.toFixed(1) + 'h rem</span>';
+        } else if (!n.isPlaceholder && resolveOps(n).hasRing) {
+          // Ringed WO whose decoder ring has no labor hours -> no hours basis for % or forecast (renders as no-forecast).
+          chipsHTML += '<span class="wo-warn" title="This WO\'s decoder ring has no labor hours, so PDVF can\'t compute a % or a forecast. Add Labor Hours to the ring.">&#9888; ring has no hours</span>';
         }
         // Velocity chip. In Milestone Mode it shows the REQUIRED rate (need, not estimate) and is read-only;
         // otherwise it's the EHA trailing-N-week avg with any manual override applied (click to edit).
@@ -2971,7 +2980,9 @@ function computeGateLoading() {
                 ehaMissHrs:0, ehaMissCount:0, ehaLoaded: ehaLoaded,
                 // Pace-basis attribution (why a remaining hour does / doesn't have a Pace forecast).
                 measuredPaceHrs:0, assumedPaceHrs:0, assumedPaceCount:0, assumedPaceParts:[],
-                pacelessHrs:0, pacelessCount:0, pacelessParts:[] };
+                pacelessHrs:0, pacelessCount:0, pacelessParts:[],
+                // Ringed WOs whose decoder ring carries no labor hours -> no % / no forecast (flagged, not crashing).
+                noRingHrsHrs:0, noRingHrsCount:0, noRingHrsParts:[] };
 
   function blankSub(){ return {}; }
   function addSub(store, mk, field, hrs){ if (!store[mk]) store[mk] = { plan:0, pace:0 }; store[mk][field] += hrs; }
@@ -3058,6 +3069,10 @@ function computeGateLoading() {
     else if (paceCurve) { recon.measuredPaceHrs += totalRem; }
     else if (!n.isPlaceholder) { recon.pacelessHrs += totalRem; recon.pacelessCount++; recon.pacelessParts.push({ pn: pnsn, hrs: totalRem }); }
 
+    // Data-quality flag: a ringed WO whose ring has no labor hours can't produce a % or a forecast
+    // (its hours still load here via the daily-upload planned-hours fallback). Surface it, don't hide it.
+    if (!n.isPlaceholder && computeWOProgress(n) == null) { recon.noRingHrsHrs += totalRem; recon.noRingHrsCount++; recon.noRingHrsParts.push({ pn: pnsn, hrs: totalRem }); }
+
     // Behind? + catch-up. Only real WOs can be "behind" — placeholders have no velocity and are
     // planned work, not stalled, so they never get a red flag.
     var behind = false, catchup = null;
@@ -3111,6 +3126,14 @@ function renderReconciliation(gl) {
   if (total <= 0.05 && !r.ehaMissCount) return '';
   function n1(h){ return Math.round(h).toLocaleString(); }
   function woN(c){ return c + ' WO' + (c === 1 ? '' : 's'); }
+  // Newline-joined "part — N h" list for a tooltip (top ~20 by hours, then "+N more") — keeps
+  // contributing part numbers out of the line itself. Shared by the flags and the Pace-basis line.
+  function partsTip(parts, count){
+    var sorted = parts.slice().sort(function(a,b){ return b.hrs - a.hrs; });
+    var shown = sorted.slice(0, 20).map(function(pp){ return pp.pn + ' — ' + n1(pp.hrs) + ' h'; });
+    if (count > shown.length) shown.push('+' + (count - shown.length) + ' more');
+    return shown.join('\n');
+  }
   var items = [];
   items.push('<span class="lt-recon-item"><span class="lt-recon-cap">Remaining:</span> <span class="lt-recon-num">' + n1(total) + ' h</span></span>');
   items.push('<span class="lt-recon-item">shown <span class="lt-recon-num">' + n1(r.shownHrs) + ' h</span></span>');
@@ -3121,19 +3144,14 @@ function renderReconciliation(gl) {
   if (r.noMsCount) flags.push('<span class="lt-recon-item" title="No milestone date -> no Plan curve for these lines">no milestone ' + n1(r.noMsHrs) + ' h (' + woN(r.noMsCount) + ')</span>');
   if (r.pastDueCount) flags.push('<span class="lt-recon-item lt-recon-warn" title="Milestone in the past -> Plan compressed into the current month; still flagged unattainable">past-due ' + n1(r.pastDueHrs) + ' h (' + woN(r.pastDueCount) + ')</span>');
   if (r.ehaLoaded && r.ehaMissCount) flags.push('<span class="lt-recon-item" title="No earned-hour history matched by work-order number -> Pace is blank for these">no EHA history ' + woN(r.ehaMissCount) + '</span>');
+  if (r.noRingHrsCount) flags.push('<span class="lt-recon-item lt-recon-warn" title="Decoder ring has no labor hours -> no % and no forecast for these WOs (hours still load via the daily-upload planned-hours fallback). Add Labor Hours to the ring.\n\n' + esc(partsTip(r.noRingHrsParts, r.noRingHrsCount)) + '">&#9888; ring missing labor hours ' + n1(r.noRingHrsHrs) + ' h (' + woN(r.noRingHrsCount) + ')</span>');
   var html = '<div class="lt-recon">' + items.join('<span class="lt-recon-sep">·</span>');
   if (flags.length) html += '<span class="lt-recon-sep">&#124;</span>' + flags.join('<span class="lt-recon-sep">·</span>');
   html += '</div>';
 
   // Pace-basis decomposition — where the Pace forecast's hours come from, so a high Pa "missing %"
   // is diagnosable: measured velocity vs assumed (placeholder required rate) vs unknown (no forecast).
-  // Contributing part numbers live in tooltips to keep the line uncluttered.
-  function partsTip(parts, count){
-    var sorted = parts.slice().sort(function(a,b){ return b.hrs - a.hrs; });
-    var shown = sorted.slice(0, 20).map(function(pp){ return pp.pn + ' — ' + n1(pp.hrs) + ' h'; });
-    if (count > shown.length) shown.push('+' + (count - shown.length) + ' more');
-    return shown.join('\n');
-  }
+  // Contributing part numbers live in tooltips (partsTip) to keep the line uncluttered.
   var pace = [];
   if (r.measuredPaceHrs > 0.05) pace.push('<span class="lt-recon-item">measured <span class="lt-recon-num">' + n1(r.measuredPaceHrs) + ' h</span></span>');
   if (r.assumedPaceCount) pace.push('<span class="lt-recon-item lt-recon-assumed" title="Placeholders have no measured velocity — Pace assumed = required rate to hit the milestone (matches Plan).\n\n' + esc(partsTip(r.assumedPaceParts, r.assumedPaceCount)) + '">&#8776; assumed ' + n1(r.assumedPaceHrs) + ' h (' + woN(r.assumedPaceCount) + ')</span>');
